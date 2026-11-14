@@ -81,6 +81,19 @@
 	// Jarvis (MEDA weather replay): same scene clock as the terrain (local sol, mars-time.ts scale).
 	// `assistant` is not reactive; this re-runs whenever sceneSol changes (the live clock ticks every 5 s).
 	$effect(() => assistant?.setSceneClock(sceneSol));
+	// Tell Sara when the visor shows a dust storm: Storm mode, or ARES-01 dust (which starts before the
+	// advisory). During ARES-01 the notice is silent because the mission speaks its own lines.
+	let stormNotified = false;
+	$effect(() => {
+		const dusty = mission ? (mission.dust ?? 0) > 0 : storm;
+		if (dusty && !stormNotified) {
+			stormNotified = true;
+			assistant?.notify('storm_start', { silent: !!mission });
+		} else if (!dusty && stormNotified) {
+			stormNotified = false;
+			assistant?.reset();
+		}
+	});
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
 	$effect(() => terrain?.setMissionView(mission && missionTerrainView(mission)));
 
