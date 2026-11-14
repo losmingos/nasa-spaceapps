@@ -1,8 +1,17 @@
 import {
-	CanvasTexture, LinearFilter, HalfFloatType, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget,
+	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, ShaderMaterial,
+	Vector2, Vector3, WebGLRenderTarget,
 	type PerspectiveCamera, type Scene, type WebGLRenderer
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+const stormNight = new Color('#101017');
+const stormDusk = new Color('#67402f');
+const stormDay = new Color('#a67755');
+
+export function dustColor(color: Color, twilight: number, daylight: number) {
+	return color.copy(stormNight).lerp(stormDusk, twilight).lerp(stormDay, daylight);
+}
 
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
 	getNotice: () => string, getClock: () => string) {
@@ -53,7 +62,8 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	}
 	const target = new WebGLRenderTarget(1, 1, {
 		type: HalfFloatType,
-		samples: Math.min(4, renderer.capabilities.maxSamples)
+		samples: Math.min(4, renderer.capabilities.maxSamples),
+		depthTexture: new DepthTexture(1, 1)
 	});
 	const size = new Vector2();
 	const material = new ShaderMaterial({
@@ -63,12 +73,19 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			display: { value: displayTexture },
 			displayPixel: { value: new Vector2(1, 1) },
 			terrain: { value: target.texture },
+			terrainDepth: { value: target.depthTexture },
+			cameraPlanes: { value: new Vector2() },
 			aspect: { value: 1 },
 			sunInView: { value: new Vector2() },
 			sunDirection: { value: new Vector3() },
 			viewScale: { value: new Vector2() },
 			twilight: { value: 1 },
 			daylight: { value: 1 },
+			storm: { value: false },
+			gustTime: { value: 0 },
+			dustColor: { value: new Color() },
+			eyeRotation: { value: new Matrix4() },
+			eyePosition: { value: new Vector3() },
 			reflection: { value: 0 }
 		},
 		vertexShader: `
@@ -82,17 +99,72 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform sampler2D display;
 			uniform vec2 displayPixel;
 			uniform sampler2D terrain;
+			uniform sampler2D terrainDepth;
+			uniform vec2 cameraPlanes;
 			uniform float aspect;
 			uniform vec2 sunInView;
 			uniform vec3 sunDirection;
 			uniform vec2 viewScale;
 			uniform float twilight;
 			uniform float daylight;
+			uniform bool storm;
+			uniform float gustTime;
+			uniform vec3 dustColor;
+			uniform mat4 eyeRotation;
+			uniform vec3 eyePosition;
 			uniform float reflection;
 			varying vec2 imageUV;
 			vec3 emission(vec2 uv) {
 				vec4 ink = texture2D(display, uv);
 				return ink.rgb * ink.a;
+			}
+
+			float dustHash(vec3 cell) {
+				return fract(sin(dot(cell, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+			}
+
+			float dustNoise(vec3 p) {
+				vec3 i = floor(p);
+				vec3 f = smoothstep(0.0, 1.0, fract(p));
+				float a = mix(dustHash(i), dustHash(i + vec3(1,0,0)), f.x);
+				float b = mix(dustHash(i + vec3(0,1,0)), dustHash(i + vec3(1,1,0)), f.x);
+				float c = mix(dustHash(i + vec3(0,0,1)), dustHash(i + vec3(1,0,1)), f.x);
+				float d = mix(dustHash(i + vec3(0,1,1)), dustHash(i + vec3(1,1,1)), f.x);
+				return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
+			}
+
+			vec3 scatterDust(vec3 background, vec3 ray, vec2 uv, float sunAngle) {
+				float depth = texture2D(terrainDepth, uv).r;
+				float near = cameraPlanes.x;
+				float far = cameraPlanes.y;
+				float distance = near * far / mix(far, near, depth) / -ray.z;
+				float extent = min(distance, 125.0);
+				vec3 direction = (eyeRotation * vec4(ray, 0.0)).xyz;
+				vec3 wind = vec3(7.0, 0.0, 2.5) * gustTime;
+				float glare = pow(max(0.0, sunAngle), 10.0) * twilight;
+				float transmission = 1.0;
+				vec3 scattered = vec3(0.0);
+				for (int i = 0; i < 8; i++) {
+					float start = float(i) / 8.0;
+					float end = float(i + 1) / 8.0;
+					float stepLength = extent * (end * end - start * start);
+					float t = extent * start * start + stepLength * 0.5;
+					vec3 position = eyePosition + direction * t;
+					vec3 advected = position - wind;
+					float height = max(0.0, 1.68 + direction.y * t);
+					float groundLayer = exp(-height * 0.62);
+					float bank = dustNoise(advected * vec3(0.048, 0.15, 0.085));
+					float streak = dustNoise(advected * vec3(0.19, 1.45, 0.47));
+					float gust = smoothstep(0.28, 0.76, bank * 0.76 + streak * 0.24);
+					float density = 0.004 + 0.022 * bank
+						+ groundLayer * (0.004 + 0.13 * gust * gust);
+					float opacity = 1.0 - exp(-density * stepLength);
+					vec3 litDust = dustColor * (0.60 + 0.47 * bank + 0.22 * glare
+						+ 0.28 * groundLayer * streak);
+					scattered += transmission * opacity * litDust;
+					transmission *= 1.0 - opacity;
+				}
+				return scattered + background * transmission;
 			}
 
 			void main() {
@@ -117,8 +189,16 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				vec3 dusk = mix(vec3(0.20, 0.082, 0.047), vec3(0.18, 0.27, 0.42),
 					smoothstep(0.94, 1.0, sunAngle));
 				sky = mix(vec3(0.008, 0.012, 0.024), mix(dusk, sky, daylight), twilight);
-				sky += vec3(1.0, 0.89, 0.72) * 2.0 * smoothstep(0.999978, 0.999987, sunAngle);
+				if (storm) {
+					sky = dustColor * (0.74 + 0.26 * twilight
+						+ 0.20 * twilight * pow(max(0.0, sunAngle), 12.0));
+				} else {
+					sky += vec3(1.0, 0.89, 0.72) * 2.0 * smoothstep(0.999978, 0.999987, sunAngle);
+				}
 				vec3 transmitted = mix(sky, sceneColor, world.a);
+				if (storm) {
+					transmitted = scatterDust(transmitted, ray, sampleUV, sunAngle);
+				}
 				// Smoked bronze solar filter. Longer oblique paths absorb more light;
 				// the interior HUD is added afterward, so it stays luminous and readable.
 				float opticalPath = inversesqrt(max(0.42, 1.0 - 0.55 * r2));
@@ -192,7 +272,8 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			target.setSize(size.x, size.y);
 			material.uniforms.aspect.value = width / height;
 		},
-	render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, twilight: number, daylight: number) {
+	render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, twilight: number, daylight: number,
+		storm: boolean, gustTime: number) {
 			drawDisplay();
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
@@ -200,7 +281,16 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			material.uniforms.sunInView.value.set(Math.max(-1.1, Math.min(1.1, sun.x * 1.4)), 0.99);
 			material.uniforms.twilight.value = twilight;
 			material.uniforms.daylight.value = daylight;
-			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0));
+			material.uniforms.storm.value = storm;
+			if (storm) {
+				material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
+				material.uniforms.gustTime.value = gustTime;
+				dustColor(material.uniforms.dustColor.value, twilight, daylight);
+				material.uniforms.eyeRotation.value.makeRotationFromQuaternion(camera.quaternion);
+				material.uniforms.eyePosition.value.copy(camera.position);
+			}
+			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0))
+				* (storm ? 0.15 : 1);
 			renderer.setRenderTarget(target);
 			renderer.render(scene, camera);
 			renderer.setRenderTarget(null);

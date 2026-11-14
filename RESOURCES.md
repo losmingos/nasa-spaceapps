@@ -26,3 +26,5 @@ El generador reproyecta el GeoTIFF ortográfico a la proyección equirectangular
 ## Hora e iluminación
 
 El reloj calcula la hora solar media local (LMST) y el número de sol de la escala Mars Sol Date ajustado a Jezero. La hora solar verdadera determina la dirección de la luz, con la estación calculada para el sol seleccionado. Los colores del cielo y la intensidad ambiental se aproximan según la altura del Sol. [Algoritmo Mars24 de NASA GISS](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html)
+
+El modo tormenta recrea la pérdida de luz directa y la caída de visibilidad observadas por Opportunity. Las ráfagas de polvo fino se generan en el visor, con las imágenes de Perseverance como referencia visual. [Cielo oscurecido de Opportunity](https://science.nasa.gov/resource/a-darkened-mars-sky/) · [Ráfaga captada por Perseverance](https://science.nasa.gov/blog/everything-is-dust-in-the-wind/)

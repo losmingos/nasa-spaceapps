@@ -3,7 +3,7 @@ import {
 	Mesh, MeshLambertMaterial, PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
 	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { buildVisorOptics } from './visor-optics.js';
+import { buildVisorOptics, dustColor } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
@@ -243,22 +243,58 @@ export function mountTerrain(
 	const highSun = new Color('#fff0d9');
 	let daylight = 1;
 	let twilight = 1;
+	let storm = false;
+	let stormFrame = 0;
+	let stormStarted = 0;
+	let gustTime = 0;
+	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
 		worldToEye.copy(camera.quaternion).invert();
 		lightInView.copy(sun.position).applyQuaternion(worldToEye);
 		drawMap();
-		optics.render(scene, camera, lightInView, twilight, daylight);
+		optics.render(scene, camera, lightInView, twilight, daylight, storm, gustTime);
 	};
-	function setTime(localSol: number) {
-		const { east, up, north } = solarPosition(localSol);
-		sun.position.set(east, up, -north);
+	function updateLighting() {
+		const up = sun.position.y;
 		daylight = MathUtils.smoothstep(up, 0, 0.38);
 		twilight = MathUtils.smoothstep(up, -0.21, 0.08);
 		sun.intensity = 2.05 * MathUtils.smoothstep(up, 0, 0.48);
 		sun.color.copy(lowSun).lerp(highSun, daylight);
 		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
 		fog.color.copy(nightFog).lerp(duskFog, twilight).lerp(dayFog, daylight);
+		fog.density = storm ? 0.006 : 0.00042;
+		if (storm) {
+			sun.intensity *= Math.exp(-2.8 / Math.max(0.15, up));
+			ambient.intensity *= 0.57;
+			dustColor(fog.color, twilight, daylight);
+		}
+	}
+	function setTime(localSol: number) {
+		const { east, up, north } = solarPosition(localSol);
+		sun.position.set(east, up, -north);
+		updateLighting();
 		draw();
+	}
+	function animateStorm(now: number) {
+		stormFrame = requestAnimationFrame(animateStorm);
+		const elapsed = (now - stormStarted) / 1000;
+		if (elapsed - gustTime < 1 / 30) return;
+		gustTime = elapsed;
+		if (!frame) draw();
+	}
+	function updateStormMotion() {
+		cancelAnimationFrame(stormFrame);
+		gustTime = 0;
+		if (storm && !reducedMotion.matches) {
+			stormStarted = performance.now();
+			stormFrame = requestAnimationFrame(animateStorm);
+		}
+		draw();
+	}
+	function setStorm(enabled: boolean) {
+		storm = enabled;
+		updateLighting();
+		updateStormMotion();
 	}
 	function resize() {
 		const { clientWidth, clientHeight } = canvas;
@@ -274,7 +310,7 @@ export function mountTerrain(
 	const abort = new AbortController();
 	const options = { signal: abort.signal };
 	const keys = new Set<string>();
-	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+	reducedMotion.addEventListener('change', updateStormMotion, options);
 	let drag: { id: number; x: number; y: number } | undefined;
 	let dragged = false;
 	let velocityX = 0;
@@ -393,8 +429,10 @@ export function mountTerrain(
 	return {
 		refresh: draw,
 		setTime,
+		setStorm,
 		dispose() {
 			abort.abort();
+			cancelAnimationFrame(stormFrame);
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			cancelAnimationFrame(frame);
 			observer.disconnect();

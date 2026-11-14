@@ -19,6 +19,7 @@
 	const sol = $derived(Math.floor(localSol));
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
+	let storm = $state(false);
 	let clockButton = $state<HTMLButtonElement>();
 	let solInput = $state<HTMLInputElement>();
 	const notices = {
@@ -34,6 +35,7 @@
 		terrain?.refresh();
 	});
 	$effect(() => terrain?.setTime(localSol));
+	$effect(() => terrain?.setStorm(storm));
 
 	async function clockShortcut(event: KeyboardEvent) {
 		if (event.code === 'Escape' && clockVisible) {
@@ -168,6 +170,9 @@
 			<button type="button" bind:this={clockButton} onclick={toggleEditor}
 				aria-expanded={editingClock} aria-controls={editingClock ? 'clock-editor' : undefined}
 				aria-keyshortcuts="H">Cambiar hora</button>
+			<button type="button" aria-pressed={storm} onclick={() => { storm = !storm; }}>
+				Modo tormenta
+			</button>
 			{#if editingClock}
 				<div id="clock-editor" class="clock-editor">
 					<label>Sol (MSD)
