@@ -1,11 +1,11 @@
 import {
-	CanvasTexture, LinearFilter, HalfFloatType, ShaderMaterial, Vector2, WebGLRenderTarget,
-	type Camera, type Scene, type WebGLRenderer
+	CanvasTexture, LinearFilter, HalfFloatType, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget,
+	type PerspectiveCamera, type Scene, type WebGLRenderer
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string) {
+	getNotice: () => string, getClock: () => string) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -46,6 +46,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.textAlign = 'center';
 		context.fillStyle = '#ffe0a6';
 		context.fillText(getNotice(), w / 2, Math.max(34, h * 0.075));
+		context.fillStyle = '#c6ffe5';
+		context.font = '14px monospace';
+		context.fillText(getClock(), w / 2, h * 0.91);
 		displayTexture.needsUpdate = true;
 	}
 	const target = new WebGLRenderTarget(1, 1, {
@@ -62,6 +65,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			terrain: { value: target.texture },
 			aspect: { value: 1 },
 			sunInView: { value: new Vector2() },
+			sunDirection: { value: new Vector3() },
+			viewScale: { value: new Vector2() },
+			twilight: { value: 1 },
+			daylight: { value: 1 },
 			reflection: { value: 0 }
 		},
 		vertexShader: `
@@ -77,6 +84,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform sampler2D terrain;
 			uniform float aspect;
 			uniform vec2 sunInView;
+			uniform vec3 sunDirection;
+			uniform vec2 viewScale;
+			uniform float twilight;
+			uniform float daylight;
 			uniform float reflection;
 			varying vec2 imageUV;
 			vec3 emission(vec2 uv) {
@@ -101,6 +112,12 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 
 				vec3 sky = mix(vec3(0.49, 0.265, 0.157), vec3(0.143, 0.089, 0.067),
 					smoothstep(0.40, 1.0, sampleUV.y));
+				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale, -1.0));
+				float sunAngle = dot(ray, sunDirection);
+				vec3 dusk = mix(vec3(0.20, 0.082, 0.047), vec3(0.18, 0.27, 0.42),
+					smoothstep(0.94, 1.0, sunAngle));
+				sky = mix(vec3(0.008, 0.012, 0.024), mix(dusk, sky, daylight), twilight);
+				sky += vec3(1.0, 0.89, 0.72) * 2.0 * smoothstep(0.999978, 0.999987, sunAngle);
 				vec3 transmitted = mix(sky, sceneColor, world.a);
 				// Smoked bronze solar filter. Longer oblique paths absorb more light;
 				// the interior HUD is added afterward, so it stays luminous and readable.
@@ -175,10 +192,15 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			target.setSize(size.x, size.y);
 			material.uniforms.aspect.value = width / height;
 		},
-		render(scene: Scene, camera: Camera, sunX: number, sunFacing: number) {
+	render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, twilight: number, daylight: number) {
 			drawDisplay();
-			material.uniforms.sunInView.value.set(sunX, 0.99);
-			material.uniforms.reflection.value = 0.065 + 0.26 * Math.max(sunFacing, 0);
+			const height = Math.tan(camera.fov * Math.PI / 360);
+			material.uniforms.viewScale.value.set(height * camera.aspect, height);
+			material.uniforms.sunDirection.value.copy(sun);
+			material.uniforms.sunInView.value.set(Math.max(-1.1, Math.min(1.1, sun.x * 1.4)), 0.99);
+			material.uniforms.twilight.value = twilight;
+			material.uniforms.daylight.value = daylight;
+			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0));
 			renderer.setRenderTarget(target);
 			renderer.render(scene, camera);
 			renderer.setRenderTarget(null);

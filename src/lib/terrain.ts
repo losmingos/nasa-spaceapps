@@ -4,6 +4,7 @@ import {
 	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import { buildVisorOptics } from './visor-optics.js';
+import { solarPosition } from './mars-time.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -108,7 +109,8 @@ export function mountTerrain(
 	data: ArrayBuffer,
 	orthoUrl: string,
 	notify: (notice: TerrainNotice) => void,
-	getNotice: () => string = () => ''
+	getNotice: () => string,
+	getClock: () => string
 ) {
 	const { geometry, width, length, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -119,9 +121,10 @@ export function mountTerrain(
 		throw error;
 	}
 
-	const optics = buildVisorOptics(renderer, map, getNotice);
+	const optics = buildVisorOptics(renderer, map, getNotice, getClock);
 	const scene = new Scene();
-	scene.fog = new FogExp2('#bb8867', 0.00042);
+	const fog = new FogExp2('#bb8867', 0.00042);
+	scene.fog = fog;
 	const material = new MeshLambertMaterial({ vertexColors: true });
 	const orthoTint = new Color('#bf9d83');
 	// Meter-scale detail is illustrative. The HiRISE grid determines the geometry.
@@ -164,7 +167,8 @@ export function mountTerrain(
 		shader.uniforms.orthoTint = { value: orthoTint };
 		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
 	};
-	scene.add(new Mesh(geometry, material), new HemisphereLight('#ffe4cc', '#82604c', 1.65));
+	const ambient = new HemisphereLight('#ffe4cc', '#82604c', 1.65);
+	scene.add(new Mesh(geometry, material), ambient);
 	const sun = new DirectionalLight('#fff0d9', 1.85);
 	sun.position.set(-1, 0.59, -0.45);
 	scene.add(sun);
@@ -232,13 +236,30 @@ export function mountTerrain(
 
 	const lightInView = new Vector3();
 	const worldToEye = new Quaternion();
-	const sunDirection = sun.position.clone().normalize();
+	const nightFog = new Color('#161b29');
+	const duskFog = new Color('#9c624a');
+	const dayFog = new Color('#bb8867');
+	const lowSun = new Color('#ffad78');
+	const highSun = new Color('#fff0d9');
+	let daylight = 1;
+	let twilight = 1;
 	const draw = () => {
 		worldToEye.copy(camera.quaternion).invert();
-		lightInView.copy(sunDirection).applyQuaternion(worldToEye);
+		lightInView.copy(sun.position).applyQuaternion(worldToEye);
 		drawMap();
-		optics.render(scene, camera, MathUtils.clamp(lightInView.x * 1.4, -1.1, 1.1), -lightInView.z);
+		optics.render(scene, camera, lightInView, twilight, daylight);
 	};
+	function setTime(localSol: number) {
+		const { east, up, north } = solarPosition(localSol);
+		sun.position.set(east, up, -north);
+		daylight = MathUtils.smoothstep(up, 0, 0.38);
+		twilight = MathUtils.smoothstep(up, -0.21, 0.08);
+		sun.intensity = 2.05 * MathUtils.smoothstep(up, 0, 0.48);
+		sun.color.copy(lowSun).lerp(highSun, daylight);
+		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
+		fog.color.copy(nightFog).lerp(duskFog, twilight).lerp(dayFog, daylight);
+		draw();
+	}
 	function resize() {
 		const { clientWidth, clientHeight } = canvas;
 		if (!clientWidth || !clientHeight) return;
@@ -371,6 +392,7 @@ export function mountTerrain(
 
 	return {
 		refresh: draw,
+		setTime,
 		dispose() {
 			abort.abort();
 			if (document.pointerLockElement === canvas) document.exitPointerLock();

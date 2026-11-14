@@ -23,6 +23,40 @@ body { margin: 0; background: #0b0d0e; }
 .terrain:focus-visible { outline: 2px solid var(--hud-text); outline-offset: -2px; }
 .projected { pointer-events: none; perspective: 850px; }
 
+.clock-controls {
+	position: absolute;
+	top: max(12px, env(safe-area-inset-top));
+	right: max(12px, env(safe-area-inset-right));
+	display: grid;
+	justify-items: end;
+	gap: 8px;
+	max-width: calc(100% - 24px);
+	font-size: 14px;
+	color-scheme: dark;
+}
+
+.clock-editor {
+	display: grid;
+	gap: 10px;
+	padding: 12px;
+	background: #201d1a;
+	border: 1px solid #83766c;
+	border-radius: 8px;
+}
+
+.clock-editor label { display: grid; gap: 4px; }
+.clock-controls :is(button, input) {
+	min-height: 40px;
+	padding-inline: 10px;
+	border: 1px solid #83766c;
+	border-radius: 5px;
+	background: #28231f;
+	color: inherit;
+	font: inherit;
+}
+.clock-controls button { cursor: pointer; }
+.clock-controls :focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
+
 .notice, .radar, .readouts {
 	text-shadow: 0 1px 2px #111c17, 0 0 6px #102720cc, 0 0 11px #82eaca50;
 }
