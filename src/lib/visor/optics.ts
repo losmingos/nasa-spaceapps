@@ -98,6 +98,14 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			aspect: { value: 1 },
 			sunInView: { value: new Vector2() },
 			sunDirection: { value: new Vector3() },
+			sunElevation: { value: 0 },
+			phobosDirection: { value: new Vector3() },
+			deimosDirection: { value: new Vector3() },
+			moonLightDirection: { value: new Vector3() },
+			phobosElevation: { value: 0 },
+			deimosElevation: { value: 0 },
+			phobosRadius: { value: 0 },
+			deimosRadius: { value: 0 },
 			viewScale: { value: new Vector2() },
 			twilight: { value: 1 },
 			daylight: { value: 1 },
@@ -124,6 +132,14 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform float aspect;
 			uniform vec2 sunInView;
 			uniform vec3 sunDirection;
+			uniform float sunElevation;
+			uniform vec3 phobosDirection;
+			uniform vec3 deimosDirection;
+			uniform vec3 moonLightDirection;
+			uniform float phobosElevation;
+			uniform float deimosElevation;
+			uniform float phobosRadius;
+			uniform float deimosRadius;
 			uniform vec2 viewScale;
 			uniform float twilight;
 			uniform float daylight;
@@ -187,6 +203,27 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				return scattered + background * transmission;
 			}
 
+			vec3 drawMoon(vec3 background, vec3 ray, vec3 direction, vec3 lightDirection,
+				float angularRadius, float elevation, float visibility) {
+				float angle = acos(clamp(dot(ray, direction), -1.0, 1.0));
+				float edge = max(fwidth(angle), 0.00004);
+				float disc = 1.0 - smoothstep(angularRadius - edge, angularRadius + edge, angle);
+				vec3 tangent = cross(direction, vec3(0.0, 1.0, 0.0));
+				if (dot(tangent, tangent) < 0.0001) tangent = cross(direction, vec3(1.0, 0.0, 0.0));
+				tangent = normalize(tangent);
+				vec3 bitangent = normalize(cross(direction, tangent));
+				vec3 offset = ray - direction * dot(ray, direction);
+				float radius = max(angularRadius, 0.000001);
+				vec2 point = vec2(dot(offset, tangent), dot(offset, bitangent)) / radius;
+				float r2 = dot(point, point);
+				vec3 normal = direction * sqrt(max(0.0, 1.0 - r2))
+					+ tangent * point.x + bitangent * point.y;
+				float phase = max(0.0, dot(normal, lightDirection));
+				float aboveHorizon = smoothstep(-0.006, 0.002, elevation);
+				vec3 moon = vec3(0.56, 0.48, 0.39) * (0.14 + phase * 0.86);
+				return mix(background, moon, disc * aboveHorizon * visibility);
+			}
+
 			void main() {
 				vec2 p = imageUV * 2.0 - 1.0;
 				vec2 lens = p * vec2(1.0, 0.87);
@@ -202,23 +239,36 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				sceneColor.r = mix(sceneColor.r, red.r / max(red.a, 0.001), red.a);
 				sceneColor.b = mix(sceneColor.b, blue.b / max(blue.a, 0.001), blue.a);
 
-				float skyHeight = smoothstep(0.34, 0.90, sampleUV.y);
+				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale, -1.0));
+				vec3 worldRay = normalize((eyeRotation * vec4(ray, 0.0)).xyz);
+				float skyHeight = smoothstep(0.0, 0.55, worldRay.y);
 				vec3 horizon = vec3(0.60, 0.39, 0.25);
 				vec3 zenith = vec3(0.32, 0.21, 0.17);
-
-				vec3 sky = mix(horizon, zenith, skyHeight);
-				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale, -1.0));
+				vec3 duskHorizon = vec3(0.38, 0.20, 0.16);
+				vec3 duskZenith = vec3(0.055, 0.073, 0.12);
+				vec3 daySky = mix(horizon, zenith, skyHeight);
+				vec3 twilightSky = mix(duskHorizon, duskZenith, skyHeight);
 				float sunAngle = dot(ray, sunDirection);
-				vec3 dusk = mix(vec3(0.20, 0.082, 0.047), vec3(0.18, 0.27, 0.42),
-					smoothstep(0.94, 1.0, sunAngle));
-				sky = mix(vec3(0.008, 0.012, 0.024), mix(dusk, sky, daylight), twilight);
-				sky += (1.0 - storm) * vec3(1.0, 0.89, 0.72) * 2.0 * smoothstep(0.999978, 0.999987, sunAngle);
+				float solarVisibility = smoothstep(-0.0032, -0.0020, sunElevation);
+				float sunDisc = smoothstep(0.9999932, 0.9999969, sunAngle) * solarVisibility;
+				float sunHalo = exp(-acos(clamp(sunAngle, -1.0, 1.0)) * 34.0) * solarVisibility;
+				vec3 sky = mix(vec3(0.008, 0.012, 0.024), mix(twilightSky, daySky, daylight), twilight);
+				// Fine airborne dust forward-scatters blue light into a compact halo around the Sun.
+				sky += vec3(0.035, 0.075, 0.18) * sunHalo * (1.0 - daylight) * (1.0 - storm);
+				vec3 solarDisk = mix(vec3(1.0, 0.55, 0.30), vec3(1.0, 0.88, 0.66), daylight);
+				sky = mix(sky, solarDisk * (1.0 - 0.82 * storm), sunDisc * (1.0 - 0.82 * storm));
 				sky = mix(sky, dustColor * (0.74 + 0.26 * twilight
 					+ 0.20 * twilight * pow(max(0.0, sunAngle), 12.0)), storm);
 				vec3 transmitted = mix(sky, sceneColor, world.a);
 				if (storm > 0.0) {
 					transmitted = mix(transmitted, scatterDust(transmitted, ray, sampleUV, sunAngle), storm);
 				}
+				float skyPixel = 1.0 - world.a;
+				float moonVisibility = (1.0 - 0.78 * daylight) * (1.0 - 0.55 * storm);
+				transmitted = drawMoon(transmitted, ray, phobosDirection, moonLightDirection,
+					phobosRadius, phobosElevation, moonVisibility * skyPixel);
+				transmitted = drawMoon(transmitted, ray, deimosDirection, moonLightDirection,
+					deimosRadius, deimosElevation, moonVisibility * skyPixel);
 				// Smoked bronze solar filter. Longer oblique paths absorb more light;
 				// the interior HUD is added afterward, so it stays luminous and readable.
 				float opticalPath = inversesqrt(max(0.42, 1.0 - 0.55 * r2));
@@ -292,21 +342,32 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			target.setSize(size.x, size.y);
 			material.uniforms.aspect.value = width / height;
 		},
-	render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, twilight: number, daylight: number,
-		storm: number, gustTime: number) {
+		render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
+		phobos: Vector3, phobosElevation: number, phobosRadius: number,
+		deimos: Vector3, deimosElevation: number, deimosRadius: number,
+		twilight: number, daylight: number, storm: number, gustTime: number) {
 			drawDisplay();
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
 			material.uniforms.sunDirection.value.copy(sun);
+			material.uniforms.sunElevation.value = sunElevation;
+			material.uniforms.phobosDirection.value.copy(phobos);
+			material.uniforms.deimosDirection.value.copy(deimos);
+			material.uniforms.moonLightDirection.value.copy(sun);
+			material.uniforms.phobosElevation.value = phobosElevation;
+			material.uniforms.deimosElevation.value = deimosElevation;
+			material.uniforms.phobosRadius.value = Math.max(phobosRadius, 0.00065);
+			// Deimos is sub-pixel in many VR views; this display floor keeps its point visible.
+			material.uniforms.deimosRadius.value = Math.max(deimosRadius, 0.00065);
 			material.uniforms.sunInView.value.set(Math.max(-1.1, Math.min(1.1, sun.x * 1.4)), 0.99);
 			material.uniforms.twilight.value = twilight;
 			material.uniforms.daylight.value = daylight;
 			material.uniforms.storm.value = storm;
+			material.uniforms.eyeRotation.value.makeRotationFromQuaternion(camera.quaternion);
 			if (storm > 0) {
 				material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
 				material.uniforms.gustTime.value = gustTime;
 				dustColor(material.uniforms.dustColor.value, twilight, daylight);
-				material.uniforms.eyeRotation.value.makeRotationFromQuaternion(camera.quaternion);
 				material.uniforms.eyePosition.value.copy(camera.position);
 			}
 			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0))
