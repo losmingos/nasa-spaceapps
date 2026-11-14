@@ -1,7 +1,8 @@
 import {
-	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, ShaderMaterial,
+	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, ShaderMaterial,
+	SRGBColorSpace,
 	Vector2, Vector3, WebGLRenderTarget,
-	type PerspectiveCamera, type Scene, type WebGLRenderer
+	type Camera, type PerspectiveCamera, type Scene, type WebGLRenderer
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
@@ -20,8 +21,107 @@ export interface VisorMessage {
 	readouts?: readonly { value: string; unit: string }[];
 }
 
+export interface SwirHudData {
+	active: boolean;
+	distanceM?: number | null;
+	albedo?: number | null;
+	surface?: string;
+}
+
+export const SWIR_DUST_TRANSMISSION = 0.15;
+
+export const SWIR_NOISE_GLSL = `
+	float swirHash(vec2 p) {
+		return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+	}
+	float swirSensorNoise(vec2 p, float seconds) {
+		float frame = floor(seconds * 72.0);
+		return swirHash(floor(p) + vec2(frame * 0.754877, frame * 0.569841));
+	}
+`;
+
+export const SWIR_DEPTH_RESPONSE_GLSL = `
+	float swirNearSharpness(float distanceM) { return 1.0 - smoothstep(0.0, 20.0, distanceM); }
+	float swirMidHaze(float distanceM) { return smoothstep(20.0, 80.0, distanceM); }
+	float swirFarBlur(float distanceM) { return smoothstep(80.0, 150.0, distanceM); }
+`;
+
+export function drawHudTime(context: CanvasRenderingContext2D, width: number, y: number, time: string, swir: boolean) {
+	context.save();
+	context.textAlign = 'center';
+	context.textBaseline = 'alphabetic';
+	context.font = `400 ${Math.max(12, Math.min(18, width * 0.016))}px monospace`;
+	context.lineWidth = 2;
+	context.strokeStyle = 'rgba(0,0,0,.6)';
+	context.fillStyle = 'rgba(255,255,255,.8)';
+	const label = `${time}${swir ? '  ·  λ = 1.65 µm' : ''}`;
+	context.strokeText(label, width / 2, y);
+	context.fillText(label, width / 2, y);
+	context.restore();
+}
+
+export function drawSwirHud(context: CanvasRenderingContext2D, width: number, height: number, data: SwirHudData) {
+	if (!data.active) return;
+	const font = Math.max(10, Math.min(20, width * 0.018));
+	const line = font * 1.35;
+	context.save();
+	context.font = `500 ${font}px ui-monospace, monospace`;
+	context.textBaseline = 'middle';
+	context.lineWidth = Math.max(2, font * 0.18);
+	context.strokeStyle = 'rgba(0,0,0,.6)';
+	context.fillStyle = 'rgba(255,255,255,.8)';
+	const text = (value: string, x: number, y: number, align: CanvasTextAlign = 'left') => {
+		context.textAlign = align;
+		context.strokeText(value, x, y);
+		context.fillText(value, x, y);
+	};
+	const cx = width / 2, cy = height / 2, arm = Math.max(4, font * 0.38);
+	context.beginPath();
+	context.moveTo(cx - arm, cy); context.lineTo(cx + arm, cy);
+	context.moveTo(cx, cy - arm); context.lineTo(cx, cy + arm);
+	context.strokeStyle = 'rgba(0,0,0,.6)'; context.lineWidth = Math.max(3, font * 0.25); context.stroke();
+	context.strokeStyle = 'rgba(255,255,255,.8)'; context.lineWidth = Math.max(1, font * 0.08); context.stroke();
+	const distance = data.distanceM === null || data.distanceM === undefined ? '—' : `${data.distanceM.toFixed(1)} m`;
+	const albedo = data.albedo === null || data.albedo === undefined ? '—' : data.albedo.toFixed(2);
+	text(`DIST: ${distance}`, cx, cy + arm + line * 0.8, 'center');
+	text(`SWIR ALBEDO: ${albedo}${data.surface ? ` [${data.surface}]` : ''}`, cx, cy + arm + line * 1.8, 'center');
+	context.restore();
+}
+
+export function mountHeadLockedHud(camera: Camera) {
+	const canvas = document.createElement('canvas');
+	canvas.width = 1024;
+	canvas.height = 512;
+	const context = canvas.getContext('2d')!;
+	const texture = new CanvasTexture(canvas);
+	texture.colorSpace = SRGBColorSpace;
+	texture.anisotropy = 4;
+	const geometry = new PlaneGeometry(1.7, 0.85);
+	const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
+		fog: false, toneMapped: false });
+	const plane = new Mesh(geometry, material);
+	plane.position.set(0, -0.04, -1.8);
+	plane.renderOrder = 999;
+	camera.add(plane);
+	return {
+		canvas,
+		context,
+		redraw(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void) {
+			context.clearRect(0, 0, canvas.width, canvas.height);
+			paint(context, canvas.width, canvas.height);
+			texture.needsUpdate = true;
+		},
+		dispose() {
+			camera.remove(plane);
+			geometry.dispose();
+			material.dispose();
+			texture.dispose();
+		}
+	};
+}
+
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage) {
+	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -69,7 +169,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.fillStyle = '#ffe0a6';
 		const notice = getNotice();
 		const textWidth = Math.min(w * 0.84, 640);
-		const top = Math.max(32, h * 0.10);
+		const top = Math.max(96, h * 0.11);
 		if (notice) context.fillText(notice, w / 2, top, textWidth);
 		const messageY = top + (notice ? 22 : 0);
 		context.fillStyle = message.kind === 'danger' ? '#ffb4a1'
@@ -80,9 +180,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			context.font = '13px monospace';
 			context.fillText(message.detail, w / 2, messageY + 21, textWidth);
 		}
-		context.fillStyle = '#c6ffe5';
-		context.font = '14px monospace';
-		context.fillText(getClock(), w / 2, Math.min(h * 0.72, y - 12), textWidth);
+		const swir = getSwir();
+		drawHudTime(context, w, h - Math.max(40, h * 0.045), getClock(), swir.active);
+		drawSwirHud(context, w, h, swir);
 		displayTexture.needsUpdate = true;
 	}
 	const target = new WebGLRenderTarget(1, 1, {
@@ -116,10 +216,13 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			daylight: { value: 1 },
 			storm: { value: 0 },
 			gustTime: { value: 0 },
+			windMps: { value: 7.4 },
 			dustColor: { value: new Color() },
 			eyeRotation: { value: new Matrix4() },
 			eyePosition: { value: new Vector3() },
-			reflection: { value: 0 }
+			reflection: { value: 0 },
+			swirMode: { value: 0 },
+			swirTime: { value: 0 }
 		},
 		vertexShader: `
 			varying vec2 imageUV;
@@ -150,11 +253,16 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform float daylight;
 			uniform float storm;
 			uniform float gustTime;
+			uniform float windMps;
 			uniform vec3 dustColor;
 			uniform mat4 eyeRotation;
 			uniform vec3 eyePosition;
 			uniform float reflection;
+			uniform float swirMode;
+			uniform float swirTime;
 			varying vec2 imageUV;
+			${SWIR_NOISE_GLSL}
+			${SWIR_DEPTH_RESPONSE_GLSL}
 			vec3 emission(vec2 uv) {
 				vec4 ink = texture2D(display, uv);
 				return ink.rgb * ink.a;
@@ -181,7 +289,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				float distance = near * far / mix(far, near, depth) / -ray.z;
 				float extent = min(distance, 125.0);
 				vec3 direction = (eyeRotation * vec4(ray, 0.0)).xyz;
-				vec3 wind = vec3(7.0, 0.0, 2.5) * gustTime;
+				vec3 wind = vec3(0.94, 0.0, 0.34) * windMps * gustTime;
 				float glare = pow(max(0.0, sunAngle), 10.0) * twilight;
 				float transmission = 1.0;
 				vec3 scattered = vec3(0.0);
@@ -243,8 +351,28 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				vec4 blue = texture2D(terrain, sampleUV - dispersion);
 				sceneColor.r = mix(sceneColor.r, red.r / max(red.a, 0.001), red.a);
 				sceneColor.b = mix(sceneColor.b, blue.b / max(blue.a, 0.001), blue.a);
-
 				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale, -1.0));
+				float depth = texture2D(terrainDepth, sampleUV).r;
+				float sceneDistance = cameraPlanes.x * cameraPlanes.y
+					/ max(mix(cameraPlanes.y, cameraPlanes.x, depth), 0.0001) / max(-ray.z, 0.1);
+				if (world.a < 0.01) sceneDistance = cameraPlanes.y;
+				if (swirMode > 0.5 && world.a > 0.01) {
+					vec2 offset = displayPixel * 1.6;
+					vec4 n0 = texture2D(terrain, clamp(sampleUV + vec2(offset.x, 0.0), 0.0, 1.0));
+					vec4 n1 = texture2D(terrain, clamp(sampleUV - vec2(offset.x, 0.0), 0.0, 1.0));
+					vec4 n2 = texture2D(terrain, clamp(sampleUV + vec2(0.0, offset.y), 0.0, 1.0));
+					vec4 n3 = texture2D(terrain, clamp(sampleUV - vec2(0.0, offset.y), 0.0, 1.0));
+					vec3 localAverage = (n0.rgb / max(n0.a, 0.001) + n1.rgb / max(n1.a, 0.001)
+						+ n2.rgb / max(n2.a, 0.001) + n3.rgb / max(n3.a, 0.001)) * 0.25;
+					float foreground = swirNearSharpness(sceneDistance);
+					float midFalloff = swirMidHaze(sceneDistance);
+					float farBlur = swirFarBlur(sceneDistance);
+					sceneColor += (sceneColor - localAverage) * 0.16 * foreground;
+					sceneColor = mix(sceneColor, localAverage, midFalloff * 0.18 + farBlur * 0.64);
+					float gray = dot(sceneColor, vec3(0.2126, 0.7152, 0.0722));
+					sceneColor = vec3(mix(gray, 0.42, farBlur * 0.76));
+				}
+
 				vec3 worldRay = normalize((eyeRotation * vec4(ray, 0.0)).xyz);
 				float skyHeight = smoothstep(0.0, 0.55, worldRay.y);
 				vec3 horizon = vec3(0.60, 0.39, 0.25);
@@ -264,6 +392,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				sky = mix(sky, solarDisk * (1.0 - 0.82 * storm), sunDisc * (1.0 - 0.82 * storm));
 				sky = mix(sky, dustColor * (0.74 + 0.26 * twilight
 					+ 0.20 * twilight * pow(max(0.0, sunAngle), 12.0)), storm);
+				if (swirMode > 0.5) sky = vec3(dot(sky, vec3(0.2126, 0.7152, 0.0722)) * 0.55);
 				vec3 transmitted = mix(sky, sceneColor, world.a);
 				if (storm > 0.0) {
 					transmitted = mix(transmitted, scatterDust(transmitted, ray, sampleUV, sunAngle), storm);
@@ -274,10 +403,17 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					phobosRadius, phobosElevation, moonVisibility * skyPixel);
 				transmitted = drawMoon(transmitted, ray, deimosDirection, moonLightDirection,
 					deimosRadius, deimosElevation, moonVisibility * skyPixel);
+				if (swirMode > 0.5) {
+					float signal = dot(transmitted, vec3(0.2126, 0.7152, 0.0722));
+					float shadowGain = 1.0 - smoothstep(0.025, 0.48, signal);
+					float readout = (swirSensorNoise(gl_FragCoord.xy, swirTime) - 0.5) * 0.045 * shadowGain;
+					transmitted = vec3(max(0.0, signal + readout));
+				}
 				// Smoked bronze solar filter. Longer oblique paths absorb more light;
 				// the interior HUD is added afterward, so it stays luminous and readable.
 				float opticalPath = inversesqrt(max(0.42, 1.0 - 0.55 * r2));
-				vec3 solarTransmission = exp(-vec3(0.48, 0.57, 0.72) * opticalPath);
+				vec3 solarTransmission = mix(exp(-vec3(0.48, 0.57, 0.72) * opticalPath),
+					vec3(exp(-0.57 * opticalPath)), swirMode);
 				transmitted *= solarTransmission;
 				transmitted *= 1.0 - 0.10 * smoothstep(0.35, 1.0, r2);
 
@@ -288,7 +424,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				float arcY = 1.13 - 0.40 * (p.x + 0.16) * (p.x + 0.16);
 				float arc = exp(-pow((p.y - arcY) / 0.14, 2.0));
 				float sideLight = smoothstep(0.05, 0.98, abs(p.x)) * smoothstep(-0.65, 0.9, p.y);
-				vec3 coatedGlass = vec3(0.54, 0.38, 0.23);
+				vec3 coatedGlass = mix(vec3(0.54, 0.38, 0.23), vec3(0.24), swirMode);
 				transmitted += coatedGlass * (flare * grazing * 0.55
 					+ arc * sideLight * (0.06 + reflection * 0.5));
 				// Inner-surface projection: continuous barrel curvature, not tilted HTML cards.
@@ -350,7 +486,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
 		phobos: Vector3, phobosElevation: number, phobosRadius: number,
 		deimos: Vector3, deimosElevation: number, deimosRadius: number,
-		twilight: number, daylight: number, storm: number, gustTime: number) {
+		twilight: number, daylight: number, storm: number, gustTime: number, swir = false, windMps = 7.4) {
 			drawDisplay();
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
@@ -368,11 +504,15 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			material.uniforms.twilight.value = twilight;
 			material.uniforms.daylight.value = daylight;
 			material.uniforms.storm.value = storm;
+			material.uniforms.swirMode.value = Number(swir);
+			material.uniforms.swirTime.value = performance.now() / 1000;
+			material.uniforms.windMps.value = windMps;
+			material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
 			material.uniforms.eyeRotation.value.makeRotationFromQuaternion(camera.quaternion);
 			if (storm > 0) {
-				material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
 				material.uniforms.gustTime.value = gustTime;
-				dustColor(material.uniforms.dustColor.value, twilight, daylight);
+				if (swir) material.uniforms.dustColor.value.set('#777777');
+				else dustColor(material.uniforms.dustColor.value, twilight, daylight);
 				material.uniforms.eyePosition.value.copy(camera.position);
 			}
 			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0))

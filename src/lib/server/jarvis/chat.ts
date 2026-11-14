@@ -1,9 +1,8 @@
 // /api/chat logic: request validation + one Claude Haiku 5.5 call (spec §4.3).
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { ChatRequest, ChatResponse, ChatTurn, Telemetry } from '#lib/jarvis/types.js';
+import type { ChatRequest, ChatResponse, ChatTurn, MedaCurve, Telemetry } from '#lib/jarvis/types.js';
 import { isRecord } from '../http.js';
-import { ARES_PROMPT } from '#lib/missions/ares01/jarvis-prompt.js';
 import { NIGHTFALL_PROMPT } from '#lib/missions/ares02/jarvis-prompt.js';
 import { SYSTEM_PROMPT } from './prompt.js';
 
@@ -15,7 +14,7 @@ function missionPrompt(context?: string) {
 	} catch {
 		// Earlier clients may pass a plain-text mission context.
 	}
-	return ARES_PROMPT;
+	return SYSTEM_PROMPT;
 }
 
 export const CHAT_MODEL = 'claude-haiku-5-5';
@@ -36,7 +35,22 @@ function getClient(apiKey: string): Anthropic {
 type Validated = { ok: true; value: ChatRequest } | { ok: false; error: string };
 
 const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
-const TELEMETRY_NULLABLE = ['storm_t_s', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity'] as const;
+const TELEMETRY_NULLABLE = [
+	'storm_t_s', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity', 'ground_temp_c', 'relative_humidity_pct',
+	'mission_sol', 'ls', 'meda_sol', 'meda_latest_sol', 'meda_data_age_sols', 'latest_air_temp_c', 'latest_pressure_pa',
+	'signal_delay_min'
+] as const;
+/** Every Telemetry key, in the order sent to the model. A key missing here is silently dropped. */
+const TELEMETRY_KEYS = [
+	't_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'suit_power_pct', 'visibility_m',
+	'distance_to_habitat_m', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity', 'ground_temp_c',
+	'relative_humidity_pct', 'lmst', 'mission_sol', 'ls', 'meda_sol', 'meda_curve', 'meda_latest_sol',
+	'meda_data_age_sols', 'latest_air_temp_c', 'latest_pressure_pa', 'signal_delay_min'
+] as const satisfies readonly (keyof Telemetry)[];
+// Compile-time check: adding a field to Telemetry without listing it above is a type error.
+const allKeysListed: [Exclude<keyof Telemetry, (typeof TELEMETRY_KEYS)[number]>] extends [never] ? true : false = true;
+void allKeysListed;
+const MEDA_CURVES: readonly string[] = ['season', 'latest', 'storm-blend'] satisfies MedaCurve[];
 
 function cleanTelemetry(raw: Record<string, unknown>): Telemetry {
 	// A missing/invalid reading becomes null (the prompt says null = no reading), never a made-up 0.
@@ -47,9 +61,11 @@ function cleanTelemetry(raw: Record<string, unknown>): Telemetry {
 		typeof raw.protocolStep === 'string' && /^P[1-6]$/.test(raw.protocolStep) ? raw.protocolStep : null;
 	// Fixed key order so the JSON we send is deterministic.
 	const t: Record<string, unknown> = {};
-	for (const k of ['t_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity']) {
+	for (const k of TELEMETRY_KEYS) {
 		if (k === 'phase') t[k] = phase;
 		else if (k === 'protocolStep') t[k] = step;
+		else if (k === 'lmst') t[k] = typeof raw.lmst === 'string' && /^\d\d:\d\d$/.test(raw.lmst) ? raw.lmst : null;
+		else if (k === 'meda_curve') t[k] = typeof raw.meda_curve === 'string' && MEDA_CURVES.includes(raw.meda_curve) ? raw.meda_curve : null;
 		else if ((TELEMETRY_NUMBERS as readonly string[]).includes(k)) t[k] = num(raw[k]);
 		else if ((TELEMETRY_NULLABLE as readonly string[]).includes(k)) t[k] = numOrNull(raw[k]);
 	}
@@ -98,10 +114,26 @@ export function validateChatRequest(body: unknown): Validated {
 	};
 }
 
+/**
+ * One system prompt for every turn (the team's prompt + mission briefing, D37). During ARES-01 the scene's
+ * mission state arrives as `missionContext` (a JSON string); it is passed to the model as DATA, nested under
+ * `mission` inside the telemetry — never as instructions and never as a different prompt.
+ */
+function telemetryWithMission(req: ChatRequest): Record<string, unknown> {
+	if (!req.missionContext) return { ...req.telemetry };
+	let mission: unknown = req.missionContext;
+	try {
+		mission = JSON.parse(req.missionContext);
+	} catch {
+		// Not JSON: keep it as an opaque string.
+	}
+	return { ...req.telemetry, mission };
+}
+
 export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatResponse> {
 	const messages: Anthropic.MessageParam[] = [
 		...req.history.map((t): Anthropic.MessageParam => ({ role: t.role, content: t.content })),
-		{ role: 'user', content: `<telemetry>${JSON.stringify(req.missionContext ? { mission: req.missionContext } : req.telemetry)}</telemetry>\nAstronaut: ${req.text}` }
+		{ role: 'user', content: `<telemetry>${JSON.stringify(telemetryWithMission(req))}</telemetry>\nAstronaut: ${req.text}` }
 	];
 
 	try {

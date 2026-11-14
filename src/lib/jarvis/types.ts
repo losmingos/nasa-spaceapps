@@ -19,12 +19,37 @@ export interface Telemetry {
 	suit_power_pct: number;
 	visibility_m: number;
 	distance_to_habitat_m: number;
-	/** From the MEDA snapshot (null if the sensor had no data that sol). */
+	/**
+	 * Weather: real MEDA curves replayed at the scene's local time (weather.ts, meda-curves.json), blended
+	 * to the sol-313 storm curve after storm_start. Null when MEDA has no reading for that time.
+	 */
 	air_temp_c: number | null;
 	pressure_pa: number | null;
+	/** Only the sol-313 storm curve has wind (sensor damaged that day); null otherwise. */
 	wind_ms: number | null;
+	/** Null in clear weather (not measured by MEDA); ramps 0.33 → ~2 during the storm (Lemmon et al. 2022). */
 	dust_opacity: number | null;
+	ground_temp_c: number | null;
+	relative_humidity_pct: number | null;
+	/** Scene clock: Jezero local mean solar time "HH:MM", Mars 2020 mission sol, solar longitude (deg). */
+	lmst: string | null;
+	mission_sol: number | null;
+	ls: number | null;
+	/** Mission sol whose MEDA curve is being replayed, and which curve. */
+	meda_sol: number | null;
+	meda_curve: MedaCurve | null;
+	/** Newest MEDA sol published in the PDS at build time, and how many sols old it is today. */
+	meda_latest_sol: number | null;
+	meda_data_age_sols: number | null;
+	/** Newest published sol's values at the same local time (for "latest reading" questions). */
+	latest_air_temp_c: number | null;
+	latest_pressure_pa: number | null;
+	/** One-way Earth–Mars light time (minutes) at the scene date. */
+	signal_delay_min: number | null;
 }
+
+/** 'season' = sol from the same season as the scene; 'latest' = that sol is the newest published one. */
+export type MedaCurve = 'season' | 'latest' | 'storm-blend';
 
 export interface ChatTurn {
 	role: 'user' | 'assistant';
@@ -96,6 +121,14 @@ export interface AssistantOptions {
 	language?: 'en' | 'es';
 }
 
+export interface NotifyOptions {
+	/**
+	 * Update telemetry only; play no pre-recorded line (L01–L06). Used during ARES-01, which speaks its own
+	 * scripted lines, so the assistant knows about the storm without talking over the mission.
+	 */
+	silent?: boolean;
+}
+
 export interface Assistant {
 	/** MUST be called inside the «Enter VR» click handler, BEFORE navigator.xr.requestSession() (D20, D21). */
 	unlock(): Promise<void>;
@@ -105,11 +138,16 @@ export interface Assistant {
 	/** Push-to-talk release: stops recording and runs STT → chat → TTS. */
 	pttUp(): void;
 	/** Mission events from the scene. mission_start also resets history + telemetry (D23). */
-	notify(event: MissionEvent): void;
+	notify(event: MissionEvent, options?: NotifyOptions): void;
 	/** Force the current protocol step (operator keys 1–6). */
 	setStep(step: ProtocolStepId): void;
 	/** Clear history, telemetry clock and audio queue. */
 	reset(): void;
+	/**
+	 * Scene clock for the weather replay: the visor's local sol (mars-time.ts scale — Mars Sol Date at
+	 * Jezero LMST, the value passed to terrain.setTime). Undefined/null = real current Jezero time.
+	 */
+	setSceneClock(localSol?: number | null): void;
 	/** Play a pre-generated line (high priority if it is an event line). */
 	playLine(id: LineId): void;
 	onSubtitle(cb: (s: Subtitle) => void): () => void;

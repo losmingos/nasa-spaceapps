@@ -45,7 +45,7 @@ export const STATUS_COLOR: Record<AssistantStatus, string> = {
 	speaking: '#7fc3e8'
 };
 
-export const SPEAKER_LABEL: Record<Speaker, string> = { astronaut: 'Astronaut', jarvis: 'Jarvis' };
+export const SPEAKER_LABEL: Record<Speaker, string> = { astronaut: 'Astronaut', jarvis: 'Sara' };
 export const SPEAKER_COLOR: Record<Speaker, string> = { astronaut: '#f3ab82', jarvis: '#a9d4ec' };
 
 /** `?k=<token>` from the page URL (tunnel mode, D15). */
@@ -75,6 +75,12 @@ const PHASE_LABEL: Record<Telemetry['phase'], string> = {
 	safe: 'safe'
 };
 
+const MEDA_CURVE_LABEL: Record<NonNullable<Telemetry['meda_curve']>, string> = {
+	season: 'same season',
+	latest: 'latest published',
+	'storm-blend': 'blend with sol 313 storm'
+};
+
 /** Telemetry as [label, value] rows for display. */
 export function telemetryRows(t: Telemetry): [string, string][] {
 	return [
@@ -89,6 +95,14 @@ export function telemetryRows(t: Telemetry): [string, string][] {
 		['Air temperature', fmt(t.air_temp_c, '°C')],
 		['Pressure', fmt(t.pressure_pa, 'Pa')],
 		['Wind', fmt(t.wind_ms, 'm/s')],
-		['Dust opacity', fmt(t.dust_opacity)]
+		['Dust opacity', fmt(t.dust_opacity)],
+		['Ground temperature', fmt(t.ground_temp_c, '°C')],
+		['Relative humidity', fmt(t.relative_humidity_pct, '%')],
+		['Local time (LMST)', t.lmst ?? '—'],
+		['Mission sol · Ls', t.mission_sol === null ? '—' : `${t.mission_sol} · ${fmt(t.ls, '°')}`],
+		['MEDA curve', t.meda_sol === null ? '—' : `sol ${t.meda_sol} (${MEDA_CURVE_LABEL[t.meda_curve ?? 'season']})`],
+		['Latest published sol', t.meda_latest_sol === null ? '—' : `${t.meda_latest_sol} (${fmt(t.meda_data_age_sols)} sols ago)`],
+		['Latest reading at this hour', `${fmt(t.latest_air_temp_c, '°C')} · ${fmt(t.latest_pressure_pa, 'Pa')}`],
+		['Earth–Mars signal delay', fmt(t.signal_delay_min, 'min')]
 	];
 }

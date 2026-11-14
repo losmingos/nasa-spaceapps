@@ -226,7 +226,7 @@
 </script>
 
 <svelte:head>
-	<title>Jarvis | Operator</title>
+	<title>Sara | Operator</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
@@ -235,7 +235,7 @@
 <main>
 	<header>
 		<div class="identity">
-			<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">OPERATOR PANEL</span>
+			<span class="planet" aria-hidden="true">◉</span> SARA<span class="divider"></span><span class="subtle">OPERATOR PANEL</span>
 		</div>
 		<div class="segmented" role="group" aria-label="Target">
 			<span class="segmented-label">Target</span>
@@ -412,7 +412,7 @@
 						<button class="link" onclick={() => (log = [])} disabled={log.length === 0}>Clear</button>
 					</div>
 					{#if log.length === 0}
-						<p class="muted">Astronaut questions and JARVIS replies appear here, newest first.</p>
+						<p class="muted">Astronaut questions and SARA replies appear here, newest first.</p>
 					{:else}
 						<ol class="log" aria-live="polite">
 							{#each log as entry (entry.key)}

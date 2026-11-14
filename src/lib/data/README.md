@@ -1,6 +1,48 @@
-# Jarvis data: MEDA snapshot and mission points
+# Jarvis data: MEDA curves, MEDA snapshot and mission points
+
+## `meda-curves.json`: MEDA daily curves replayed at the scene's local time
+
+Built by `scripts/build_meda.ts` (`npm run data:meda`). Read by `src/lib/jarvis/weather.ts` (client telemetry) and `src/lib/server/jarvis/prompt.ts` (only the newest published sol, for the static provenance text).
+
+**There is no real-time MEDA feed.** The MEDA team releases calibrated and derived data to the NASA PDS in batches, about three times a year. At build time (2026-11-14) the newest published sol was **1859** (2026-05-13/14 UTC, folder `sol_1740_1859`). The next Mars 2020 PDS release was announced for 2026-12-08. Re-run `npm run data:meda` after a release and it picks up the new sols automatically.
+
+**Source:** NASA PDS Atmospheres Node, Mars 2020 MEDA bundle, <https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/>, folders `data_calibrated_env/sol_XXXX_YYYY/sol_NNNN/` and `data_derived_env/...`. Each curve lists the exact product files it used (`files`, relative to `base_url`).
+
+| Field | Product | Column(s) |
+|---|---|---|
+| `air_temp_c` | `CAL_ATS` | Mean of `ATS_LOCAL_TEMP1`–`3` (the three sensors on the mast booms, ~1.45 m), K → °C. ATS 4–5 sit on the rover body and are not used. |
+| `pressure_pa` | `DER_PS` | `PRESSURE` |
+| `relative_humidity_pct` | `DER_RHS` | `LOCAL_RELATIVE_HUMIDITY` |
+| `ground_temp_c` | `CAL_TIRS` | `GROUND_TEMP` (TIRS ground brightness temperature), K → °C |
+| `wind_ms` | `DER_WS` | `HORIZONTAL_WIND_SPEED`. Only exists up to sol 313. |
+
+**Method.** Every value is the mean of all samples in a 10-minute LMST bin (bin *i* covers minutes 10*i* to 10*i*+10 after local midnight, so 144 bins). A bin with no sample is `null`. MEDA usually records about 30 minutes of every hour (plus some full hours), so many bins are null. The client interpolates linearly between bins with data across gaps of up to 2 h. Rows from another sol (by the LMST sol prefix) and out-of-range values (fill values such as 999999999) are ignored. The product version (`P01`/`P02`/`P03`) is read from the folder listing, and the newest version is used.
+
+**Curves.**
+- `latest`: the newest sol with usable temperature and pressure (≥ 48 filled bins each and no gap longer than 2 h).
+- `season`: one sol per 10° Ls bin (36 bins). For each bin the script tries the sols of the newest Mars year first, closest to the bin centre, and keeps the first usable one. The client picks the curve whose Ls is closest to the scene's Ls. `empty_ls_bins` lists bins with no usable sol.
+- `storm`: sol 313 (2022-01-05/06), the real arrival of the January 2022 regional dust storm, with wind until ~13:08 LMST.
+
+**Mars time.** `src/lib/mars-clock.ts` (import-free) uses the Allison & McEwen (2000) / NASA GISS Mars24 algorithm, with the same constants as `src/lib/mars-time.ts`. The visor's "local sol" is the Mars Sol Date at Jezero LMST (longitude 77.41° E). The Mars 2020 mission sol is local sol − 52304. Checks:
+- Landing at 2021-02-18 20:55 UTC (Earth receive time) gives mission sol 0.67, ≈ 16:04 LMST. The landing itself, 11 min earlier, was at ≈ 15:53 LMST.
+- The PDS label start times of sol 313 (2022-01-05T18:55:07Z) and sol 1859 (2026-05-13T06:57:14Z) give exactly mission sol 313.000 and 1859.000, that is, LMST midnight.
+- Sol 1762 starts on 2026-02-02 (~15 UTC).
+- The computed Ls matches the labels' `start_solar_longitude` (for sol 1859, 281.32° vs 281.325°). The build prints the largest difference.
+- The Mars year follows the Clancy et al. convention (MY 1 began on 1955-04-11). Computed start dates: MY 36 2021-02-07, MY 37 2022-12-26, MY 38 2024-11-12, MY 39 2026-09-29/30.
+
+**Signal delay.** One-way Earth–Mars light time comes from JPL's "Approximate Positions of the Planets" Keplerian elements (valid 1800–2050, ~1 % in distance). Checks: 2003-08-27 closest approach gives 0.3730 AU (3.1 min; the true value is 0.3727 AU). 2025-01-12 gives 0.642 AU (5.3 min). The 2026-01-09 solar conjunction gives 2.40 AU (20.0 min).
+
+**Storm and dust.** On `storm_start` the client blends temperature, pressure, humidity and ground temperature from the season curve to the sol-313 curve at the same LMST, with a 60 s smoothstep. Wind comes from the sol-313 curve, so it is null after 13:08 LMST. `dust_opacity` is null in clear weather, because MEDA curves carry no optical depth. During the storm it ramps from 0.327 (Mastcam-Z, sol 311, pre-storm) towards ~2 (storm peak, Lemmon et al. 2022), with a time constant of 30 s.
+
+**Caveats**
+- These are real measurements, replayed for the scene's local time and season. They are not a live reading, and they are not from the scene's exact spot.
+- Perseverance crossed Jezero's rim in December 2024 (~sol 1355). Curves after that date come from the crater rim, not from the crater floor or the delta shown in the scene (see each curve's `region`).
+- The storm blend mixes two different seasons (sol 313 is at Ls ≈ 153°). A pressure jump during the blend is mostly seasonal, not caused by the storm.
+- `ground_temp_c` is a brightness temperature, and some TIRS samples may be affected by rover shadow or by wheels in the field of view. The script does not filter them by quality flags.
 
 ## `meda-snapshot.json`: Mars 2020 MEDA, sol 313
+
+Still used only for the pre-recorded lines (L01 and Q4 cite its temperature and pressure: `src/lib/jarvis/lines.ts`, `scripts/gen_lines.ts`, `ui/shared.ts`). Live telemetry uses `meda-curves.json`.
 
 **Why sol 313 (2022-01-05/06 UTC, Ls ≈ 153°):** it is the day the January 2022 regional dust storm reached Jezero. The storm arrived in the late morning, gusts reached 22 m/s, and that afternoon had the storm's deepest pressure minimum (Lemmon et al. 2022). It is also the last sol with derived wind data before the wind sensor was damaged.
 

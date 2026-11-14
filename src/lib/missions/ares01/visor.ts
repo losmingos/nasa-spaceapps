@@ -49,7 +49,9 @@ export function missionContext(mission: Ares01View) {
 		target: mission.player?.heading,
 		distanceToTargetM: mission.positionLost ? null : mission.player?.targetDistance,
 		bearingDegrees: mission.positionLost ? null : mission.player?.compass,
-		secondsElapsed: mission.time
+		secondsElapsed: mission.time,
+		// What the astronaut sees: 0 = clear air, 1 = full dust storm. The dust starts before the advisory cue.
+		dust: Math.round((mission.dust ?? 0) * 100) / 100
 	});
 }
 
@@ -83,5 +85,5 @@ function missionModelUrls() {
 	};
 }
 
-export const createMissionScene: MissionSceneFactory = (height, refresh) =>
-	buildAres01Scene(height, missionModelUrls(), refresh);
+export const createMissionScene: MissionSceneFactory = (height, refresh, registerSwir) =>
+	buildAres01Scene(height, missionModelUrls(), refresh, registerSwir);

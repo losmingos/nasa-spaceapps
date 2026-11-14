@@ -5,8 +5,13 @@
 	import * as THREE from 'three';
 	import { createAssistant } from '#lib/jarvis/index.js';
 	import type { Assistant, AssistantMode, AssistantStatus, MissionEvent, TtsMode } from '#lib/jarvis/types.js';
+	import { createSaltationGrains, installSwirMaterialResponse } from '#lib/visor/terrain.js';
+	import {
+		drawHudTime, drawSwirHud, mountHeadLockedHud, SWIR_DUST_TRANSMISSION,
+		type SwirHudData
+	} from '#lib/visor/optics.js';
 	import { HABITAT, ROUTE, SAMPLE, SPAWN, VISIBILITY_CLEAR_M, type Point } from '#lib/missions/vr-rehearsal/route.js';
-	import { SPEAKER_COLOR, STATUS_COLOR, STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
+	import { STATUS_COLOR, STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 
 	// ---- Query parameters --------------------------------------------------------------
 
@@ -18,6 +23,8 @@
 	const A_INDEX = params.has('ab') && Number.isInteger(abParam) && abParam >= 0 ? abParam : 4;
 	/** gamepad.buttons index of X on the left controller (xr-standard: 4). */
 	const X_INDEX = 4;
+	/** Left Y is free; verify its index in the Quest controller panel before the demo. */
+	const Y_INDEX = 5;
 
 	const MODE_LABEL: Record<AssistantMode, string> = { live: 'Live', scripted: 'Scripted' };
 	const TTS_LABEL: Record<TtsMode, string> = { elevenlabs: 'ElevenLabs', browser: 'Browser' };
@@ -48,6 +55,7 @@
 	let lastJarvis = $state('');
 	let xrSupport = $state<'checking' | 'supported' | 'unsupported'>('checking');
 	let inVR = $state(false);
+	let swirEnabled = $state(false);
 	let starting = $state(false);
 	let notice = $state('');
 	let panelOpen = $state(true);
@@ -59,6 +67,7 @@
 	let pttHeld = false;
 	let prevRightA = false;
 	let prevLeftX = false;
+	let prevLeftY = false;
 	let buttonsDebug = '';
 	let lastAction = '';
 	let enterSession: ((session: XRSession) => Promise<void>) | null = null;
@@ -125,6 +134,11 @@
 
 	function onKeyDown(event: KeyboardEvent) {
 		if (inVR || event.ctrlKey || event.metaKey || event.altKey) return;
+		if (event.code === 'KeyI') {
+			event.preventDefault();
+			swirEnabled = !swirEnabled;
+			return;
+		}
 		if (event.code === 'Space') {
 			event.preventDefault();
 			if (!event.repeat) pttDown();
@@ -214,11 +228,15 @@
 		const a = createAssistant({ mode, tts });
 		assistant = a;
 		let targetVisibility = a.getState().telemetry.visibility_m;
+		let targetWindMps = a.getState().telemetry.wind_ms ?? 7.4;
+		let targetMissionSeconds = a.getState().telemetry.t_s;
 		const unsubscribers = [
 			a.onState((s) => {
 				status = s.status;
 				lastError = s.lastError;
 				targetVisibility = s.telemetry.visibility_m;
+				targetWindMps = s.telemetry.wind_ms ?? 7.4;
+				targetMissionSeconds = s.telemetry.t_s;
 			}),
 			a.onSubtitle((s) => {
 				if (s.speaker === 'astronaut') lastAstronaut = s.text;
@@ -253,25 +271,39 @@
 		/** Everything on the ground. Shifted down by eye height if the session only grants a 'local' space. */
 		const world = new THREE.Group();
 		scene.add(world);
+		const swirSetters: Array<(enabled: boolean, time?: number) => void> = [];
+		const swirMaterial = (material: THREE.MeshStandardMaterial, albedo: number) => {
+			swirSetters.push(installSwirMaterialResponse(material, albedo));
+			return material;
+		};
+		const tagSurface = <T extends THREE.Object3D>(object: T, albedo: number, surface: string) => {
+			object.userData.swirAlbedo = albedo;
+			object.userData.swirSurface = surface;
+			return object;
+		};
+		const saltationGrains = createSaltationGrains();
+		scene.add(saltationGrains.object);
 
 		const groundTexture = noiseTexture();
 		groundTexture.repeat.set((CAMERA_FAR_M * 2) / 3, (CAMERA_FAR_M * 2) / 3); // one tile ≈ 3 m
 		groundTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-		const ground = new THREE.Mesh(
+		const groundMaterial = swirMaterial(new THREE.MeshStandardMaterial({ color: '#a0603d', map: groundTexture, roughness: 1, metalness: 0 }), 0.82);
+		const ground = tagSurface(new THREE.Mesh(
 			new THREE.PlaneGeometry(CAMERA_FAR_M * 2, CAMERA_FAR_M * 2),
-			new THREE.MeshStandardMaterial({ color: '#a0603d', map: groundTexture, roughness: 1, metalness: 0 })
-		);
+			groundMaterial
+		), 0.82, 'REGOLITH/DUST');
 		ground.rotation.x = -Math.PI / 2;
 		world.add(ground);
 
 		// Rocks for depth cues and so the fog is visible closing in.
 		const random = mulberry32(42);
 		const rockCount = 700;
-		const rocks = new THREE.InstancedMesh(
+		const rockMaterial = swirMaterial(new THREE.MeshStandardMaterial({ color: '#6e3f29', roughness: 1, flatShading: true }), 0.22);
+		const rocks = tagSurface(new THREE.InstancedMesh(
 			new THREE.DodecahedronGeometry(1, 0),
-			new THREE.MeshStandardMaterial({ color: '#6e3f29', roughness: 1, flatShading: true }),
+			rockMaterial,
 			rockCount
-		);
+		), 0.22, 'EXPOSED ROCK');
 		const dummy = new THREE.Object3D();
 		for (let i = 0; i < rockCount; i++) {
 			const radius = 4 + Math.pow(random(), 1.6) * 300;
@@ -285,7 +317,7 @@
 		}
 		world.add(rocks);
 
-		// Habitat, sample marker and marked route from mission.ts (relative to SPAWN).
+		// Habitat, sample marker and marked route from the rehearsal route (relative to SPAWN).
 		const notes: string[] = [];
 		let habitatPos = toScene(HABITAT);
 		if (habitatPos.length() < 3) {
@@ -299,32 +331,33 @@
 		if (samplePlaceholder) samplePos = new THREE.Vector3(0.6, 0, -2.5);
 
 		const habitat = new THREE.Group();
-		const habitatModule = new THREE.Mesh(
+		const habitatModule = tagSurface(new THREE.Mesh(
 			new THREE.BoxGeometry(6, 3, 10),
-			new THREE.MeshStandardMaterial({ color: '#e4ddd3', roughness: 0.6 })
-		);
+			swirMaterial(new THREE.MeshStandardMaterial({ color: '#e4ddd3', roughness: 0.6 }), 0.92)
+		), 0.92, 'HARDWARE');
 		habitatModule.position.y = 1.5;
-		const airlock = new THREE.Mesh(
+		const airlock = tagSurface(new THREE.Mesh(
 			new THREE.BoxGeometry(2.2, 2.4, 2.2),
-			new THREE.MeshStandardMaterial({ color: '#c9c1b5', roughness: 0.6 })
-		);
+			swirMaterial(new THREE.MeshStandardMaterial({ color: '#c9c1b5', roughness: 0.6 }), 0.92)
+		), 0.92, 'HARDWARE');
 		airlock.position.set(0, 1.2, 6);
-		const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 6), new THREE.MeshStandardMaterial({ color: '#888' }));
+		const pole = tagSurface(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 6),
+			swirMaterial(new THREE.MeshStandardMaterial({ color: '#888' }), 0.92)), 0.92, 'HARDWARE');
 		pole.position.set(2.4, 6, 0);
-		const beacon = new THREE.Mesh(
+		const beacon = tagSurface(new THREE.Mesh(
 			new THREE.SphereGeometry(0.35, 16, 12),
-			new THREE.MeshBasicMaterial({ color: '#ff5533', fog: false })
-		);
+			swirMaterial(new THREE.MeshStandardMaterial({ color: '#ff5533', emissive: '#5c1e11', fog: false }), 0.98)
+		), 0.98, 'BEACON/HARDWARE');
 		beacon.position.set(2.4, 9.2, 0);
 		habitat.add(habitatModule, airlock, pole, beacon);
 		habitat.position.copy(habitatPos);
 		habitat.lookAt(new THREE.Vector3(samplePos.x, 0, samplePos.z)); // airlock faces the sample site
 		world.add(habitat);
 
-		const sampleMarker = new THREE.Mesh(
+		const sampleMarker = tagSurface(new THREE.Mesh(
 			new THREE.CylinderGeometry(0.05, 0.05, 0.25, 12),
-			new THREE.MeshStandardMaterial({ color: '#f3ab82', emissive: '#7a3a18' })
-		);
+			swirMaterial(new THREE.MeshStandardMaterial({ color: '#f3ab82', emissive: '#7a3a18' }), 0.72)
+		), 0.72, 'SEDIMENT SAMPLE');
 		sampleMarker.position.copy(samplePos).setY(0.125);
 		world.add(sampleMarker);
 
@@ -341,11 +374,11 @@
 				posts.push(from.clone().lerp(to, d / length));
 			}
 		}
-		const routePosts = new THREE.InstancedMesh(
+		const routePosts = tagSurface(new THREE.InstancedMesh(
 			new THREE.BoxGeometry(0.08, 1.2, 0.08),
-			new THREE.MeshStandardMaterial({ color: '#ffcf6e', emissive: '#6b4a10' }),
+			swirMaterial(new THREE.MeshStandardMaterial({ color: '#ffcf6e', emissive: '#6b4a10' }), 0.92),
 			Math.max(posts.length, 1)
-		);
+		), 0.92, 'ROUTE BEACON');
 		routePosts.count = posts.length;
 		posts.forEach((p, i) => {
 			dummy.position.set(p.x, 0.6, p.z);
@@ -374,98 +407,104 @@
 		dust.visible = false;
 		scene.add(dust);
 
-		// ---- HUD: subtitle panel on a CanvasTexture, 1.5 m ahead, slightly below eye line -------------------
-		const hudCanvas = document.createElement('canvas');
-		hudCanvas.width = 1024;
-		hudCanvas.height = 512;
-		const hud = hudCanvas.getContext('2d')!;
-		const hudTexture = new THREE.CanvasTexture(hudCanvas);
-		hudTexture.colorSpace = THREE.SRGBColorSpace;
-		hudTexture.anisotropy = 4;
-		const hudPanel = new THREE.Mesh(
-			new THREE.PlaneGeometry(0.9, 0.45),
-			new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false })
-		);
-		hudPanel.position.set(0, -0.3, -1.5);
-		hudPanel.rotation.x = Math.atan2(0.3, 1.5); // tilt to face the eye
-		hudPanel.renderOrder = 999;
-		camera.add(hudPanel);
+		// Shared transparent HUD plane, head-locked at the spec's comfortable 1.8 m.
+		const visorHud = mountHeadLockedHud(camera);
+		const swirRaycaster = new THREE.Raycaster();
+		const reticleCenter = new THREE.Vector2(0, 0);
+		const rayOrigin = new THREE.Vector3();
+		const rayDirection = new THREE.Vector3();
+		const eyeDirection = new THREE.Vector3();
+		let stormIntensity = 0;
+		let visibility = targetVisibility;
+		let lastSwirRaycast = -Infinity;
+		let swirTarget: { distance: number; albedo: number; surface: string } | undefined;
+		const currentSwirHud = (now: number): SwirHudData => {
+			if (swirEnabled && now - lastSwirRaycast >= 100) {
+				lastSwirRaycast = now;
+				if (renderer.xr.isPresenting) {
+					const eyes = renderer.xr.getCamera().cameras;
+					if (eyes.length >= 2) {
+						rayOrigin.setFromMatrixPosition(eyes[0].matrixWorld).add(eyeDirection.setFromMatrixPosition(eyes[1].matrixWorld)).multiplyScalar(0.5);
+						rayDirection.set(0, 0, -1).applyQuaternion(eyes[0].quaternion)
+							.add(eyeDirection.set(0, 0, -1).applyQuaternion(eyes[1].quaternion)).normalize();
+						swirRaycaster.set(rayOrigin, rayDirection);
+					} else swirRaycaster.setFromCamera(reticleCenter, eyes[0] ?? camera);
+				} else swirRaycaster.setFromCamera(reticleCenter, camera);
+				const target = swirRaycaster.intersectObjects(world.children, true)
+					.find((hit) => typeof hit.object.userData.swirAlbedo === 'number');
+				swirTarget = target ? {
+					distance: target.distance,
+					albedo: target.object.userData.swirAlbedo as number,
+					surface: String(target.object.userData.swirSurface ?? 'SURFACE')
+				} : undefined;
+			}
+			return {
+				active: swirEnabled,
+				distanceM: swirEnabled ? swirTarget?.distance ?? null : null,
+				albedo: swirEnabled ? swirTarget?.albedo ?? null : null,
+				surface: swirEnabled ? swirTarget?.surface : undefined
+			};
+		};
 
 		let hudKey = '';
-		function drawHud() {
+		function drawHud(now: number) {
 			const astronaut = lastAstronaut;
 			const jarvis = lastJarvis;
-			const debug = `Buttons ${buttonsDebug || '(no controllers)'} · A=${A_INDEX}${lastAction ? ` · ${lastAction}` : ''}`;
+			const debug = `Buttons ${buttonsDebug || '(no controllers)'} · A=${A_INDEX} · Y=${Y_INDEX}${lastAction ? ` · ${lastAction}` : ''}`;
 			const error = lastError ?? '';
-			const key = [status, astronaut, jarvis, debug, error].join('\u0000');
+			const swirHud = currentSwirHud(now);
+			const minutes = Math.floor(targetMissionSeconds / 60);
+			const seconds = String(targetMissionSeconds % 60).padStart(2, '0');
+			const timeLabel = `ARES-01 · ${minutes}:${seconds}`;
+			const key = [status, astronaut, jarvis, debug, error, swirEnabled,
+				swirHud.distanceM == null ? '' : Math.round(swirHud.distanceM), swirHud.albedo,
+				targetMissionSeconds].join('\u0000');
 			if (key === hudKey) return; // redraw only on change
 			hudKey = key;
 
-			const W = hudCanvas.width;
-			const H = hudCanvas.height;
-			const pad = 32;
-			hud.clearRect(0, 0, W, H);
-			hud.fillStyle = 'rgba(16, 14, 14, 0.8)';
-			hud.strokeStyle = '#67483a';
-			hud.lineWidth = 3;
-			hud.beginPath();
-			hud.roundRect(2, 2, W - 4, H - 4, 28);
-			hud.fill();
-			hud.stroke();
-
-			// Status chip
-			const chipColor = STATUS_COLOR[status];
-			hud.font = '600 26px ui-monospace, monospace';
-			const label = STATUS_LABEL[status].toUpperCase();
-			const chipWidth = hud.measureText(label).width + 64;
-			hud.strokeStyle = chipColor;
-			hud.lineWidth = 3;
-			hud.beginPath();
-			hud.roundRect(pad, pad, chipWidth, 46, 23);
-			hud.stroke();
-			hud.fillStyle = chipColor;
-			hud.beginPath();
-			hud.arc(pad + 24, pad + 23, 8, 0, Math.PI * 2);
-			hud.fill();
-			hud.textBaseline = 'middle';
-			hud.fillText(label, pad + 44, pad + 24);
-			hud.fillStyle = '#b19a8c';
-			hud.font = '24px ui-monospace, monospace';
-			hud.textAlign = 'right';
-			hud.fillText(`JARVIS · ${MODE_LABEL[mode].toUpperCase()} · ${TTS_LABEL[tts].toUpperCase()}`, W - pad, pad + 24);
-			hud.textAlign = 'left';
-			hud.textBaseline = 'alphabetic';
-
-			let y = pad + 46 + 44;
-			const block = (who: 'astronaut' | 'jarvis', title: string, text: string, maxLines: number) => {
-				hud.fillStyle = SPEAKER_COLOR[who];
+			visorHud.redraw((hud, W, H) => {
+				const pad = 30;
+				drawHudTime(hud, W, H - 188, timeLabel, swirEnabled);
+				drawSwirHud(hud, W, H, swirHud);
+				hud.fillStyle = 'rgba(0,0,0,.38)';
+				hud.beginPath();
+				hud.roundRect(pad, H - 168, W - pad * 2, 138, 16);
+				hud.fill();
+				const label = STATUS_LABEL[status].toUpperCase();
+				hud.lineWidth = 3;
+				hud.strokeStyle = 'rgba(0,0,0,.6)';
+				hud.fillStyle = STATUS_COLOR[status];
 				hud.font = '600 22px ui-monospace, monospace';
-				hud.fillText(title, pad, y);
-				y += 38;
-				hud.fillStyle = '#f6eade';
-				hud.font = '30px system-ui, sans-serif';
-				const lines = text ? wrapText(hud, text, W - pad * 2, maxLines) : ['—'];
-				for (const line of lines) {
-					hud.fillText(line, pad, y);
-					y += 38;
+				hud.strokeText(label, pad + 12, H - 138);
+				hud.fillText(label, pad + 12, H - 138);
+				hud.fillStyle = '#fff';
+				hud.font = '22px ui-monospace, monospace';
+				hud.textAlign = 'right';
+				hud.strokeText(`SARA · ${MODE_LABEL[mode].toUpperCase()}`, W - pad - 12, H - 138);
+				hud.fillText(`SARA · ${MODE_LABEL[mode].toUpperCase()}`, W - pad - 12, H - 138);
+				hud.textAlign = 'left';
+				let y = H - 105;
+				for (const [who, text] of [['ASTRONAUT', astronaut], ['SARA', jarvis]] as const) {
+					if (!text) continue;
+					hud.fillStyle = who === 'SARA' ? '#c6ffe5' : '#ffd2ae';
+					hud.font = '20px system-ui, sans-serif';
+					hud.strokeText(wrapText(hud, `${who}: ${text}`, W - pad * 2 - 24, 1)[0], pad + 12, y);
+					hud.fillText(wrapText(hud, `${who}: ${text}`, W - pad * 2 - 24, 1)[0], pad + 12, y);
+					y += 28;
 				}
-				y += 14;
-			};
-			block('astronaut', 'ASTRONAUTA', astronaut, 2);
-			block('jarvis', 'JARVIS', jarvis, 4);
-
-			hud.font = '20px ui-monospace, monospace';
-			if (error) {
-				hud.fillStyle = '#ff9c8a';
-				hud.fillText(wrapText(hud, `Error: ${error}`, W - pad * 2, 1)[0], pad, H - pad - 30);
-			}
-			hud.fillStyle = '#b19a8c';
-			hud.fillText(wrapText(hud, debug, W - pad * 2, 1)[0], pad, H - pad);
-			hudTexture.needsUpdate = true;
+				hud.fillStyle = '#d8d8d8';
+				hud.font = '15px ui-monospace, monospace';
+				hud.strokeText(`SWIR ${swirEnabled ? 'ON' : 'OFF'} · Y / I · ${debug}`, pad + 12, H - pad - 10);
+				hud.fillText(`SWIR ${swirEnabled ? 'ON' : 'OFF'} · Y / I · ${debug}`, pad + 12, H - pad - 10);
+				if (error) {
+					hud.fillStyle = '#ff9c8a';
+					hud.strokeText(wrapText(hud, `Error: ${error}`, W - pad * 2, 1)[0], pad + 12, H - 176);
+					hud.fillText(wrapText(hud, `Error: ${error}`, W - pad * 2, 1)[0], pad + 12, H - 176);
+				}
+			});
 		}
 
 		// ---- Storm visuals driven by telemetry.visibility_m ---------------------------------------------------
-		let visibility = targetVisibility;
 		let lastPoll = 0;
 		const logClear = Math.log(VISIBILITY_CLEAR_M / 15);
 		function updateStorm(dt: number, now: number) {
@@ -477,20 +516,27 @@
 			// Ease in log space (≈1 s) so resets and the onset look smooth.
 			visibility = Math.exp(THREE.MathUtils.damp(Math.log(visibility), Math.log(target), 3, dt));
 			const storm = THREE.MathUtils.clamp(1 - Math.log(visibility / 15) / logClear, 0, 1);
-			if (storm < 0.5) sky.lerpColors(SKY_CLEAR, SKY_DUSTY, storm * 2);
+			stormIntensity = storm;
+			if (swirEnabled) {
+				sky.setRGB(0.018 + storm * 0.06, 0.018 + storm * 0.06, 0.018 + storm * 0.06);
+			} else if (storm < 0.5) sky.lerpColors(SKY_CLEAR, SKY_DUSTY, storm * 2);
 			else sky.lerpColors(SKY_DUSTY, SKY_STORM, (storm - 0.5) * 2);
 			fog.color.copy(sky);
-			fog.far = Math.min(visibility, CAMERA_FAR_M);
+			if (swirEnabled) fog.color.setRGB(0.39, 0.39, 0.39);
+			fog.far = Math.min(swirEnabled ? 10_000 + (165 - 10_000) * storm : visibility, CAMERA_FAR_M);
 			fog.near = fog.far * 0.05;
 			hemi.intensity = THREE.MathUtils.lerp(1.1, 0.35, storm);
 			sun.intensity = THREE.MathUtils.lerp(1.6, 0.15, storm);
 			dust.visible = storm > 0.05;
-			dustMaterial.opacity = THREE.MathUtils.clamp((storm - 0.05) * 1.1, 0, 0.9);
+			dustMaterial.color.set(swirEnabled ? '#999999' : '#c98a5e');
+			dustMaterial.opacity = THREE.MathUtils.clamp((storm - 0.05) * 1.1, 0, 0.9)
+				* (swirEnabled ? SWIR_DUST_TRANSMISSION : 1);
 			if (dust.visible) {
 				const centre = camera.position;
 				for (let i = 0; i < dustCount; i++) {
 					const k = i * 3;
-					dustPositions[k] += (4 + (i % 7)) * dt; // wind from the west → drift towards +x (east)
+					dustPositions[k] += targetWindMps * 0.94 * dt;
+					dustPositions[k + 2] += targetWindMps * 0.34 * dt;
 					dustPositions[k + 1] += Math.sin(now * 0.001 + i) * 0.2 * dt;
 					dustPositions[k] = centre.x + THREE.MathUtils.euclideanModulo(dustPositions[k] - centre.x + dustBox.x / 2, dustBox.x) - dustBox.x / 2;
 					dustPositions[k + 2] = centre.z + THREE.MathUtils.euclideanModulo(dustPositions[k + 2] - centre.z + dustBox.z / 2, dustBox.z) - dustBox.z / 2;
@@ -509,6 +555,7 @@
 			const parts: string[] = [];
 			let rightA = false;
 			let leftX = false;
+			let leftY = false;
 			for (let i = 0; i < session.inputSources.length; i++) {
 				const source = session.inputSources[i];
 				const gamepad = source.gamepad;
@@ -521,6 +568,7 @@
 				parts.push(`${hand}[${pressed.join(',')}]`);
 				if (source.handedness === 'right') rightA = gamepad.buttons[A_INDEX]?.pressed ?? false;
 				if (source.handedness === 'left') leftX = gamepad.buttons[X_INDEX]?.pressed ?? false;
+				if (source.handedness === 'left') leftY = gamepad.buttons[Y_INDEX]?.pressed ?? false;
 			}
 			buttonsDebug = parts.sort().join(' ');
 			if (rightA !== prevRightA) {
@@ -534,6 +582,11 @@
 			}
 			if (leftX && !prevLeftX) fire('mission_start', `X (L${X_INDEX})`);
 			prevLeftX = leftX;
+			if (leftY && !prevLeftY) {
+				swirEnabled = !swirEnabled;
+				lastAction = `Y (I${Y_INDEX}) → SWIR ${swirEnabled ? 'ON' : 'OFF'}`;
+			}
+			prevLeftY = leftY;
 		}
 
 		function onSelect(event: XRInputSourceEvent) {
@@ -554,7 +607,7 @@
 			event.session.removeEventListener('select', onSelect);
 			event.session.removeEventListener('end', onSessionEnd);
 			pttUp();
-			prevRightA = prevLeftX = false;
+			prevRightA = prevLeftX = prevLeftY = false;
 			world.position.y = 0;
 			inVR = false;
 			resetDesktopCamera();
@@ -606,7 +659,9 @@
 			previous = now;
 			pollControllers();
 			updateStorm(dt, now);
-			drawHud();
+			for (const setSwir of swirSetters) setSwir(swirEnabled, now / 1000);
+			saltationGrains.update(camera.position, now / 1000, targetWindMps, swirEnabled && stormIntensity > 0.05);
+			drawHud(now);
 			renderer.render(scene, camera);
 		});
 
@@ -634,6 +689,8 @@
 			pttUp();
 			for (const unsubscribe of unsubscribers) unsubscribe();
 			a.dispose();
+			visorHud.dispose();
+			saltationGrains.dispose();
 			assistant = null;
 			canvas.removeEventListener('pointerdown', onPointerDown);
 			canvas.removeEventListener('pointermove', onPointerMove);
@@ -648,14 +705,13 @@
 				}
 			});
 			groundTexture.dispose();
-			hudTexture.dispose();
 			renderer.dispose();
 		};
 	});
 </script>
 
 <svelte:head>
-	<title>Jarvis | Prueba VR</title>
+	<title>Sara | VR test</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
@@ -667,13 +723,13 @@
 	{#if panelOpen}
 		<section class="landing" aria-labelledby="title">
 			<div class="identity">
-				<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">VR TEST</span>
+				<span class="planet" aria-hidden="true">◉</span> SARA<span class="divider"></span><span class="subtle">VR TEST</span>
 				<button class="link close" onclick={() => (panelOpen = false)}>Hide</button>
 			</div>
-			<h1 id="title">JARVIS in VR</h1>
+			<h1 id="title">SARA in VR</h1>
 			<p class="lead">
 				Press <strong>Enter VR</strong> to enable audio and the microphone. Grant permission if prompted.
-				Hold <strong>A</strong> to talk to JARVIS in VR.
+				Hold <strong>A</strong> to talk to SARA in VR and press <strong>Y</strong> to toggle SWIR.
 			</p>
 
 			<div class="chips">
@@ -681,6 +737,7 @@
 				<span class="chip neutral">Mode: {MODE_LABEL[mode]}</span>
 				<span class="chip neutral">Voice: {TTS_LABEL[tts]}</span>
 				<span class="chip neutral">A = button {A_INDEX}</span>
+				<span class="chip neutral">SWIR: {swirEnabled ? 'ON' : 'OFF'}</span>
 			</div>
 			<p class="variants">
 				Switch to
@@ -694,6 +751,8 @@
 			</p>
 
 			<div class="actions">
+				<button class="secondary" aria-pressed={swirEnabled} aria-keyshortcuts="I"
+					onclick={() => { swirEnabled = !swirEnabled; }}>SWIR sim. · I</button>
 				<button class="enter" onclick={enterVR} disabled={starting || inVR || xrSupport === 'unsupported'}>
 					{inVR ? 'In VR…' : starting ? 'Enabling…' : 'Enter VR'}
 				</button>
@@ -710,17 +769,18 @@
 				</p>
 			{/if}
 			{#if notice}<p class="error" role="alert">{notice}</p>{/if}
-			{#if lastError}<p class="error">Jarvis: {lastError}</p>{/if}
+			{#if lastError}<p class="error">Sara: {lastError}</p>{/if}
 			{#if placementNote}<p class="muted">{placementNote}</p>{/if}
 
 			<div class="mapping">
 				<div>
 					<h2>Controllers (VR)</h2>
 					<dl>
-						<dt>A (right controller, hold)</dt><dd>Talk to JARVIS</dd>
+						<dt>A (right controller, hold)</dt><dd>Talk to SARA</dd>
 						<dt>Right trigger</dt><dd>sample_collected</dd>
 						<dt>Left trigger</dt><dd>storm_start</dd>
 						<dt>X (left controller)</dt><dd>mission_start (reset)</dd>
+						<dt>Y (left controller)</dt><dd>Toggle SWIR · button {Y_INDEX}</dd>
 					</dl>
 				</div>
 				<div>
@@ -730,6 +790,7 @@
 						<dt><kbd>M</kbd></dt><dd>mission_start</dd>
 						<dt><kbd>T</kbd></dt><dd>storm_start</dd>
 						<dt><kbd>S</kbd></dt><dd>sample_collected</dd>
+						<dt><kbd>I</kbd></dt><dd>Alternar SWIR</dd>
 					</dl>
 				</div>
 			</div>

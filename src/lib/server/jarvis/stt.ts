@@ -5,7 +5,7 @@ export const STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 export const STT_MIN_BYTES = 1024;
 export const STT_MAX_BYTES = 10 * 1024 * 1024;
 const STT_PROMPT =
-	'Jezero, Perseverance, MEDA, habitat, airlock, sample, dust storm, oxygen, suit power, visibility, beacon, Jarvis';
+	'Jezero, Perseverance, MEDA, habitat, airlock, sample, dust storm, oxygen, suit power, visibility, beacon, Sara';
 
 export class SttUpstreamError extends Error {
 	status: number;

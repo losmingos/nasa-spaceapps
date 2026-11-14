@@ -39,6 +39,11 @@ El visor calcula posiciones topocéntricas aproximadas a partir de los elementos
 
 El modo tormenta recrea la pérdida de luz directa y la caída de visibilidad observadas por Opportunity. Las ráfagas de polvo fino se generan en el visor, con las imágenes de Perseverance como referencia visual. [Cielo oscurecido de Opportunity](https://science.nasa.gov/resource/a-darkened-mars-sky/) · [Ráfaga captada por Perseverance](https://science.nasa.gov/blog/everything-is-dust-in-the-wind/)
 
+## Capas de inspección del MVP
+
+La vista de geología usa `GeoUnits_v1` del [mapa geológico SIM 3464](https://pubs.usgs.gov/publication/sim3464), publicado por Sun y Stack (2020), en `static/terrain/jezero-geology.json`. El archivo contiene las unidades que intersectan el área del DTM, consultadas del [servicio GIS público de USGS](https://services.arcgis.com/v01gqwM5QqNysAAi/arcgis/rest/services/Jezero_FeatureServiceFromPro/FeatureServer/8) y simplificadas para su vista previa. La capa es regional (~1:75 000); el mapa base semi-controlado puede diferir 100–200 m de la cartografía de operaciones. Úsala como coloración geológica, no como dato de precisión para pisadas.
+
+La vista `Pendiente` se deriva de `static/terrain/jezero.bin` y usa su malla de 16,15 m. `SWIR` es una simulación basada en `infrarrojoSpec.md`, no una imagen espectral medida; su albedo por unidad geológica es una aproximación visual.
 ## Polvo y meteorología de Jezero
 
 La instantánea `src/lib/data/meda-snapshot.json` resume observaciones del sol 313 de Perseverance (5–6 de enero de 2022), cuando una tormenta regional llegó a Jezero. Se pueden consultar las series originales en el [archivo MEDA del nodo de Atmósferas de NASA PDS](https://pds-atmospheres.nmsu.edu/data_and_services/atmospheres_data/PERSEVERANCE/meda_11282022.html). La instantánea enlaza los productos CSV usados para temperatura, presión, humedad y viento.
