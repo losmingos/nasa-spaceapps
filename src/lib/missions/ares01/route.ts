@@ -6,17 +6,21 @@ export interface Point {
 
 export const SAMPLE: Point = { x: 1575.1, z: -347.3 };
 export const SAMPLING_KIT: Point = { x: SAMPLE.x - 1.15, z: SAMPLE.z - 0.85 };
-export const ROVER: Point = { x: SAMPLE.x, z: SAMPLE.z + 350 };
+export const DIRECT_DISTANCE = 70;
+export const DETOUR_EXTRA = 13;
+
+export const ROVER: Point = { x: SAMPLE.x, z: SAMPLE.z + DIRECT_DISTANCE };
 export const BASE: Point = { x: ROVER.x, z: ROVER.z + 2400 };
-const junction = { x: SAMPLE.x, z: SAMPLE.z + 35 };
-const rejoin = { x: SAMPLE.x, z: SAMPLE.z + 235 };
-const detourOffset = Math.sqrt(132.5 ** 2 - 100 ** 2);
-export const HAZARD_RADIUS = 32;
-export const HAZARD: Point = { x: SAMPLE.x, z: SAMPLE.z + 135 };
+const junction = { x: SAMPLE.x, z: SAMPLE.z + 7 };
+const rejoin = { x: SAMPLE.x, z: SAMPLE.z + 47 };
+const detourOffset = Math.sqrt((20 + DETOUR_EXTRA / 2) ** 2 - 20 ** 2);
+export const HAZARD_RADIUS = 6.4;
+export const HAZARD: Point = { x: SAMPLE.x, z: SAMPLE.z + 27 };
 export const DIRECT = [SAMPLE, junction, rejoin, ROVER];
 export const DETOUR = [SAMPLE, junction, { x: SAMPLE.x + detourOffset, z: HAZARD.z }, rejoin, ROVER];
 
-export const LOOSE_ROCK = pointAlong(DETOUR, 159);
+export const LOOSE_ROCK_DISTANCE = 31.8;
+export const LOOSE_ROCK = pointAlong(DETOUR, LOOSE_ROCK_DISTANCE);
 
 export function distanceBetween(a: Point, b: Point) {
 	return Math.hypot(a.x - b.x, a.z - b.z);
