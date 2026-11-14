@@ -1,9 +1,11 @@
 import {
 	BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
 	IcosahedronGeometry, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, PCFSoftShadowMap,
-	PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer
+	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
+	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { buildVisorOptics } from './visor-optics.js';
+import { buildVisorOptics, dustColor } from './visor-optics.js';
+import { solarPosition } from './mars-time.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -31,6 +33,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const length = (rows - 1) * spacing;
 	const positions = new Float32Array(count * 3);
 	const colors = new Float32Array(count * 3);
+	const uv = new Float32Array(count * 2);
 	const indices = new Uint32Array((columns - 1) * (rows - 1) * 6);
 	const [base, middle, peak] = elevationColors.map((hex) => new Color(hex));
 	const color = new Color();
@@ -42,6 +45,8 @@ function buildTerrain(data: ArrayBuffer) {
 			const present = Number.isFinite(elevation);
 			const height = present ? elevation - low : 0;
 			positions.set([col * spacing - width / 2, height, row * spacing - length / 2], i * 3);
+			uv[i * 2] = col / (columns - 1);
+			uv[i * 2 + 1] = 1 - row / (rows - 1);
 
 			const t = (height / (high - low)) ** 0.65;
 			if (t < 0.5) color.copy(base).lerp(middle, t * 2);
@@ -70,6 +75,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const geometry = new BufferGeometry();
 	geometry.setAttribute('position', new BufferAttribute(positions, 3));
 	geometry.setAttribute('color', new BufferAttribute(colors, 3));
+	geometry.setAttribute('uv', new BufferAttribute(uv, 2));
 	geometry.setIndex(new BufferAttribute(indices.subarray(0, index), 1));
 	geometry.computeVertexNormals();
 	// Use the same diagonal and missing-sample rules as the rendered triangles.
@@ -117,7 +123,10 @@ export function mountTerrain(
 	canvas: HTMLCanvasElement,
 	map: HTMLCanvasElement,
 	data: ArrayBuffer,
-	notify: (notice: TerrainNotice) => void
+	orthoUrl: string,
+	notify: (notice: TerrainNotice) => void,
+	getNotice: () => string,
+	getClock: () => string
 ) {
 	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -130,10 +139,12 @@ export function mountTerrain(
 	renderer.shadowMap.enabled = true;
 	renderer.shadowMap.type = PCFSoftShadowMap;
 
-	const optics = buildVisorOptics(renderer);
+	const optics = buildVisorOptics(renderer, map, getNotice, getClock);
 	const scene = new Scene();
-	scene.fog = new FogExp2('#bb8867', 0.00042);
+	const fog = new FogExp2('#bb8867', 0.00042);
+	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+	const orthoTint = new Color('#bf9d83');
 	// Meter-scale detail is illustrative. The HiRISE grid determines the geometry.
 	terrainMaterial.onBeforeCompile = (shader) => {
 		shader.vertexShader = 'varying vec3 groundPoint;\n' + shader.vertexShader.replace(
@@ -151,6 +162,12 @@ export function mountTerrain(
 					mix(dustHash(cell + vec2(0, 1)).x, dustHash(cell + vec2(1, 1)).x, f.x), f.y);
 			}
 		` + shader.fragmentShader.replace(
+			'#include <map_fragment>',
+			`#ifdef USE_MAP
+				vec4 ortho = texture2D(map, vMapUv);
+				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a);
+			#endif`
+		).replace(
 			'#include <color_fragment>',
 			`#include <color_fragment>
 			vec2 p = groundPoint.xz;
@@ -165,15 +182,17 @@ export function mountTerrain(
 			float strata = (dustNoise(vec2(p.x * 0.035, groundPoint.y * 0.12)) - 0.5) * 0.11;
 			diffuseColor.rgb *= 0.86 + strata + (dust - pebble * 0.32) * distanceFade;`
 		);
+		shader.uniforms.orthoTint = { value: orthoTint };
+		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
 	};
 	const mesh = new Mesh(geometry, terrainMaterial);
 	mesh.castShadow = true;
 	mesh.receiveShadow = true;
-	scene.add(mesh, new HemisphereLight('#f6dfc5', '#38231c', 1.15));
+	const ambient = new HemisphereLight('#ffe4cc', '#82604c', 1.65);
+	scene.add(mesh, ambient);
 	const span = Math.max(width, length);
-	const sun = new DirectionalLight('#fff0d9', 2.4);
-	const sunDirection = new Vector3(-0.72, 1.25, -0.58).normalize();
-	sun.position.copy(sunDirection).multiplyScalar(span);
+	const sun = new DirectionalLight('#fff0d9', 2.05);
+	const sunDirectionWorld = new Vector3(-0.72, 1.25, -0.58).normalize();
 	sun.castShadow = true;
 	sun.shadow.mapSize.set(2048, 2048);
 	sun.shadow.camera.left = -rockLoadRadius * 1.4;
@@ -360,15 +379,17 @@ export function mountTerrain(
 					const contour = h % 3 < 0.28 ? 19 : 0;
 					const i = (row * mapSize + col) * 4;
 					const tint = Number.isFinite(shade) ? shade + contour : 25;
-					pixels.data[i] = tint - 14;
-					pixels.data[i + 1] = tint;
-					pixels.data[i + 2] = tint - 6;
-					pixels.data[i + 3] = 255;
+					// Project shaded relief as light over the glass, leaving the terrain visible.
+					pixels.data[i] = 160;
+					pixels.data[i + 1] = 244;
+					pixels.data[i + 2] = 215;
+					pixels.data[i + 3] = Math.max(0, (tint - 25) * 1.65);
 				}
 			}
 			reliefContext.putImageData(pixels, 0, 0);
 		}
 		mapContext.setTransform(2, 0, 0, 2, 0, 0);
+		mapContext.clearRect(0, 0, mapSize, mapSize);
 		mapContext.drawImage(relief, 0, 0);
 		mapContext.save();
 		mapContext.translate(mapSize / 2, mapSize / 2);
@@ -389,15 +410,69 @@ export function mountTerrain(
 
 	const lightInView = new Vector3();
 	const worldToEye = new Quaternion();
+	const nightFog = new Color('#161b29');
+	const duskFog = new Color('#9c624a');
+	const dayFog = new Color('#bb8867');
+	const lowSun = new Color('#ffad78');
+	const highSun = new Color('#fff0d9');
+	let daylight = 1;
+	let twilight = 1;
+	let storm = false;
+	let stormFrame = 0;
+	let stormStarted = 0;
+	let gustTime = 0;
+	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
-		sun.position.copy(camera.position).addScaledVector(sunDirection, rockLoadRadius * 2.5);
+		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
 		worldToEye.copy(camera.quaternion).invert();
-		lightInView.copy(sunDirection).applyQuaternion(worldToEye);
-		optics.render(scene, camera, MathUtils.clamp(lightInView.x * 1.4, -1.1, 1.1), -lightInView.z);
+		lightInView.copy(sunDirectionWorld).applyQuaternion(worldToEye);
 		drawMap();
+		optics.render(scene, camera, lightInView, twilight, daylight, storm, gustTime);
 	};
+	function updateLighting() {
+		const up = sunDirectionWorld.y;
+		daylight = MathUtils.smoothstep(up, 0, 0.38);
+		twilight = MathUtils.smoothstep(up, -0.21, 0.08);
+		sun.intensity = 2.05 * MathUtils.smoothstep(up, 0, 0.48);
+		sun.color.copy(lowSun).lerp(highSun, daylight);
+		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
+		fog.color.copy(nightFog).lerp(duskFog, twilight).lerp(dayFog, daylight);
+		fog.density = storm ? 0.006 : 0.00042;
+		if (storm) {
+			sun.intensity *= Math.exp(-2.8 / Math.max(0.15, up));
+			ambient.intensity *= 0.57;
+			dustColor(fog.color, twilight, daylight);
+		}
+	}
+	function setTime(localSol: number) {
+		const { east, up, north } = solarPosition(localSol);
+		sunDirectionWorld.set(east, up, -north).normalize();
+		updateLighting();
+		draw();
+	}
+	function animateStorm(now: number) {
+		stormFrame = requestAnimationFrame(animateStorm);
+		const elapsed = (now - stormStarted) / 1000;
+		if (elapsed - gustTime < 1 / 30) return;
+		gustTime = elapsed;
+		if (!frame) draw();
+	}
+	function updateStormMotion() {
+		cancelAnimationFrame(stormFrame);
+		gustTime = 0;
+		if (storm && !reducedMotion.matches) {
+			stormStarted = performance.now();
+			stormFrame = requestAnimationFrame(animateStorm);
+		}
+		draw();
+	}
+	function setStorm(enabled: boolean) {
+		storm = enabled;
+		updateLighting();
+		updateStormMotion();
+	}
 	function resize() {
 		const { clientWidth, clientHeight } = canvas;
 		if (!clientWidth || !clientHeight) return;
@@ -412,7 +487,7 @@ export function mountTerrain(
 	const abort = new AbortController();
 	const options = { signal: abort.signal };
 	const keys = new Set<string>();
-	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+	reducedMotion.addEventListener('change', updateStormMotion, options);
 	let drag: { id: number; x: number; y: number } | undefined;
 	let dragged = false;
 	let velocityX = 0;
@@ -520,9 +595,24 @@ export function mountTerrain(
 	observer.observe(canvas);
 	resize();
 
+	const texture = new TextureLoader().load(orthoUrl, () => {
+		if (abort.signal.aborted) return;
+		texture.colorSpace = SRGBColorSpace;
+		texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+		terrainMaterial.map = texture;
+		terrainMaterial.needsUpdate = true;
+		draw();
+	}, undefined, () => {
+		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
+	});
+
 	return {
+		refresh: draw,
+		setTime,
+		setStorm,
 		dispose() {
 			abort.abort();
+			cancelAnimationFrame(stormFrame);
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			cancelAnimationFrame(frame);
 			observer.disconnect();
@@ -534,6 +624,7 @@ export function mountTerrain(
 			terrainMaterial.dispose();
 			for (const rockGeometry of rockGeometries) rockGeometry.dispose();
 			rockMaterial.dispose();
+			texture.dispose();
 			optics.dispose();
 			renderer.dispose();
 		}
