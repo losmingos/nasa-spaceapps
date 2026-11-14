@@ -140,20 +140,26 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.clearRect(0, 0, w, h);
 		const edge = Math.max(40, Math.min(180, w * 0.12));
 		const bottom = Math.max(30, Math.min(160, h * 0.18));
-		const mapSize = Math.max(80, Math.min(128, w * 0.095));
+		const mapSize = Math.max(96, Math.min(154, w * 0.115));
+		const mapWidth = mapSize * 1.52;
+		const mapHeight = mapSize;
 		const mapLeft = edge;
-		const y = h - bottom - mapSize;
+		const y = h - bottom - mapHeight;
+		context.save();
+		context.beginPath();
+		context.ellipse(mapLeft + mapWidth / 2, y + mapHeight / 2, mapWidth / 2, mapHeight / 2, 0, 0, Math.PI * 2);
+		context.fillStyle = '#07130f88';
+		context.fill();
+		context.clip();
 		context.globalAlpha = 0.7;
-		context.drawImage(map, mapLeft, y, mapSize, mapSize);
+		context.drawImage(map, mapLeft, y, mapWidth, mapHeight);
 		context.globalAlpha = 1;
+		context.restore();
 		context.strokeStyle = '#a4dfc8';
-		context.lineWidth = 0.8;
-		// Open registration corners keep the map on the glass without a panel backing.
-		for (const [x, yy, dx, dy] of [[mapLeft, y, 1, 1], [mapLeft + mapSize, y, -1, 1],
-			[mapLeft, y + mapSize, 1, -1], [mapLeft + mapSize, y + mapSize, -1, -1]]) {
-			context.beginPath(); context.moveTo(x, yy + dy * 9);
-			context.lineTo(x, yy); context.lineTo(x + dx * 9, yy); context.stroke();
-		}
+		context.lineWidth = 1.2;
+		context.beginPath();
+		context.ellipse(mapLeft + mapWidth / 2, y + mapHeight / 2, mapWidth / 2, mapHeight / 2, 0, 0, Math.PI * 2);
+		context.stroke();
 		const fontSize = Math.max(22, Math.min(31, w * 0.025));
 		context.fillStyle = '#c6ffe5';
 		context.textAlign = 'right';
