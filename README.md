@@ -8,6 +8,12 @@ En equipos de escritorio compatibles, el visor carga el terreno de mayor resoluc
 
 El casco muestra la hora solar media local de Jezero. Pulsa **H** y abre **Cambiar hora** para explorar otro sol u otra hora. **Volver a la hora actual** reanuda el reloj en directo.
 
+## Meta Quest 2
+
+Abre la portada en el navegador de las Quest por HTTPS y pulsa **Enter VR**. Mira a tu alrededor moviendo el visor, camina con el joystick izquierdo y mantén pulsado el gatillo derecho para hablar con SARA.
+
+Para probar desde el PC por USB, activa el modo desarrollador en el visor y acepta la depuración USB. Con Vite en el puerto 5173, ejecuta `adb reverse tcp:5173 tcp:5173` y abre `http://localhost:5173/` en el navegador de las Quest.
+
 ## Despliegue en Cloudflare Workers
 
 En **Settings → Build**, usa la raíz del repositorio, `npm run build` como comando de compilación y `npx wrangler deploy` como comando de despliegue (no cambian).

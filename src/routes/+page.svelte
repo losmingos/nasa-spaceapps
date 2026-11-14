@@ -16,6 +16,10 @@
 	let map: HTMLCanvasElement;
 	let messageText: HTMLSpanElement;
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
+	let vrSupported = $state(false);
+	let vrBusy = $state(false);
+	let inVR = $state(false);
+	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
 	let noticeTimer: ReturnType<typeof setTimeout>;
 	let exited = $state(false);
@@ -44,7 +48,7 @@
 	let voice = $state<AssistantState>();
 	let unlocking = $state(false);
 	let unlockFailed = $state(false);
-	let voiceInput: 'pointer' | 'Space' | 'Enter' | undefined;
+	let voiceInput: 'pointer' | 'Space' | 'Enter' | 'vr' | undefined;
 	const voiceStatus = $derived(voice?.status ?? 'locked');
 	const micUnavailable = $derived(voice?.lastError?.startsWith('Microphone unavailable') ?? false);
 	const voiceProblem = $derived(voiceStatus === 'locked' || voiceStatus === 'idle'
@@ -132,6 +136,35 @@
 		assistant?.pttUp();
 	}
 
+	async function toggleVR() {
+		const xr = navigator.xr;
+		const scene = terrain;
+		if (!xr || !scene || vrBusy) return;
+		vrBusy = true;
+		vrError = '';
+		try {
+			if (inVR) {
+				await scene.exitVR();
+			} else {
+				const entering = scene.enterVR(xr, () => { inVR = false; },
+					() => { void voiceDown('vr'); },
+					() => { if (voiceInput === 'vr') voiceUp(); });
+				missionVoice?.unlock();
+				void assistant?.unlock().catch((cause) => {
+					console.error('[jarvis] Audio unavailable', cause);
+					unlockFailed = true;
+				});
+				await entering;
+				inVR = scene.isInVR();
+			}
+		} catch (cause) {
+			console.error('[WebXR]', cause);
+			vrError = 'Could not switch VR mode. Try again.';
+		} finally {
+			vrBusy = false;
+		}
+	}
+
 	function onKeyDown(event: KeyboardEvent) {
 		void clockShortcut(event);
 		const target = event.target instanceof Element ? event.target : null;
@@ -207,12 +240,16 @@
 
 	onMount(() => {
 		const request = new AbortController();
-		const useBrowserVoice = new URLSearchParams(location.search).get('tts') === 'browser';
+		const params = new URLSearchParams(location.search);
+		const useBrowserVoice = params.get('tts') === 'browser';
+		void navigator.xr?.isSessionSupported('immersive-vr').then((supported) => {
+			if (!request.signal.aborted) vrSupported = supported;
+		}).catch(() => {});
 		missionVoice = createMissionVoice(useBrowserVoice);
 		const jarvis = createAssistant({
-			mode: 'live',
+			mode: params.get('mode') === 'scripted' ? 'scripted' : 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
-			cuePolling: false
+			cuePolling: params.get('remote') === '1'
 		});
 		assistant = jarvis;
 		voice = jarvis.getState();
@@ -307,6 +344,7 @@
 		</div>
 
 		<div class="visor-controls">
+			{#if vrError}<p class="vr-error" role="alert">{vrError}</p>{/if}
 			<Ares01 ready={!!terrain} onview={(view) => {
 				mission = view;
 			}} ondialogue={playMissionDialogue}
@@ -314,6 +352,11 @@
 				onpause={() => { pendingMissionLine = undefined; missionVoice?.stop(); }}
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
+			{#if vrSupported}
+				<button type="button" class="hud-action" disabled={!terrain || vrBusy} onclick={toggleVR}>
+					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
+				</button>
+			{/if}
 			<button type="button" class="hud-action voice-control"
 					aria-label="SARA. Hold to talk and release to send"
 					aria-keyshortcuts="Space"

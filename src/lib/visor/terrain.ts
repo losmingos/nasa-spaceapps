@@ -614,7 +614,14 @@ export function mountTerrain(
 	let gustTime = 0;
 	const drillMoving = () => !!missionView?.drilling && !missionView.drillPaused;
 	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+	const xrOrigin = new Object3D();
+	const xrCamera = new PerspectiveCamera(camera.fov, 1, camera.near, camera.far);
+	xrOrigin.add(xrCamera);
+	scene.add(xrOrigin);
+	const xrHeading = new Vector3();
+	let xrSession: XRSession | undefined;
 	const draw = () => {
+		if (renderer.xr.isPresenting) return;
 		missionScene.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
@@ -732,6 +739,7 @@ export function mountTerrain(
 		draw();
 	}
 	function resize() {
+		if (renderer.xr.isPresenting) return;
 		const { clientWidth, clientHeight } = canvas;
 		if (!clientWidth || !clientHeight) return;
 		camera.aspect = clientWidth / clientHeight;
@@ -762,22 +770,19 @@ export function mountTerrain(
 		return footingOnRocks(rockColliders, surfaceHeight(x, z), x, z, true).height + eyeOffset();
 	};
 
-	function step(now: number) {
+	function move(now: number, forward: number, steering: number, yaw: number, immersive = false) {
 		const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
 		previous = now;
-		const turn = Number(keys.has('ArrowRight')) - Number(keys.has('ArrowLeft'));
-		const pitch = Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'));
-		camera.rotation.y -= turn * dt * 1.4;
-		camera.rotation.x = MathUtils.clamp(camera.rotation.x - pitch * dt * 1.1, -1.48, 1.48);
-		const forward = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
-		const steering = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
 		const driving = missionView?.player?.driving;
 		const side = driving ? 0 : steering;
-		if (driving) camera.rotation.y -= steering * dt * 0.9;
+		if (driving) {
+			const turn = steering * dt * 0.9;
+			camera.rotation.y -= turn;
+			yaw -= turn;
+		}
 		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
 		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) * speedMultiplier
 			/ Math.max(1, Math.hypot(forward, side));
-		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
 		const x = camera.position.x + velocityX * dt;
@@ -799,12 +804,24 @@ export function mountTerrain(
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = reducedMotion.matches || blocked || driving ? 0
+		const bob = immersive || reducedMotion.matches || blocked || driving ? 0
 			: Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
-		const tilt = reducedMotion.matches ? 0 : (missionView?.tilt ?? 0);
+		const tilt = immersive || reducedMotion.matches ? 0 : (missionView?.tilt ?? 0);
 		const targetY = (blocked ? eyeY() : footing.height + eyeOffset()) + bob - 0.64 * tilt;
 		camera.position.y = reducedMotion.matches ? targetY
 			: Math.max(targetY, MathUtils.damp(camera.position.y, targetY, 18, dt));
+		return targetY;
+	}
+
+	function step(now: number) {
+		const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
+		const turn = Number(keys.has('ArrowRight')) - Number(keys.has('ArrowLeft'));
+		const pitch = Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'));
+		camera.rotation.y -= turn * dt * 1.4;
+		camera.rotation.x = MathUtils.clamp(camera.rotation.x - pitch * dt * 1.1, -1.48, 1.48);
+		const forward = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
+		const steering = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+		const targetY = move(now, forward, steering, camera.rotation.y);
 		if (keys.size || Math.hypot(velocityX, velocityZ) > 0.015 || camera.position.y - targetY > 0.003) frame = requestAnimationFrame(step);
 		else {
 			camera.position.y = targetY;
@@ -812,6 +829,76 @@ export function mountTerrain(
 			previous = velocityX = velocityZ = 0;
 		}
 		draw();
+	}
+
+	async function enterVR(xr: XRSystem, onEnd: () => void, onTalkStart: () => void, onTalkEnd: () => void) {
+		const session = await xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] });
+		if (abort.signal.aborted) {
+			await session.end();
+			return;
+		}
+		xrSession = session;
+		explored = true;
+		keys.clear();
+		cancelAnimationFrame(frame);
+		frame = previous = velocityX = velocityZ = 0;
+		if (document.pointerLockElement === canvas) document.exitPointerLock();
+		const onSelectStart = (event: XRInputSourceEvent) => {
+			if (event.inputSource.handedness === 'right') onTalkStart();
+		};
+		const onSelectEnd = (event: XRInputSourceEvent) => {
+			if (event.inputSource.handedness === 'right') onTalkEnd();
+		};
+		session.addEventListener('selectstart', onSelectStart, options);
+		session.addEventListener('selectend', onSelectEnd, options);
+		const restoreDesktop = () => {
+			xrSession = undefined;
+			renderer.setAnimationLoop(null);
+			renderer.xr.enabled = false;
+			scene.background = null;
+			previous = velocityX = velocityZ = 0;
+			onTalkEnd();
+			if (abort.signal.aborted) return;
+			resize();
+			onEnd();
+		};
+		renderer.xr.enabled = true;
+		renderer.xr.setReferenceSpaceType('local-floor');
+		// The desktop sky and HUD are screen-space effects. Draw the world directly into both XR eyes.
+		scene.background = fog.color;
+		renderer.setAnimationLoop((now, xrFrame) => {
+			if (!xrFrame) return;
+			const space = renderer.xr.getReferenceSpace();
+			const pose = space && xrFrame.getViewerPose(space);
+			if (!pose) return;
+			const source = Array.from(session.inputSources).find((input) => input.handedness === 'left' && input.gamepad);
+			const axes = source?.gamepad?.axes;
+			const side = axes?.[2] ?? 0;
+			const forward = -(axes?.[3] ?? 0);
+			const orientation = pose.transform.orientation;
+			worldToEye.set(orientation.x, orientation.y, orientation.z, orientation.w);
+			xrHeading.set(0, 0, -1).applyQuaternion(worldToEye);
+			const yaw = camera.rotation.y + Math.atan2(-xrHeading.x, -xrHeading.z);
+			const walking = canMove() && Math.hypot(side, forward) > 0.2;
+			move(now, walking ? forward : 0, walking ? side : 0, yaw, true);
+			xrOrigin.position.set(camera.position.x, camera.position.y - eyeHeight, camera.position.z);
+			xrOrigin.rotation.y = camera.rotation.y;
+			xrOrigin.updateMatrixWorld();
+			missionScene.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
+			updateRockTiles();
+			sun.target.position.copy(camera.position);
+			sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
+			renderer.render(scene, xrCamera);
+		});
+		const starting = renderer.xr.setSession(session);
+		// Three.js restores the desktop framebuffer before resizing the canvas.
+		session.addEventListener('end', restoreDesktop, { once: true });
+		try {
+			await starting;
+		} catch (error) {
+			await session.end().catch(() => {});
+			throw error;
+		}
 	}
 
 	function look(dx: number, dy: number) {
@@ -952,6 +1039,9 @@ export function mountTerrain(
 	}
 
 	return {
+		enterVR,
+		exitVR: () => xrSession?.end(),
+		isInVR: () => renderer.xr.isPresenting,
 		loadHighQuality,
 		refresh: draw,
 		setTime,
@@ -961,6 +1051,8 @@ export function mountTerrain(
 		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
 		dispose() {
 			abort.abort();
+			renderer.setAnimationLoop(null);
+			void xrSession?.end().catch(() => {});
 			cancelAnimationFrame(stormFrame);
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			cancelAnimationFrame(frame);

@@ -63,6 +63,7 @@ body { margin: 0; background: #0b0d0e; }
 .hud-action:hover, .hud-action[aria-expanded='true'] { background: #163227e8; }
 .hud-action:focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
 .hud-action:disabled { opacity: .6; cursor: wait; }
+.vr-error { flex-basis: 100%; margin: 0; text-align: center; text-shadow: 0 1px 4px #05110b; }
 .voice-control { touch-action: none; user-select: none; }
 .voice-control[data-recording='true'] { color: #ffb4a1; border-color: currentColor; }
 .voice-control svg { width: 16px; height: 16px; }
