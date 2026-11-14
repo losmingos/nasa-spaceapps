@@ -6,11 +6,11 @@ import struct
 from pathlib import Path
 
 PRODUCT = "DTEEC_002387_1985_003798_1985_A01"
-STRIDE = 4 #Probar rendimiento
+STRIDE = 16
 OUTPUT = Path(__file__).resolve().parents[1] / "static/terrain/jezero.bin"
 
 
-def convert(source):
+def convert(source, stride=STRIDE, output=OUTPUT):
     header = source.read(8192).decode("ascii", errors="replace").split("\nEND\r")[0]
 
     def field(name):
@@ -30,17 +30,20 @@ def convert(source):
     if source.tell() != start + record_bytes * height:
         raise ValueError("Incomplete raster.")
 
-    cols, rows = math.ceil(width / STRIDE), math.ceil(height / STRIDE)
-    spacing = float(field("MAP_SCALE")) * STRIDE
+    # Both qualities end on the same original sample so their world bounds match.
+    width = ((width - 1) // STRIDE) * STRIDE + 1
+    height = ((height - 1) // STRIDE) * STRIDE + 1
+    cols, rows = math.ceil(width / stride), math.ceil(height / stride)
+    spacing = float(field("MAP_SCALE")) * stride
     scale, offset = float(field("SCALING_FACTOR")), float(field("OFFSET"))
     missing = int(field("MISSING_CONSTANT").split("#")[1], 16)
     result = bytearray(struct.pack("<IIf", cols, rows, spacing))
     minimum, maximum = math.inf, -math.inf
     valid = 0
-    for row in range(0, height, STRIDE):
+    for row in range(0, height, stride):
         source.seek(start + row * record_bytes)
         data = source.read(record_bytes)
-        for col in range(0, width, STRIDE):
+        for col in range(0, width, stride):
             bits, = struct.unpack_from("<I", data, col * 4)
             elevation = math.nan
             if bits != missing:
@@ -52,13 +55,18 @@ def convert(source):
             result.extend(struct.pack("<f", elevation))
     if not valid:
         raise ValueError("No valid elevations.")
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_bytes(result)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(result)
     print(f"{cols} x {rows}, {spacing:g} m, {valid} valid points, {minimum:.2f} to {maximum:.2f} m")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("img", type=Path)
-    with parser.parse_args().img.open("rb") as source:
-        convert(source)
+    parser.add_argument("--high", action="store_true")
+    args = parser.parse_args()
+    with args.img.open("rb") as source:
+        if args.high:
+            convert(source, STRIDE // 2, OUTPUT.with_name("jezero-high.bin"))
+        else:
+            convert(source)

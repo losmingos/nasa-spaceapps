@@ -46,6 +46,7 @@ export interface ChatRequest {
 	history: ChatTurn[];
 	text: string;
 	telemetry: Telemetry;
+	missionContext?: string;
 }
 export interface ChatResponse {
 	reply: string;
@@ -97,6 +98,7 @@ export interface AssistantOptions {
 export interface Assistant {
 	/** MUST be called inside the «Enter VR» click handler, BEFORE navigator.xr.requestSession() (D20, D21). */
 	unlock(): Promise<void>;
+	setMissionContext(context?: string): void;
 	/** Push-to-talk: A button rising edge (or spacebar on the laptop). Interrupts current playback (D26). */
 	pttDown(): void;
 	/** Push-to-talk release: stops recording and runs STT → chat → TTS. */

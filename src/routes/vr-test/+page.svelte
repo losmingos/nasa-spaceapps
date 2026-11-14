@@ -5,9 +5,9 @@
 	import * as THREE from 'three';
 	import { createAssistant } from '#lib/jarvis/index.js';
 	import type { Assistant, AssistantMode, AssistantStatus, MissionEvent, TtsMode } from '#lib/jarvis/types.js';
-	import { createSaltationGrains, installSwirMaterialResponse } from '#lib/terrain.js';
+import { createSaltationGrains, installSwirMaterialResponse } from '#lib/terrain.js';
 import {
-	drawSwirHud, mountHeadLockedHud, SWIR_DUST_TRANSMISSION, SWIR_STORM_VISIBLE_TAU, swirVisibilityForStorm,
+	drawHudTime, drawSwirHud, mountHeadLockedHud, SWIR_DUST_TRANSMISSION,
 	type SwirHudData
 } from '#lib/visor-optics.js';
 	import { HABITAT, ROUTE, SAMPLE, SPAWN, VISIBILITY_CLEAR_M, type Point } from '#lib/mission.js';
@@ -229,12 +229,14 @@ import {
 		assistant = a;
 		let targetVisibility = a.getState().telemetry.visibility_m;
 		let targetWindMps = a.getState().telemetry.wind_ms ?? 7.4;
+		let targetMissionSeconds = a.getState().telemetry.t_s;
 		const unsubscribers = [
 			a.onState((s) => {
 				status = s.status;
 				lastError = s.lastError;
 				targetVisibility = s.telemetry.visibility_m;
 				targetWindMps = s.telemetry.wind_ms ?? 7.4;
+				targetMissionSeconds = s.telemetry.t_s;
 			}),
 			a.onSubtitle((s) => {
 				if (s.speaker === 'astronaut') lastAstronaut = s.text;
@@ -438,12 +440,6 @@ import {
 			}
 			return {
 				active: swirEnabled,
-				stormActive: stormIntensity > 0.05,
-				tauVisible: SWIR_STORM_VISIBLE_TAU * stormIntensity,
-				visibilityVisibleM: visibility,
-				visibilitySwirM: swirVisibilityForStorm(stormIntensity),
-				windMps: targetWindMps,
-				windDirection: 'ENE ↗',
 				distanceM: swirEnabled ? swirTarget?.distance ?? null : null,
 				albedo: swirEnabled ? swirTarget?.albedo ?? null : null,
 				surface: swirEnabled ? swirTarget?.surface : undefined
@@ -457,14 +453,18 @@ import {
 			const debug = `Mandos ${buttonsDebug || '(sin mandos)'} · A=${A_INDEX} · Y=${Y_INDEX}${lastAction ? ` · ${lastAction}` : ''}`;
 			const error = lastError ?? '';
 			const swirHud = currentSwirHud(now);
-			const key = [status, astronaut, jarvis, debug, error, swirEnabled, swirHud.stormActive,
+			const minutes = Math.floor(targetMissionSeconds / 60);
+			const seconds = String(targetMissionSeconds % 60).padStart(2, '0');
+			const timeLabel = `ARES-01 · ${minutes}:${seconds}`;
+			const key = [status, astronaut, jarvis, debug, error, swirEnabled,
 				swirHud.distanceM == null ? '' : Math.round(swirHud.distanceM), swirHud.albedo,
-				Math.round(swirHud.tauVisible ?? 0), Math.round(targetWindMps * 10), Math.floor(now / 1000)].join('\u0000');
+				targetMissionSeconds].join('\u0000');
 			if (key === hudKey) return; // redraw only on change
 			hudKey = key;
 
 			visorHud.redraw((hud, W, H) => {
 				const pad = 30;
+				drawHudTime(hud, W, H - 188, timeLabel, swirEnabled);
 				drawSwirHud(hud, W, H, swirHud);
 				hud.fillStyle = 'rgba(0,0,0,.38)';
 				hud.beginPath();

@@ -4,6 +4,8 @@ Visor 3D del delta occidental de Jezero. Ejecuta `npm ci` y `npm run dev` y abre
 
 Al cargar apareces a pie en el delta. Haz clic en la escena (o pulsa **Intro** con el visor enfocado) para girar con el ratón y usa **WASD** para caminar. Pulsa **Esc** para liberar el ratón. También puedes arrastrar sobre el visor o usar las flechas para mirar. El minimapa muestra el relieve local y tu rumbo. El oxígeno y la temperatura son valores simulados.
 
+En equipos de escritorio compatibles, el visor carga el terreno de mayor resolución en segundo plano y lo aplica si todavía no has empezado a explorar.
+
 El casco muestra la hora solar media local de Jezero. Pulsa **H** y abre **Cambiar hora** para explorar otro sol u otra hora. **Volver a la hora actual** reanuda el reloj en directo.
 
 ## Despliegue en Cloudflare Workers
@@ -39,8 +41,11 @@ python scripts/build_terrain.py ruta/al/DTEEC_002387_1985_003798_1985_A01.IMG
 
 ## ARES-01 · The Last Sample
 
-Abre el visor y elige Iniciar demo para seguir el guion de 3:30. En el modo interactivo puedes decidir si continúas al primer aviso, asegurar el instrumental, confirmar el desvío y ensayar una pérdida de posición. La secuencia guía la cámara y marca los saltos temporales. Pausar y Reiniciar están disponibles durante la misión.
+Abre el visor y elige **Modo interactivo**. Usa **WASD** para caminar o conducir, y el ratón o las flechas para mirar. Acércate al instrumental y activa la perforación. JARVIS anuncia las incidencias y la misión avanza al ejecutar las acciones y alcanzar los puntos de paso. El regreso recorre las distancias del escenario, incluidos los 2,4 km al volante. **Iniciar demo** conserva la secuencia guiada de 3:30 con saltos temporales.
 
-El reloj de la demo activa el aviso en 00:20 y, en la rama canónica, el aborto en 00:40. Son disparadores del guion. La intensidad visual del polvo, el terreno de riesgo y la presión del traje se simulan sobre el relieve HiRISE. Las posiciones de los hitos están en `src/lib/ares/route.ts`. El corredor original mide 350 m, el desvío 415 m y el trayecto en rover 2,4 km.
+JARVIS lee en español los avisos del modo interactivo. Usa el servicio de voz del proyecto y la síntesis del navegador si el servicio falla. Para probar directamente la síntesis del navegador, abre el visor con `?tts=browser`. Hace falta una voz española disponible en el sistema. Los diálogos también se muestran en pantalla.
 
-La interfaz muestra las intervenciones de JARVIS y publica cada cambio de diálogo como `ares01:dialogue` en `window`. El detalle tiene el tipo `Ares01Dialogue` de `src/lib/ares/ares01.ts`. El cliente de voz puede suscribirse y reproducir los eventos con `speaker === 'jarvis'`. Los eventos de caída e impacto usan `speaker === 'scene'`.
+Los avisos de polvo se activan 20 y 40 segundos después de comenzar la perforación. La intensidad del polvo, el riesgo de la ladera y la presión del traje son simulados. Los puntos de paso y las distancias están en `src/lib/ares/route.ts`. El modo interactivo conserva el evento `ares01:dialogue` para otras integraciones.
+
+
+En misión, mantén las flechas para mirar de forma continua. Pulsa E o 1 para la primera acción disponible y 2 para la segunda. Espacio activa la conversación con JARVIS mientras lo mantienes pulsado. I inicia el modo interactivo desde el menú. P pausa o reanuda. Durante la pausa o al terminar, R reinicia y Q sale.
