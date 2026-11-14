@@ -15,6 +15,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"gen:lines": "node scripts/gen_lines.ts",
+		"data:meda": "node scripts/build_meda.ts",
 		"cf:dev": "npm run build && wrangler dev"
 	},
 	"devDependencies": {

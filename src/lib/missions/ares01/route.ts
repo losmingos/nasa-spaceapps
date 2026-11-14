@@ -5,6 +5,7 @@ export interface Point {
 }
 
 export const SAMPLE: Point = { x: 1575.1, z: -347.3 };
+export const SAMPLING_KIT: Point = { x: SAMPLE.x - 1.15, z: SAMPLE.z - 0.85 };
 export const ROVER: Point = { x: SAMPLE.x, z: SAMPLE.z + 350 };
 export const BASE: Point = { x: ROVER.x, z: ROVER.z + 2400 };
 const junction = { x: SAMPLE.x, z: SAMPLE.z + 35 };
