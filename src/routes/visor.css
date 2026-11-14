@@ -23,15 +23,66 @@ body { margin: 0; background: #0b0d0e; }
 .terrain:focus-visible { outline: 2px solid var(--hud-text); outline-offset: -2px; }
 .projected { pointer-events: none; perspective: 850px; }
 
+.scene-controls {
+	position: absolute;
+	z-index: 4;
+	bottom: max(12px, env(safe-area-inset-bottom));
+	right: max(12px, env(safe-area-inset-right));
+	font: 12px/1.35 'IBM Plex Mono', ui-monospace, monospace;
+	color-scheme: dark;
+}
+
+.scene-controls-panel {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	right: 0;
+	display: grid;
+	gap: 12px;
+	width: min(420px, calc(100vw - 24px));
+	max-height: min(72dvh, 620px);
+	overflow: auto;
+	padding: 12px;
+	border: 1px solid #c5e6dc75;
+	border-radius: 8px;
+	background: #101c19f2;
+	color: var(--hud-text);
+}
+.scene-controls-panel[hidden] { display: none; }
+
+.control-section { display: grid; gap: 7px; }
+.control-section + .control-section { padding-top: 10px; border-top: 1px solid #c5e6dc40; }
+.control-section h2 { margin: 0; color: var(--hud-label); font-size: 10px; letter-spacing: .12em; }
+.control-section label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.control-section input { width: 145px; }
+.layer-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
+.scene-controls :is(button, input) {
+	min-height: 36px;
+	padding: 6px 9px;
+	border: 1px solid #c5e6dc75;
+	border-radius: 5px;
+	background: #192c27;
+	color: var(--hud-text);
+	font: inherit;
+	cursor: pointer;
+}
+.scene-controls button[aria-pressed='true'] { background: #35594d; border-color: #a9f0d4; }
+.scene-controls button:disabled { opacity: .45; cursor: not-allowed; }
+.scene-controls :is(button, input):focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
+.scene-controls-trigger { pointer-events: auto; min-height: 40px !important; background: #142521ed !important; }
+.scene-controls-trigger[aria-expanded='true'] { border-color: #a9f0d4; }
+.scene-controls-trigger kbd { margin-left: 5px; color: var(--hud-label); font: inherit; }
+.layer-caption { margin: 0; color: var(--hud-label); }
+
 .visor-controls {
 	position: absolute;
 	z-index: 1;
-	inset-inline: 10%;
-	bottom: max(5%, calc(env(safe-area-inset-bottom) + 4px));
+	inset-inline: 0;
+	top: max(12px, env(safe-area-inset-top));
+	padding-inline: 16px;
 	display: flex;
 	justify-content: center;
 	flex-wrap: wrap;
-	align-items: end;
+	align-items: flex-start;
 	gap: 6px;
 }
 
@@ -75,7 +126,7 @@ body { margin: 0; background: #0b0d0e; }
 	--panel-close-dur: 180ms;
 	position: absolute;
 	inset-inline: 0;
-	bottom: calc(100% + 8px);
+	top: calc(100% + 8px);
 	width: max-content;
 	max-width: 100%;
 	max-height: 50dvh;
@@ -98,48 +149,8 @@ body { margin: 0; background: #0b0d0e; }
 	.touch-hint { display: inline; }
 }
 @media (max-width: 480px) {
-	.visor-controls { inset-inline: 5%; }
 	.hud-action { padding-inline: 7px; }
 }
-
-.clock-controls {
-	position: absolute;
-	top: max(12px, env(safe-area-inset-top));
-	right: max(12px, env(safe-area-inset-right));
-	display: grid;
-	justify-items: end;
-	gap: 8px;
-	max-width: calc(100% - 24px);
-	font-size: 14px;
-	color-scheme: dark;
-}
-
-.clock-editor {
-	display: grid;
-	gap: 10px;
-	padding: 12px;
-	background: #201d1a;
-	border: 1px solid #83766c;
-	border-radius: 8px;
-}
-
-.clock-editor label { display: grid; gap: 4px; }
-.clock-controls :is(button, input) {
-	min-height: 40px;
-	padding-inline: 10px;
-	border: 1px solid #83766c;
-	border-radius: 5px;
-	background: #28231f;
-	color: inherit;
-	font: inherit;
-}
-.clock-controls button { cursor: pointer; }
-.clock-controls button[aria-pressed='true'] {
-	background: #59402c;
-	border-color: #e5b485;
-	color: #fff2e4;
-}
-.clock-controls :focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
 
 .notice, .radar, .readouts {
 	text-shadow: 0 1px 2px #111c17, 0 0 6px #102720cc, 0 0 11px #82eaca50;
@@ -148,7 +159,7 @@ body { margin: 0; background: #0b0d0e; }
 .notice {
 	--signal: #c5e6dc;
 	position: absolute;
-	top: max(clamp(18px, 5vh, 54px), env(safe-area-inset-top));
+	top: calc(max(12px, env(safe-area-inset-top)) + 60px);
 	left: 50%;
 	transform: translateX(-50%);
 	display: flex;

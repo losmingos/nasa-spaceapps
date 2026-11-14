@@ -1,10 +1,13 @@
 import {
-	BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, PCFShadowMap,
-	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
+	BufferAttribute, BufferGeometry, CanvasTexture, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
+	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap,
+	PerspectiveCamera, Quaternion, Raycaster, Scene, SRGBColorSpace,
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { buildVisorOptics, dustColor, type VisorMessage } from './optics.js';
+import {
+	buildVisorOptics, dustColor, SWIR_DEPTH_RESPONSE_GLSL, SWIR_DUST_TRANSMISSION, SWIR_NOISE_GLSL,
+	type SwirHudData, type VisorMessage
+} from './optics.js';
 import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
@@ -13,6 +16,233 @@ import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE, type Point
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 const clearDustDensity = 0.00048;
+
+export type TerrainDisplayMode = 'visible' | 'geology' | 'slope' | 'swir';
+
+export interface GeologyData {
+	features: Array<{
+		attributes: { unit?: string; name?: string };
+		geometry?: { rings?: number[][][] };
+	}>;
+}
+
+const jezeroBounds = { west: 77.34394372, east: 77.466254, south: 18.392143429723, north: 18.588734996352 };
+const eqcRadius = 3_394_839.8133163;
+const eqcLatitude = 18.49 * Math.PI / 180;
+const eqcLongitude = 77.41;
+const eqcRadians = Math.PI / 180;
+const geologyColors: Record<string, string> = {
+	'0': '#004deb', '1': '#0099ff', '2': '#eb4d80', '3': '#de4d00', '4': '#0000eb',
+	'5': '#b300eb', '6': '#ebcc99', '7': '#ffff00', '8': '#ccde99', '9': '#ebb3ff',
+	'10': '#ffb300', '11': '#b3804d', '12': '#669900', '13': '#ebeb66'
+};
+// ponytail: map-unit SWIR values are visual proxies, not measured spectra; use CRISM if measured reflectance is required.
+const swirAlbedo: Record<string, number> = {
+	'0': 0.78, // Jezero fan 2 — dusty sediment
+	'1': 0.75, // Jezero fan 1 — dusty sediment
+	'2': 0.72, // crater floor — fine regolith
+	'3': 0.68, // lower etched unit
+	'7': 0.85, // eolian bedform — loose dust
+	'8': 0.82, // smooth unit — loose regolith
+	'10': 0.70, // upper etched unit
+	'11': 0.22 // crater rim — exposed rock proxy
+};
+
+type SwirMaterial = MeshStandardMaterial | MeshLambertMaterial;
+
+export function installSwirMaterialResponse(material: SwirMaterial, albedo: number, mapCarriesAlbedo = false) {
+	const previousHook = material.onBeforeCompile;
+	const previousKey = material.customProgramCacheKey.bind(material);
+	let enabled = 0;
+	let time = 0;
+	let compiled: { uniforms: Record<string, { value: unknown }> } | undefined;
+	material.onBeforeCompile = (shader, renderer) => {
+		previousHook(shader, renderer);
+		shader.uniforms.swirMaterialMode = { value: enabled };
+		shader.uniforms.swirReflectance = { value: albedo };
+		shader.uniforms.swirMapAlbedo = { value: Number(mapCarriesAlbedo) };
+		shader.uniforms.swirTime = { value: time };
+		shader.fragmentShader = `uniform float swirMaterialMode;
+			uniform float swirReflectance;
+			uniform float swirMapAlbedo;
+			uniform float swirTime;
+		` + SWIR_NOISE_GLSL + SWIR_DEPTH_RESPONSE_GLSL + shader.fragmentShader.replace(
+			'#include <lights_fragment_begin>',
+			`float swirVisible = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+			float swirBase = mix(swirReflectance, swirVisible, swirMapAlbedo);
+			float swirShadowGain = 1.0 - smoothstep(0.03, 0.5, swirBase);
+			float swirDistance = length(vViewPosition);
+			float swirMid = swirMidHaze(swirDistance);
+			float swirFar = swirFarBlur(swirDistance);
+			float swirDetail = mix(1.12, 0.58, clamp(swirMid * 0.6 + swirFar * 0.4, 0.0, 1.0))
+				* mix(0.92, 1.08, swirVisible);
+			float swirValue = clamp(swirBase * swirDetail
+				+ (swirSensorNoise(gl_FragCoord.xy, swirTime) - 0.5) * 0.026 * swirShadowGain, 0.0, 1.0);
+			swirValue = mix(swirValue, 0.42, swirFar * 0.72);
+			diffuseColor.rgb = mix(diffuseColor.rgb, vec3(swirValue), swirMaterialMode);
+			totalEmissiveRadiance = mix(totalEmissiveRadiance,
+				vec3(dot(totalEmissiveRadiance, vec3(0.2126, 0.7152, 0.0722))), swirMaterialMode);
+			#include <lights_fragment_begin>`
+		);
+		compiled = shader as unknown as typeof compiled;
+	};
+	material.customProgramCacheKey = () => `${previousKey()}|swir:${albedo}:${Number(mapCarriesAlbedo)}`;
+	return (swir: boolean, frameTime = 0) => {
+		enabled = Number(swir);
+		time = frameTime;
+		if (compiled) {
+			compiled.uniforms.swirMaterialMode.value = enabled;
+			compiled.uniforms.swirTime.value = time;
+		}
+	};
+}
+
+export function createSaltationGrains() {
+	// ponytail: 160 bounded streaks visualize near-field grains; full particulate optics stay in the dust shader.
+	const count = 160;
+	const random = seededRandom(0x51a7a710);
+	const positions = new Float32Array(count * 6);
+	const colors = new Float32Array(count * 6);
+	const offsets = Array.from({ length: count }, () => {
+		const radius = 0.5 + random() * 5.5;
+		const angle = random() * Math.PI * 2;
+		const bright = random() > 0.3;
+		const value = bright ? 0.72 + random() * 0.25 : 0.08 + random() * 0.12;
+		const trail = 0.025 + random() * 0.11;
+		return { x: Math.cos(angle) * radius, y: (random() - 0.52) * 2.2, z: Math.sin(angle) * radius, trail, value };
+	});
+	for (let i = 0; i < count; i++) {
+		const value = offsets[i].value;
+		colors.set([value, value, value, value * 0.28, value * 0.28, value * 0.28], i * 6);
+	}
+	const geometry = new BufferGeometry();
+	const positionAttribute = new BufferAttribute(positions, 3);
+	geometry.setAttribute('position', positionAttribute);
+	geometry.setAttribute('color', new BufferAttribute(colors, 3));
+	const material = new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false });
+	const object = new LineSegments(geometry, material);
+	object.frustumCulled = false;
+	object.visible = false;
+	const wind = new Vector3(0.94, 0, 0.34).normalize();
+	return {
+		object,
+		update(camera: Vector3, elapsed: number, windSpeed: number, active: boolean) {
+			object.visible = active;
+			if (!active) return;
+			const drift = elapsed * windSpeed;
+			for (let i = 0; i < count; i++) {
+				const grain = offsets[i];
+				const x = camera.x + ((grain.x + drift + 6) % 12 + 12) % 12 - 6;
+				const y = camera.y + grain.y;
+				const z = camera.z + grain.z;
+				const start = i * 6;
+				positions[start] = x;
+				positions[start + 1] = y;
+				positions[start + 2] = z;
+				positions[start + 3] = x - wind.x * grain.trail;
+				positions[start + 4] = y - 0.004;
+				positions[start + 5] = z - wind.z * grain.trail;
+			}
+			positionAttribute.needsUpdate = true;
+		},
+		dispose() {
+			geometry.dispose();
+			material.dispose();
+		}
+	};
+}
+
+function geologyTextures(data: GeologyData | undefined, columns: number, rows: number) {
+	const geologyCanvas = document.createElement('canvas');
+	const swirCanvas = document.createElement('canvas');
+	for (const canvas of [geologyCanvas, swirCanvas]) {
+		canvas.width = columns;
+		canvas.height = rows;
+	}
+	const geologyContext = geologyCanvas.getContext('2d');
+	const swirContext = swirCanvas.getContext('2d');
+	if (!geologyContext || !swirContext) return undefined;
+	swirContext.fillStyle = '#808080';
+	swirContext.fillRect(0, 0, columns, rows);
+	const projectX = (longitude: number) => eqcRadius * Math.cos(eqcLatitude)
+		* (longitude - eqcLongitude) * eqcRadians;
+	const projectY = (latitude: number) => eqcRadius * latitude * eqcRadians;
+	const left = projectX(jezeroBounds.west), right = projectX(jezeroBounds.east);
+	const bottom = projectY(jezeroBounds.south), top = projectY(jezeroBounds.north);
+	for (const feature of data?.features ?? []) {
+		const unit = String(feature.attributes.unit ?? '');
+		const rings = feature.geometry?.rings;
+		if (!rings?.length) continue;
+		for (const context of [geologyContext, swirContext]) {
+			context.beginPath();
+			for (const ring of rings) {
+				for (let i = 0; i < ring.length; i++) {
+					const [longitude, latitude] = ring[i];
+					const x = (projectX(longitude) - left) / (right - left) * columns;
+					const y = (top - projectY(latitude)) / (top - bottom) * rows;
+					if (i === 0) context.moveTo(x, y);
+					else context.lineTo(x, y);
+				}
+				context.closePath();
+			}
+		}
+		geologyContext.fillStyle = geologyColors[unit] ?? '#777777';
+		geologyContext.fill('evenodd');
+		const gray = Math.round((swirAlbedo[unit] ?? 0.5) * 255);
+		swirContext.fillStyle = `rgb(${gray} ${gray} ${gray})`;
+		swirContext.fill('evenodd');
+	}
+	const geology = new CanvasTexture(geologyCanvas);
+	geology.colorSpace = SRGBColorSpace;
+	return { geology, swirCanvas };
+}
+
+function slopeTexture(elevations: Float32Array, columns: number, rows: number, spacing: number) {
+	const canvas = document.createElement('canvas');
+	canvas.width = columns;
+	canvas.height = rows;
+	const context = canvas.getContext('2d');
+	if (!context) return undefined;
+	const pixels = context.createImageData(columns, rows);
+	for (let row = 1; row < rows - 1; row++) for (let col = 1; col < columns - 1; col++) {
+		const i = row * columns + col;
+		const west = elevations[i - 1], east = elevations[i + 1];
+		const north = elevations[i - columns], south = elevations[i + columns];
+		if (![west, east, north, south].every(Number.isFinite)) continue;
+		const grade = Math.atan(Math.hypot((east - west) / (2 * spacing), (south - north) / (2 * spacing))) * 180 / Math.PI;
+		const color = grade < 5 ? [38, 150, 101] : grade < 12 ? [222, 163, 62] : [207, 77, 67];
+		pixels.data.set([...color, 230], i * 4);
+	}
+	context.putImageData(pixels, 0, 0);
+	const texture = new CanvasTexture(canvas);
+	texture.colorSpace = SRGBColorSpace;
+	return texture;
+}
+
+function buildSwirTexture(image: CanvasImageSource, mask: HTMLCanvasElement, columns: number, rows: number) {
+	const canvas = document.createElement('canvas');
+	const albedoCanvas = document.createElement('canvas');
+	canvas.width = columns;
+	canvas.height = rows;
+	albedoCanvas.width = columns;
+	albedoCanvas.height = rows;
+	const context = canvas.getContext('2d');
+	const maskContext = albedoCanvas.getContext('2d');
+	if (!context || !maskContext) return undefined;
+	context.drawImage(image, 0, 0, columns, rows);
+	maskContext.drawImage(mask, 0, 0, columns, rows);
+	const pixels = context.getImageData(0, 0, columns, rows);
+	const albedo = maskContext.getImageData(0, 0, columns, rows);
+	for (let i = 0; i < pixels.data.length; i += 4) {
+		if (!pixels.data[i + 3]) continue;
+		const material = albedo.data[i] / 255;
+		const value = Math.round(MathUtils.clamp(material, 0.05, 1) * 255);
+		pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = value;
+	}
+	context.putImageData(pixels, 0, 0);
+	// Reflectance values are linear data, not sRGB display colors.
+	return new CanvasTexture(canvas);
+}
 
 function buildTerrain(data: ArrayBuffer) {
 	const header = new DataView(data);
@@ -103,7 +333,7 @@ function buildTerrain(data: ArrayBuffer) {
 		return elevations[i + columns + 1] * (u + v - 1) + east * (1 - v) + south * (1 - u) - low;
 	}
 
-	return { geometry, width, length, surfaceHeight };
+	return { geometry, width, length, spacing, columns, rows, elevations, surfaceHeight };
 }
 
 export type TerrainNotice = 'ready' | 'edge';
@@ -159,14 +389,17 @@ export function mountTerrain(
 	map: HTMLCanvasElement,
 	data: ArrayBuffer,
 	orthoUrl: string,
+	geology: GeologyData | undefined,
 	notify: (notice: TerrainNotice) => void,
 	getNotice: () => string,
 	getClock: () => string,
 	getMessage: () => VisorMessage,
+	getSwir: () => SwirHudData,
 	modelUrls: Ares01ModelUrls
 ) {
 	const lightTerrain = buildTerrain(data);
 	const { width, length } = lightTerrain;
+	let { spacing, columns, rows, elevations } = lightTerrain;
 	let { surfaceHeight } = lightTerrain;
 	let highTerrain: ReturnType<typeof buildTerrain> | undefined;
 	let explored = false;
@@ -180,13 +413,38 @@ export function mountTerrain(
 	renderer.shadowMap.enabled = true;
 	renderer.shadowMap.type = PCFShadowMap;
 
-	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
+	const swirRaycaster = new Raycaster();
+	const swirDirection = new Vector3();
+	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage, () => {
+		const data = getSwir();
+		if (displayMode !== 'swir') return { ...data, active: false };
+		swirRaycaster.set(camera.position, camera.getWorldDirection(swirDirection));
+		const target = swirRaycaster.intersectObjects(scene.children, true)
+			.find(({ object }) => {
+				if (typeof object.userData.swirAlbedo !== 'number') return false;
+				for (let ancestor: Object3D | null = object; ancestor; ancestor = ancestor.parent) {
+					if (!ancestor.visible) return false;
+				}
+				return true;
+			});
+		return target ? {
+			...data,
+			distanceM: target.distance,
+			albedo: target.object.userData.swirAlbedo as number,
+			surface: String(target.object.userData.swirSurface ?? 'SURFACE')
+		} : { ...data, distanceM: null, albedo: null, surface: undefined };
+	});
 	const scene = new Scene();
 	const dayFog = new Color('#cca88a');
 	const fog = new FogExp2(dayFog, clearDustDensity);
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
 	const orthoTint = new Color('#bfa38e');
+	const geologyLayer = geologyTextures(geology, columns, rows);
+	let slopeLayer = slopeTexture(elevations, columns, rows, spacing);
+	let swirLayer: CanvasTexture | undefined;
+	let displayMode: TerrainDisplayMode = 'visible';
+	let compiledShader: { uniforms: Record<string, { value: unknown }> } | undefined;
 	// Meter-scale detail is illustrative. The HiRISE grid determines the geometry.
 	terrainMaterial.onBeforeCompile = (shader) => {
 		shader.vertexShader = 'varying vec3 groundPoint;\n' + shader.vertexShader.replace(
@@ -233,7 +491,11 @@ export function mountTerrain(
 			vec2 p = groundPoint.xz;
 			#ifdef USE_MAP
 				vec4 ortho = texture2D(map, vMapUv);
-				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a * 0.72);
+				float gray = dot(ortho.rgb, vec3(0.2126, 0.7152, 0.0722));
+				vec3 layerColor = mix(ortho.rgb, vec3(gray), swirMode);
+				vec3 tint = mix(vec3(1.0), orthoTint, orthoTintMode);
+				float coverage = ortho.a * mix(1.0, 0.72, orthoTintMode);
+				diffuseColor.rgb = mix(diffuseColor.rgb, layerColor * tint, coverage);
 			#endif
 			float footprint = max(length(dFdx(p)), length(dFdy(p)));
 			float gravelBed = smoothstep(0.29, 0.72, dustNoise(p * 0.38) * 0.68 + dustNoise(p * 1.4) * 0.32);
@@ -255,11 +517,20 @@ export function mountTerrain(
 			'#include <normal_fragment_maps>\nnormal = groundNormal(-vViewPosition, normal, microHeight);'
 		);
 		shader.uniforms.orthoTint = { value: orthoTint };
+		shader.uniforms.orthoTintMode = { value: displayMode === 'visible' ? 1 : 0 };
+		shader.uniforms.swirMode = { value: displayMode === 'swir' ? 1 : 0 };
+		compiledShader = shader as unknown as typeof compiledShader;
 		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
+		shader.fragmentShader = 'uniform float orthoTintMode;\nuniform float swirMode;\n' + shader.fragmentShader;
 	};
+	const swirMaterialSetters: Array<(enabled: boolean, time?: number) => void> = [
+		installSwirMaterialResponse(terrainMaterial, 1, true)
+	];
 	const mesh = new Mesh(lightTerrain.geometry, terrainMaterial);
 	mesh.castShadow = true;
 	mesh.receiveShadow = true;
+	mesh.userData.swirAlbedo = 0.78;
+	mesh.userData.swirSurface = 'REGOLITH/DUST';
 	const ambient = new HemisphereLight('#ffe4cc', '#82604c', 1.65);
 	scene.add(mesh, ambient);
 	const span = Math.max(width, length);
@@ -346,6 +617,7 @@ export function mountTerrain(
 			` + shader.fragmentShader.replace('#include <color_fragment>',
 				`#include <color_fragment>\n${pattern}`);
 		};
+		swirMaterialSetters.push(installSwirMaterialResponse(material, [0.22, 0.72, 0.78][variant]));
 		return material;
 	});
 	const rockTiles = new Map<string, { meshes: InstancedMesh[]; colliders: RockContact[] }>();
@@ -417,6 +689,9 @@ export function mountTerrain(
 			const rocks = new InstancedMesh(geometry, rockMaterials[rockProfiles[variant].material], instances.length);
 			rocks.castShadow = true;
 			rocks.receiveShadow = true;
+			const rockClass = rockProfiles[variant].material;
+			rocks.userData.swirAlbedo = [0.22, 0.72, 0.78][rockClass];
+			rocks.userData.swirSurface = ['EXPOSED ROCK', 'DUSTED ROCK', 'SEDIMENTARY ROCK'][rockClass];
 			const firstContact = colliders.length;
 			placeRock: for (const rock of instances) {
 				placement.quaternion.setFromUnitVectors(up, normal.set(rock.slopeX, 1, rock.slopeZ).normalize());
@@ -495,9 +770,24 @@ export function mountTerrain(
 		rockColliders = colliders;
 	}
 
-	const missionScene = buildAres01Scene((x, z) => surfaceHeight(x, z), modelUrls, () => draw());
+	const swirMissionMaterials = new Set<SwirMaterial>();
+	const missionScene = buildAres01Scene(surfaceHeight, modelUrls, () => draw(), (root, albedo, surface) => {
+		root.traverse((object) => {
+			if (!(object instanceof Mesh)) return;
+			object.userData.swirAlbedo = albedo;
+			object.userData.swirSurface = surface;
+			for (const material of [object.material].flat()) {
+				if (!(material instanceof MeshStandardMaterial || material instanceof MeshLambertMaterial)
+					|| swirMissionMaterials.has(material)) continue;
+				swirMissionMaterials.add(material);
+				swirMaterialSetters.push(installSwirMaterialResponse(material, albedo));
+			}
+		});
+	});
 	scene.add(missionScene.group);
 	let missionView: MissionView | undefined;
+	const saltationGrains = createSaltationGrains();
+	scene.add(saltationGrains.object);
 
 	const mapContext = map.getContext('2d');
 	const relief = document.createElement('canvas');
@@ -601,20 +891,27 @@ export function mountTerrain(
 	const worldToEye = new Quaternion();
 	const nightFog = new Color('#161b29');
 	const duskFog = new Color('#a57561');
+	const neutralFog = new Color('#777777');
 	const dustFog = new Color();
 	const lowSun = new Color('#ffad78');
 	const highSun = new Color('#fff0d9');
 	let daylight = 1;
 	let twilight = 1;
 	let dust = 0;
+	let windSpeed = 7.4;
 	let sceneSol = 0;
 	let moonPositions = martianMoons(sceneSol);
 	let stormFrame = 0;
+	let swirFrame = 0;
 	let stormStarted = 0;
 	let gustTime = 0;
 	const drillMoving = () => !!missionView?.drilling && !missionView.drillPaused;
 	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
+		const swir = displayMode === 'swir';
+		const frameTime = performance.now() / 1000;
+		for (const setSwir of swirMaterialSetters) setSwir(swir, frameTime);
+		saltationGrains.update(camera.position, gustTime, windSpeed, swir && dust > 0.02);
 		missionScene.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
@@ -629,10 +926,11 @@ export function mountTerrain(
 		optics.render(scene, camera, lightInView, Math.asin(MathUtils.clamp(sunDirectionWorld.y, -1, 1)),
 			phobosInView, moonPositions.phobos.up, moonPositions.phobos.angularRadius,
 			deimosInView, moonPositions.deimos.up, moonPositions.deimos.angularRadius,
-			twilight, daylight, dust, gustTime);
+			twilight, daylight, swir ? dust * SWIR_DUST_TRANSMISSION : dust, gustTime, swir, windSpeed);
 	};
 	function updateLighting() {
 		const up = sunDirectionWorld.y;
+		const opticalDust = displayMode === 'swir' ? dust * SWIR_DUST_TRANSMISSION : dust;
 		daylight = MathUtils.smoothstep(up, 0, 0.38);
 		// High-altitude Martian dust can keep the sky faintly lit well after sunset.
 		twilight = MathUtils.smoothstep(up, Math.sin(-29 * Math.PI / 180), Math.sin(5 * Math.PI / 180));
@@ -641,12 +939,39 @@ export function mountTerrain(
 		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
 		fog.color.copy(nightFog).lerp(duskFog, twilight).lerp(dayFog, daylight);
 		// Suspended dust softens distant relief while leaving nearby ground clear.
-		fog.density = MathUtils.lerp(clearDustDensity, 0.006, dust);
-		if (dust > 0) {
-			sun.intensity *= Math.exp(-2.8 * dust / Math.max(0.15, up));
-			ambient.intensity *= MathUtils.lerp(1, 0.57, dust);
-			fog.color.lerp(dustColor(dustFog, twilight, daylight), dust);
+		if (displayMode === 'swir') fog.color.lerp(neutralFog, 0.85);
+		fog.density = MathUtils.lerp(clearDustDensity, 0.006, dust) * (displayMode === 'swir' ? SWIR_DUST_TRANSMISSION : 1);
+		if (opticalDust > 0) {
+			sun.intensity *= Math.exp(-2.8 * opticalDust / Math.max(0.15, up));
+			ambient.intensity *= MathUtils.lerp(1, 0.57, opticalDust);
+			const stormColor = dustColor(dustFog, twilight, daylight);
+			if (displayMode === 'swir') stormColor.lerp(neutralFog, 0.85);
+			fog.color.lerp(stormColor, opticalDust);
 		}
+	}
+	function setDisplayMode(mode: TerrainDisplayMode) {
+		displayMode = mode;
+		const visibleTexture = highTexture ?? texture;
+		terrainMaterial.map = mode === 'geology' ? geologyLayer?.geology ?? null
+			: mode === 'slope' ? slopeLayer ?? null
+				: mode === 'swir' ? swirLayer ?? visibleTexture : visibleTexture;
+		if (compiledShader) {
+			compiledShader.uniforms.orthoTintMode.value = mode === 'visible' ? 1 : 0;
+			compiledShader.uniforms.swirMode.value = mode === 'swir' ? 1 : 0;
+		}
+		cancelAnimationFrame(swirFrame);
+		swirFrame = 0;
+		if (mode === 'swir' && !reducedMotion.matches) {
+			const animateSwir = () => {
+				if (displayMode !== 'swir') { swirFrame = 0; return; }
+				draw();
+				swirFrame = requestAnimationFrame(animateSwir);
+			};
+			swirFrame = requestAnimationFrame(animateSwir);
+		}
+		terrainMaterial.needsUpdate = true;
+		updateLighting();
+		draw();
 	}
 	function setTime(localSol: number) {
 		sceneSol = localSol;
@@ -679,6 +1004,11 @@ export function mountTerrain(
 		updateLighting();
 		if (motionChanged) updateStormMotion();
 		else draw();
+	}
+	function setWind(next: number | null) {
+		if (next === null || !Number.isFinite(next) || next < 0 || next === windSpeed) return;
+		windSpeed = next;
+		draw();
 	}
 
 	function setMissionView(view?: MissionView) {
@@ -884,9 +1214,10 @@ export function mountTerrain(
 		texture.colorSpace = SRGBColorSpace;
 		texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 		if (!highTexture) {
-			terrainMaterial.map = texture;
-			terrainMaterial.needsUpdate = true;
-			draw();
+			swirLayer?.dispose();
+			swirLayer = geologyLayer && buildSwirTexture(texture.image as CanvasImageSource,
+				geologyLayer.swirCanvas, columns, rows);
+			setDisplayMode(displayMode);
 		}
 	}, undefined, () => {
 		if (!abort.signal.aborted) console.warn('Could not load the HiRISE orthoimage.');
@@ -927,10 +1258,16 @@ export function mountTerrain(
 	}
 
 	function applyHighQuality(active: ReturnType<typeof buildTerrain>, image: Texture) {
+		spacing = active.spacing;
+		columns = active.columns;
+		rows = active.rows;
+		elevations = active.elevations;
 		surfaceHeight = active.surfaceHeight;
 		mesh.geometry = active.geometry;
-		terrainMaterial.map = image;
-		terrainMaterial.needsUpdate = true;
+		slopeLayer?.dispose();
+		slopeLayer = slopeTexture(elevations, columns, rows, spacing);
+		swirLayer?.dispose();
+		swirLayer = geologyLayer && buildSwirTexture(image.image as CanvasImageSource, geologyLayer.swirCanvas, columns, rows);
 		sun.shadow.dispose();
 		sun.shadow.map = null;
 		sun.shadow.mapSize.setScalar(4096);
@@ -944,6 +1281,7 @@ export function mountTerrain(
 		lastRockTileX = lastRockTileZ = Number.NaN;
 		mapX = Infinity;
 		missionScene.reground();
+		setDisplayMode(displayMode);
 		updateRockTiles();
 		camera.position.y = eyeY();
 		atEdge = false;
@@ -955,13 +1293,16 @@ export function mountTerrain(
 		loadHighQuality,
 		refresh: draw,
 		setTime,
+		setDisplayMode,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
 		setDust,
+		setWind,
 		setMissionView,
 		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
 		dispose() {
 			abort.abort();
 			cancelAnimationFrame(stormFrame);
+			cancelAnimationFrame(swirFrame);
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			cancelAnimationFrame(frame);
 			observer.disconnect();
@@ -981,7 +1322,11 @@ export function mountTerrain(
 			for (const material of rockMaterials) {
 				material.dispose();
 			}
+			saltationGrains.dispose();
 			texture.dispose();
+			geologyLayer?.geology.dispose();
+			swirLayer?.dispose();
+			slopeLayer?.dispose();
 			missionScene.dispose();
 			optics.dispose();
 			renderer.dispose();

@@ -15,7 +15,8 @@ export interface Ares01ModelUrls {
 export function buildAres01Scene(
 	surfaceHeight: (x: number, z: number) => number,
 	modelUrls: Ares01ModelUrls,
-	refresh: () => void
+	refresh: () => void,
+	registerSwirSurface: (object: Object3D, albedo: number, surface: string) => void
 ) {
 	let disposed = false;
 	const landmarks = new Group();
@@ -28,6 +29,7 @@ export function buildAres01Scene(
 		const block = new Mesh(hardware, paint);
 		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
 		block.scale.set(w, h, d);
+		registerSwirSurface(block, paint === shale ? 0.22 : 0.92, paint === shale ? 'EXPOSED ROCK' : 'HARDWARE');
 		landmarks.add(block);
 		terrainAnchors.push({ object: block, point: anchor, heightOffset: y });
 	}
@@ -68,6 +70,7 @@ export function buildAres01Scene(
 					return;
 				}
 				model.traverse((object) => { if (object instanceof Mesh) object.castShadow = true; });
+				registerSwirSurface(model, 0.92, 'HARDWARE');
 				missionAssets.push(model);
 				place(model);
 				refresh();
@@ -91,11 +94,13 @@ export function buildAres01Scene(
 	const rockX = SAMPLING_KIT.x - 0.13;
 	const rockZ = SAMPLING_KIT.z - 0.76;
 	outcrop.group.position.set(rockX, surfaceHeight(rockX, rockZ), rockZ);
+	registerSwirSurface(outcrop.group, 0.22, 'EXPOSED ROCK');
 	landmarks.add(outcrop.group);
 	terrainAnchors.push({ object: outcrop.group, point: { x: rockX, z: rockZ }, heightOffset: 0 });
 	const samplingKit = buildSamplingKit();
 	const { x: kitX, z: kitZ } = SAMPLING_KIT;
 	samplingKit.group.position.set(kitX, surfaceHeight(kitX, kitZ), kitZ);
+	registerSwirSurface(samplingKit.group, 0.92, 'HARDWARE');
 	landmarks.add(samplingKit.group);
 	terrainAnchors.push({ object: samplingKit.group, point: SAMPLING_KIT, heightOffset: 0 });
 	samplingKit.setContact(rockX - kitX,
