@@ -48,8 +48,11 @@ export function buildVisorOptics(renderer: WebGLRenderer) {
 				sceneColor.r = mix(sceneColor.r, red.r / max(red.a, 0.001), red.a);
 				sceneColor.b = mix(sceneColor.b, blue.b / max(blue.a, 0.001), blue.a);
 
-				vec3 sky = mix(vec3(0.49, 0.265, 0.157), vec3(0.143, 0.089, 0.067),
-					smoothstep(0.40, 1.0, sampleUV.y));
+				float skyHeight = smoothstep(0.34, 0.90, sampleUV.y);
+				vec3 horizon = vec3(0.60, 0.39, 0.25);
+				vec3 zenith = vec3(0.32, 0.21, 0.17);
+
+				vec3 sky = mix(horizon, zenith, skyHeight);
 				vec3 transmitted = mix(sky, sceneColor, world.a);
 				float falloff = smoothstep(0.26, 1.0, r2);
 				transmitted *= mix(vec3(1.015, 0.985, 0.935), vec3(0.57, 0.50, 0.46), falloff);

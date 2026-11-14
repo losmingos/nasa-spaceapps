@@ -6,7 +6,7 @@ import struct
 from pathlib import Path
 
 PRODUCT = "DTEEC_002387_1985_003798_1985_A01"
-STRIDE = 16
+STRIDE = 4 #Probar rendimiento
 OUTPUT = Path(__file__).resolve().parents[1] / "static/terrain/jezero.bin"
 
 
