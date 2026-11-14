@@ -260,6 +260,9 @@
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSA' : ''}` : `SOL ${sol} · ${clock} LMST`,
 					() => hudMessage);
 				showNotice('ready');
+				if (matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
+					void terrain.loadHighQuality(asset('terrain/jezero-high.bin'), asset('terrain/jezero-ortho-high.webp'));
+				}
 			} catch (cause) {
 				if (request.signal.aborted) return;
 				console.error(cause);
@@ -276,6 +279,7 @@
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
 			terrain?.dispose();
+			terrain = undefined;
 		};
 	});
 </script>
