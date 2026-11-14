@@ -4,7 +4,8 @@ import {
 	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
 	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
+import { buildVisorOptics, dustColor, type VisorMessage, type VisorReadings } from './visor-optics.js';
+import type { Exertion } from './jarvis/telemetry.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
 import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, type Point } from './ares/route.js';
@@ -140,7 +141,9 @@ export function mountTerrain(
 	notify: (notice: TerrainNotice) => void,
 	getNotice: () => string,
 	getClock: () => string,
-	getMessage: () => VisorMessage
+	getMessage: () => VisorMessage,
+	getReadings: () => VisorReadings,
+	onExertion: (level: Exertion) => void
 ) {
 	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -153,7 +156,7 @@ export function mountTerrain(
 	renderer.shadowMap.enabled = true;
 	renderer.shadowMap.type = PCFSoftShadowMap;
 
-	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
+	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage, getReadings);
 	const scene = new Scene();
 	const fog = new FogExp2('#bb8867', 0.00042);
 	scene.fog = fog;
@@ -647,10 +650,14 @@ export function mountTerrain(
 		const sameRun = player && previousPlayer && previousPlayer.run === player.run;
 		if (!sameRun) {
 			keys.clear();
+			sprintHeld = false;
 			velocityX = velocityZ = 0;
+			reportExertion('resting');
 		} else if (!player.enabled) {
 			for (const key of walkKeys) keys.delete(key);
+			sprintHeld = false;
 			velocityX = velocityZ = 0;
+			reportExertion('resting');
 		}
 		if (sameRun && previousView) {
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
@@ -696,6 +703,13 @@ export function mountTerrain(
 	let velocityX = 0;
 	let velocityZ = 0;
 	let stride = 0;
+	let sprintHeld = false;
+	let currentExertion: Exertion = 'resting';
+	function reportExertion(level: Exertion) {
+		if (level === currentExertion) return;
+		currentExertion = level;
+		onExertion(level);
+	}
 	let previous = 0;
 	let frame = 0;
 	let atEdge = false;
@@ -715,8 +729,9 @@ export function mountTerrain(
 		const steering = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
 		const driving = missionView?.player?.driving;
 		const side = driving ? 0 : steering;
+		const sprinting = sprintHeld && !driving && forward > 0;
 		if (driving) camera.rotation.y -= steering * dt * 0.9;
-		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) / Math.max(1, Math.hypot(forward, side));
+		const speed = (driving ? (forward < 0 ? 3 : 8) : sprinting ? 2.8 : 1.45) / Math.max(1, Math.hypot(forward, side));
 		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
@@ -724,6 +739,8 @@ export function mountTerrain(
 		const z = camera.position.z + velocityZ * dt;
 		const nextHeight = surfaceHeight(x, z);
 		const distance = Math.hypot(velocityX, velocityZ) * dt;
+		const moving = Math.hypot(velocityX, velocityZ) > 0.12;
+		reportExertion(!driving && moving ? (sprinting ? 'running' : 'walking') : 'resting');
 		const blockedByHazard = !!missionView?.player && missionView.showHazard
 			&& distanceBetween({ x, z }, HAZARD) < HAZARD_RADIUS
 			&& distanceBetween({ x, z }, HAZARD) < distanceBetween(camera.position, HAZARD);
@@ -742,7 +759,8 @@ export function mountTerrain(
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = reducedMotion.matches || blocked || missionView?.player?.driving ? 0 : Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+		const bob = reducedMotion.matches || blocked || missionView?.player?.driving ? 0
+			: Math.sin(stride * (sprinting ? 10 : 7)) * Math.min(distance / (dt || 1), 1) * (sprinting ? 0.045 : 0.025);
 		camera.position.y = eyeY() + bob;
 		draw();
 		if (keys.size || Math.hypot(velocityX, velocityZ) > 0.015) frame = requestAnimationFrame(step);
@@ -769,6 +787,10 @@ export function mountTerrain(
 
 	canvas.addEventListener('keydown', (event) => {
 		if (!canLook()) return;
+		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+			if (canMove()) { sprintHeld = true; if (!frame) frame = requestAnimationFrame(step); }
+			return;
+		}
 		if (event.code === 'Enter' && !event.repeat) void captureLook();
 		if (walkKeys.includes(event.code)) {
 			event.preventDefault();
@@ -784,11 +806,14 @@ export function mountTerrain(
 			if (!frame) frame = requestAnimationFrame(step);
 		}
 	}, options);
-	window.addEventListener('keyup', (event) => keys.delete(event.code), options);
-	canvas.addEventListener('blur', () => keys.clear(), options);
-	window.addEventListener('blur', () => keys.clear(), options);
+	window.addEventListener('keyup', (event) => {
+		keys.delete(event.code);
+		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') sprintHeld = false;
+	}, options);
+	canvas.addEventListener('blur', () => { keys.clear(); sprintHeld = false; reportExertion('resting'); }, options);
+	window.addEventListener('blur', () => { keys.clear(); sprintHeld = false; reportExertion('resting'); }, options);
 	document.addEventListener('pointerlockchange', () => {
-		if (document.pointerLockElement !== canvas) keys.clear();
+		if (document.pointerLockElement !== canvas) { keys.clear(); sprintHeld = false; reportExertion('resting'); }
 	}, options);
 	document.addEventListener('mousemove', (event) => {
 		if (canLook() && document.pointerLockElement === canvas) look(event.movementX, event.movementY);

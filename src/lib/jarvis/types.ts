@@ -2,6 +2,7 @@
 // Client module, server endpoints and pages all code against these types. Change only by agreement.
 
 import type { LineId } from './lines.js';
+import type { Exertion } from './telemetry.js';
 
 export type MissionEvent = 'mission_start' | 'sample_collected' | 'storm_start';
 export type Phase = 'idle' | 'sampling' | 'storm' | 'safe';
@@ -16,6 +17,8 @@ export interface Telemetry {
 	phase: Phase;
 	protocolStep: ProtocolStepId | null;
 	o2_remaining_min: number;
+	o2_remaining_pct: number;
+	movement_mode: Exertion;
 	suit_power_pct: number;
 	visibility_m: number;
 	distance_to_habitat_m: number;
@@ -99,6 +102,10 @@ export interface Assistant {
 	/** MUST be called inside the «Enter VR» click handler, BEFORE navigator.xr.requestSession() (D20, D21). */
 	unlock(): Promise<void>;
 	setMissionContext(context?: string): void;
+	/** Start telemetry without playing the scripted mission-start line. */
+	startMissionClock(): void;
+	setExertion(level: Exertion): void;
+	setLocalSol(localSol: number): void;
 	/** Push-to-talk: A button rising edge (or spacebar on the laptop). Interrupts current playback (D26). */
 	pttDown(): void;
 	/** Push-to-talk release: stops recording and runs STT → chat → TTS. */

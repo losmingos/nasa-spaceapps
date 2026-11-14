@@ -1,6 +1,7 @@
 // Simulated suit/mission telemetry (spec §5.3, D10, D23). Computed on demand from two clocks:
 // mission_start (t_s) and storm_start (storm_t_s). No browser APIs; safe during SSR.
 import snapshot from '../data/meda-snapshot.json';
+import temperatureProfile from '../data/meda-temperature-sol313.json';
 import {
 	O2_START_MIN,
 	ROUTE_LENGTH_M,
@@ -14,6 +15,9 @@ import type { Phase, ProtocolStepId, Telemetry } from './types.js';
 
 /** O2 consumption multiplier during the storm (exertion). */
 const STORM_O2_FACTOR = 1.5;
+/** Relative oxygen endurance burn while running; a demo workload estimate. */
+const RUN_O2_FACTOR = 2.4;
+const O2_START_PCT = 96;
 /** Suit power drain (%/s) before and during the storm. */
 const POWER_DRAIN_PCT_S = 0.01;
 const POWER_DRAIN_STORM_PCT_S = 0.05;
@@ -28,6 +32,18 @@ const STEP_IDS: readonly ProtocolStepId[] = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
 const P4_INDEX = 3;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export type Exertion = 'resting' | 'walking' | 'running';
+
+/** Interpolate MEDA sol-313 hourly means at the selected Jezero LMST. */
+export function medaTemperatureAt(localSol: number): number {
+	const profile = temperatureProfile.hourly_mean_c;
+	const hour = ((localSol % 1) + 1) % 1 * profile.length;
+	const before = Math.floor(hour);
+	const after = (before + 1) % profile.length;
+	const fraction = hour - before;
+	return (profile[before] ?? -63) + ((profile[after] ?? -63) - (profile[before] ?? -63)) * fraction;
+}
 
 /** MEDA snapshot values (null when the sensor had no data that sol). */
 export const MEDA = (() => {
@@ -59,6 +75,8 @@ export interface TelemetrySim {
 	 * advances past both the forced step and the automatic step at the time it was forced.
 	 */
 	setStep(step: ProtocolStepId): void;
+	setExertion(level: Exertion): void;
+	setLocalSol(localSol: number): void;
 	reset(): void;
 	get(): Telemetry;
 	readonly missionStarted: boolean;
@@ -73,6 +91,10 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 	let missionT0: number | null = null; // ms
 	let stormT0: number | null = null; // ms
 	let manual: { idx: number; autoIdxAtSet: number } | null = null;
+	let exertion: Exertion = 'resting';
+	let localSol: number | null = null;
+	let oxygenRemainingMin = O2_START_MIN;
+	let oxygenUpdatedAt: number | null = null;
 	/** Mission time (s) at which a manual step ≥ P4 started the walk back. */
 	let manualWalkT: number | null = null;
 
@@ -81,6 +103,19 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 		const t = missionT0 === null ? 0 : Math.max(0, (n - missionT0) / 1000);
 		const st = stormT0 === null ? null : Math.max(0, (n - stormT0) / 1000);
 		return { t, st };
+	}
+
+	function accountOxygen(at = now()) {
+		if (missionT0 === null) return;
+		if (oxygenUpdatedAt === null) oxygenUpdatedAt = at;
+		const elapsed = Math.max(0, (at - oxygenUpdatedAt) / 1000);
+		const stormSeconds = stormT0 === null ? 0
+			: Math.max(0, (at - Math.max(oxygenUpdatedAt, stormT0)) / 1000);
+		const clearSeconds = elapsed - stormSeconds;
+		const workload = exertion === 'running' ? RUN_O2_FACTOR : 1;
+		oxygenRemainingMin = Math.max(0, oxygenRemainingMin
+			- workload * (clearSeconds + stormSeconds * STORM_O2_FACTOR) / 60);
+		oxygenUpdatedAt = at;
 	}
 
 	function autoTimeIndex(st: number | null): number {
@@ -92,11 +127,12 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 	}
 
 	function compute(): Telemetry {
+		accountOxygen();
 		const { t, st } = clocks();
 		const stormS = st ?? 0;
 		const preStormS = Math.max(0, t - stormS);
 
-		const o2 = Math.max(0, O2_START_MIN - preStormS / 60 - (STORM_O2_FACTOR * stormS) / 60);
+		const o2 = oxygenRemainingMin;
 		const power = Math.max(
 			0,
 			SUIT_POWER_START_PCT - POWER_DRAIN_PCT_S * preStormS - POWER_DRAIN_STORM_PCT_S * stormS
@@ -144,10 +180,12 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 			phase,
 			protocolStep,
 			o2_remaining_min: round(o2, 1),
+			o2_remaining_pct: round(O2_START_PCT * o2 / O2_START_MIN),
+			movement_mode: exertion,
 			suit_power_pct: round(power, 1),
 			visibility_m: roundVisibility(visibility),
 			distance_to_habitat_m: Math.round(distance),
-			air_temp_c: roundNullable(MEDA.air_temp_c, 1),
+			air_temp_c: roundNullable(localSol === null ? MEDA.air_temp_c : medaTemperatureAt(localSol), 1),
 			pressure_pa: roundNullable(MEDA.pressure_pa),
 			wind_ms: roundNullable(MEDA.wind_ms, 1),
 			dust_opacity: roundNullable(dust, 2)
@@ -159,18 +197,34 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 		stormT0 = null;
 		manual = null;
 		manualWalkT = null;
+		exertion = 'resting';
+		oxygenRemainingMin = O2_START_MIN;
+		oxygenUpdatedAt = null;
 	}
 
 	return {
 		missionStart() {
 			reset();
 			missionT0 = now();
+			oxygenUpdatedAt = missionT0;
 		},
 		stormStart() {
 			if (stormT0 !== null) return false;
-			if (missionT0 === null) missionT0 = now();
-			stormT0 = now();
+			const at = now();
+			if (missionT0 === null) {
+				missionT0 = at;
+				oxygenUpdatedAt = at;
+			} else accountOxygen(at);
+			stormT0 = at;
 			return true;
+		},
+		setExertion(level) {
+			if (exertion === level) return;
+			accountOxygen();
+			exertion = level;
+		},
+		setLocalSol(value) {
+			if (Number.isFinite(value)) localSol = value;
 		},
 		setStep(step) {
 			const idx = STEP_IDS.indexOf(step);

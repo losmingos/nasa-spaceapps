@@ -19,8 +19,14 @@ export interface VisorMessage {
 	kind?: 'warning' | 'danger';
 }
 
+export interface VisorReadings {
+	o2Percent: number;
+	airTempC: number | null;
+}
+
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage) {
+	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage,
+	getReadings: () => VisorReadings) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -53,8 +59,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.textAlign = 'right';
 		context.font = `400 ${fontSize}px monospace`;
 		const right = w - edge;
-		context.fillText('96', right - 52, h - bottom - 40);
-		context.fillText('−63', right - 52, h - bottom - 5);
+		const readings = getReadings();
+		context.fillText(String(Math.round(readings.o2Percent)), right - 52, h - bottom - 40);
+		context.fillText(readings.airTempC === null ? '—' : `${Math.round(readings.airTempC)}`, right - 52, h - bottom - 5);
 		context.font = '13px monospace';
 		context.fillText('% O₂', right, h - bottom - 40);
 		context.fillText('°C', right, h - bottom - 5);

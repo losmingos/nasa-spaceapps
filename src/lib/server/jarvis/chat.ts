@@ -22,7 +22,7 @@ function getClient(apiKey: string): Anthropic {
 
 type Validated = { ok: true; value: ChatRequest } | { ok: false; error: string };
 
-const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
+const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'o2_remaining_pct', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
 const TELEMETRY_NULLABLE = ['storm_t_s', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity'] as const;
 
 function cleanTelemetry(raw: Record<string, unknown>): Telemetry {
@@ -34,9 +34,10 @@ function cleanTelemetry(raw: Record<string, unknown>): Telemetry {
 		typeof raw.protocolStep === 'string' && /^P[1-6]$/.test(raw.protocolStep) ? raw.protocolStep : null;
 	// Fixed key order so the JSON we send is deterministic.
 	const t: Record<string, unknown> = {};
-	for (const k of ['t_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity']) {
+	for (const k of ['t_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'o2_remaining_pct', 'movement_mode', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity']) {
 		if (k === 'phase') t[k] = phase;
 		else if (k === 'protocolStep') t[k] = step;
+		else if (k === 'movement_mode') t[k] = ['resting', 'walking', 'running'].includes(String(raw[k])) ? raw[k] : 'resting';
 		else if ((TELEMETRY_NUMBERS as readonly string[]).includes(k)) t[k] = num(raw[k]);
 		else if ((TELEMETRY_NULLABLE as readonly string[]).includes(k)) t[k] = numOrNull(raw[k]);
 	}

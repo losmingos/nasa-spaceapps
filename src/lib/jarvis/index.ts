@@ -8,7 +8,7 @@ import * as api from './api.js';
 import { AudioEngine, speechAvailable, type Playable } from './audio.js';
 import { LINE_IDS, buildLineVars, fillLine, getLine, lineUrl, type LineId } from './lines.js';
 import { Recorder, type Clip } from './recorder.js';
-import { MEDA, createTelemetry } from './telemetry.js';
+import { MEDA, createTelemetry, type Exertion } from './telemetry.js';
 import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../mission.js';
 import type {
 	Assistant,
@@ -320,6 +320,24 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		tick();
 	}
 
+	function startMissionClock(): void {
+		if (disposed) return;
+		telemetry.missionStart();
+		tick();
+	}
+
+	function setExertion(level: Exertion): void {
+		if (disposed) return;
+		telemetry.setExertion(level);
+		emitState();
+	}
+
+	function setLocalSol(localSol: number): void {
+		if (disposed) return;
+		telemetry.setLocalSol(localSol);
+		emitState();
+	}
+
 	function handleCue(id: CueId): void {
 		if ((LINE_IDS as readonly string[]).includes(id)) void playLineInternal(id as LineId);
 		else if ((MISSION_EVENTS as readonly string[]).includes(id)) notify(id as MissionEvent);
@@ -455,6 +473,9 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		pttUp,
 		notify,
 		setStep,
+		startMissionClock,
+		setExertion,
+		setLocalSol,
 		reset,
 		setMissionContext: (context) => { missionContext = context; },
 		playLine: (id) => void playLineInternal(id),

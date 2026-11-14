@@ -114,7 +114,10 @@
 		void current.text;
 		terrain?.refresh();
 	});
-	$effect(() => terrain?.setTime(sceneSol));
+	$effect(() => {
+		terrain?.setTime(sceneSol);
+		assistant?.setLocalSol(sceneSol);
+	});
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
 	$effect(() => terrain?.setMissionView(mission && {
 		point: mission.point,
@@ -245,8 +248,13 @@
 			cuePolling: false
 		});
 		assistant = jarvis;
+		jarvis.setLocalSol(sceneSol);
 		voice = jarvis.getState();
-		const unsubscribeVoice = jarvis.onState((state) => { voice = state; flushMissionLine(); });
+		const unsubscribeVoice = jarvis.onState((state) => {
+			voice = state;
+			flushMissionLine();
+			terrain?.refresh();
+		});
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -258,7 +266,9 @@
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
 					() => current.text,
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSA' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage);
+					() => hudMessage,
+					() => ({ o2Percent: voice?.telemetry.o2_remaining_pct ?? 96, airTempC: voice?.telemetry.air_temp_c ?? null }),
+					(level) => assistant?.setExertion(level));
 				showNotice('ready');
 			} catch (cause) {
 				if (request.signal.aborted) return;
@@ -292,7 +302,7 @@
 		aria-label="Vista en primera persona del delta occidental de Jezero"
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Haz clic en la escena o pulsa Intro para capturar el ratón.
-		Usa WASD para caminar, las flechas para mirar y Escape para liberar el cursor.
+		Usa WASD para caminar, mantén Mayús mientras avanzas para correr, las flechas para mirar y Escape para liberar el cursor.
 		Pulsa H para mostrar el control del reloj marciano.
 		Mantén Espacio para hablar con Jarvis y suelta para enviar.</p>
 
@@ -325,9 +335,9 @@
 
 			<dl class="readouts" aria-label="Telemetría simulada">
 				<dt class="sr-only">Oxígeno</dt>
-				<dd>96<span>% O₂</span></dd>
+				<dd>{Math.round(voice?.telemetry.o2_remaining_pct ?? 96)}<span>% O₂</span></dd>
 				<dt class="sr-only">Temperatura</dt>
-				<dd>−63<span>°C</span></dd>
+				<dd>{voice?.telemetry.air_temp_c == null ? '—' : Math.round(voice.telemetry.air_temp_c)}<span>°C</span></dd>
 			</dl>
 			<p>Sol {sol}, {clock} hora solar media local de Jezero</p>
 		</div>
@@ -336,7 +346,7 @@
 			<Ares01 ready={!!terrain} onview={(view) => {
 				mission = view;
 			}} ondialogue={playMissionDialogue}
-				onstart={() => { voiceInput = undefined; assistant?.reset(); missionVoice?.unlock(); }}
+				onstart={() => { voiceInput = undefined; assistant?.reset(); assistant?.startMissionClock(); missionVoice?.unlock(); }}
 				onpause={() => { pendingMissionLine = undefined; missionVoice?.stop(); }}
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
