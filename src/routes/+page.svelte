@@ -51,7 +51,8 @@
 				if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE.');
 				const data = await response.arrayBuffer();
 				if (request.signal.aborted) return;
-				terrain = mountTerrain(canvas, map, data, showNotice, () => current.text);
+				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
+					() => current.text);
 				showNotice('ready');
 			} catch (cause) {
 				if (request.signal.aborted) return;

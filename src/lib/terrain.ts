@@ -1,6 +1,7 @@
 import {
 	BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
-	Mesh, MeshLambertMaterial, PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer
+	Mesh, MeshLambertMaterial, PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
+	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import { buildVisorOptics } from './visor-optics.js';
 
@@ -30,6 +31,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const length = (rows - 1) * spacing;
 	const positions = new Float32Array(count * 3);
 	const colors = new Float32Array(count * 3);
+	const uv = new Float32Array(count * 2);
 	const indices = new Uint32Array((columns - 1) * (rows - 1) * 6);
 	const [base, middle, peak] = elevationColors.map((hex) => new Color(hex));
 	const color = new Color();
@@ -41,6 +43,8 @@ function buildTerrain(data: ArrayBuffer) {
 			const present = Number.isFinite(elevation);
 			const height = present ? elevation - low : 0;
 			positions.set([col * spacing - width / 2, height, row * spacing - length / 2], i * 3);
+			uv[i * 2] = col / (columns - 1);
+			uv[i * 2 + 1] = 1 - row / (rows - 1);
 
 			const t = (height / (high - low)) ** 0.65;
 			if (t < 0.5) color.copy(base).lerp(middle, t * 2);
@@ -69,6 +73,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const geometry = new BufferGeometry();
 	geometry.setAttribute('position', new BufferAttribute(positions, 3));
 	geometry.setAttribute('color', new BufferAttribute(colors, 3));
+	geometry.setAttribute('uv', new BufferAttribute(uv, 2));
 	geometry.setIndex(new BufferAttribute(indices.subarray(0, index), 1));
 	geometry.computeVertexNormals();
 	// Use the same diagonal and missing-sample rules as the rendered triangles.
@@ -101,6 +106,7 @@ export function mountTerrain(
 	canvas: HTMLCanvasElement,
 	map: HTMLCanvasElement,
 	data: ArrayBuffer,
+	orthoUrl: string,
 	notify: (notice: TerrainNotice) => void,
 	getNotice: () => string = () => ''
 ) {
@@ -117,6 +123,7 @@ export function mountTerrain(
 	const scene = new Scene();
 	scene.fog = new FogExp2('#bb8867', 0.00042);
 	const material = new MeshLambertMaterial({ vertexColors: true });
+	const orthoTint = new Color('#bf9d83');
 	// Meter-scale detail is illustrative. The HiRISE grid determines the geometry.
 	material.onBeforeCompile = (shader) => {
 		shader.vertexShader = 'varying vec3 groundPoint;\n' + shader.vertexShader.replace(
@@ -134,6 +141,12 @@ export function mountTerrain(
 					mix(dustHash(cell + vec2(0, 1)).x, dustHash(cell + vec2(1, 1)).x, f.x), f.y);
 			}
 		` + shader.fragmentShader.replace(
+			'#include <map_fragment>',
+			`#ifdef USE_MAP
+				vec4 ortho = texture2D(map, vMapUv);
+				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a);
+			#endif`
+		).replace(
 			'#include <color_fragment>',
 			`#include <color_fragment>
 			vec2 p = groundPoint.xz;
@@ -148,6 +161,8 @@ export function mountTerrain(
 			float strata = (dustNoise(vec2(p.x * 0.035, groundPoint.y * 0.12)) - 0.5) * 0.11;
 			diffuseColor.rgb *= 0.86 + strata + (dust - pebble * 0.32) * distanceFade;`
 		);
+		shader.uniforms.orthoTint = { value: orthoTint };
+		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
 	};
 	scene.add(new Mesh(geometry, material), new HemisphereLight('#ffe4cc', '#82604c', 1.65));
 	const sun = new DirectionalLight('#fff0d9', 1.85);
@@ -343,6 +358,17 @@ export function mountTerrain(
 	observer.observe(canvas);
 	resize();
 
+	const texture = new TextureLoader().load(orthoUrl, () => {
+		if (abort.signal.aborted) return;
+		texture.colorSpace = SRGBColorSpace;
+		texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+		material.map = texture;
+		material.needsUpdate = true;
+		draw();
+	}, undefined, () => {
+		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
+	});
+
 	return {
 		refresh: draw,
 		dispose() {
@@ -351,6 +377,7 @@ export function mountTerrain(
 			cancelAnimationFrame(frame);
 			observer.disconnect();
 			geometry.dispose();
+			texture.dispose();
 			material.dispose();
 			optics.dispose();
 			renderer.dispose();
