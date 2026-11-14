@@ -1,4 +1,4 @@
-import { BASE, DETOUR, DETOUR_EXTRA, DIRECT, DIRECT_DISTANCE, distanceBetween, LOOSE_ROCK, pointAlong, ROVER, SAMPLE, type Point } from './route.js';
+import { BASE, DETOUR, DETOUR_EXTRA, DETOUR_WAYPOINT, DIRECT, DIRECT_DISTANCE, distanceBetween, HAZARD_CLEAR_Z, pointAlong, ROVER, SAMPLE, type Point } from './route.js';
 import { bitacora, dustAt, pressureAt, SAMPLE_STATUS, type Cue, type MissionSnapshot } from './ares01.js';
 
 type Phase = 'site' | 'sampling' | 'advisory' | 'continue' | 'abort' | 'secure'
@@ -14,9 +14,9 @@ const messages: Record<Phase, [string, string]> = {
 	secure: ['Secure the equipment', 'Drill stopped. Secure the equipment and log your progress and location.'],
 	collect: ['Collect the samples', 'Pick up the three sealed survey samples before leaving. The main core is still in the rock.'],
 	junction: ['Return on foot', `Three survey samples secured. Log saved. The rover is about ${DIRECT_DISTANCE} metres away. Walk to the first waypoint.`],
-	hazard: ['Unstable slope', `Stop. There is loose regolith on the slope. I recommend the surveyed detour, which adds ${DETOUR_EXTRA} metres.`],
+	hazard: ['Unstable slope', `Stop. A large boulder blocks the route across the unstable slope. I recommend the surveyed detour, which adds ${DETOUR_EXTRA} metres.`],
 	detour: ['Detour active', 'Detour loaded. Head east toward the waypoint and proceed with caution.'],
-	impact: ['Rock impact', 'You stepped on a loose rock. I detected an impact on the suit. Stop and start the integrity check.'],
+	impact: ['Loss of balance', 'You stumbled and fell. I detected an impact on the suit. Stop and start the integrity check.'],
 	check: ['Checking suit integrity', 'The outer layer may be damaged. I am checking the pressure trend.'],
 	resume: ['Pressure stable', 'Pressure is stable. I detect no leak. There may be surface damage, so proceed with caution.'],
 	beacon: ['Return to the corridor', 'Continue along the detour and follow the corridor toward the rover.'],
@@ -48,7 +48,7 @@ const BEACON = pointAlong(DETOUR, 65);
 const targets: Partial<Record<Phase, Point>> = {
 	site: SAMPLE,
 	junction: DIRECT[1],
-	detour: LOOSE_ROCK,
+	detour: DETOUR_WAYPOINT,
 	rover: ROVER,
 	board: ROVER,
 	drive: BASE,
@@ -73,7 +73,7 @@ export function stepInteractive(run: InteractiveMission, delta: number, position
 		case 'advisory':
 		case 'continue': return weather >= 40 ? enter(next, 'abort') : next;
 		case 'junction': return near(position, DIRECT[1], 3) ? enter(next, 'hazard') : next;
-		case 'detour': return near(position, LOOSE_ROCK, 3) ? enter(next, 'impact') : next;
+		case 'detour': return position.z >= HAZARD_CLEAR_Z ? enter(next, 'impact') : next;
 		case 'check': return next.elapsed - next.at >= 9 ? enter(next, 'resume') : next;
 		case 'beacon':
 			return near(position, BEACON, 4) ? enter(next, 'lost') : next;

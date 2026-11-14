@@ -1,10 +1,10 @@
-import { Box3, BoxGeometry, Group, Mesh, MeshLambertMaterial, Texture, Vector3,
+import { Box3, BoxGeometry, DodecahedronGeometry, Group, Mesh, MeshLambertMaterial, Texture, Vector3,
 	type BufferGeometry, type Material, type Object3D } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { ABRASION_HEIGHT, buildOutcrop } from './outcrop.js';
 import { buildSamplingKit } from './sampling-kit.js';
-import { BASE, LOOSE_ROCK, ROVER, SAMPLING_KIT, type Point } from './route.js';
+import { BASE, HAZARD, HAZARD_RADIUS, ROVER, SAMPLING_KIT, type Point } from './route.js';
 
 export interface Ares01ModelUrls {
 	rover: string;
@@ -24,12 +24,11 @@ export function buildAres01Scene(
 	const hardware = new BoxGeometry(1, 1, 1);
 	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
 	const terrainAnchors: { object: Object3D; point: Point; heightOffset: number }[] = [];
-	const shale = new MeshLambertMaterial({ color: '#6e4736' });
 	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
 		const block = new Mesh(hardware, paint);
 		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
 		block.scale.set(w, h, d);
-		registerSwirSurface(block, paint === shale ? 0.22 : 0.92, paint === shale ? 'EXPOSED ROCK' : 'HARDWARE');
+		registerSwirSurface(block, 0.92, 'HARDWARE');
 		landmarks.add(block);
 		terrainAnchors.push({ object: block, point: anchor, heightOffset: y });
 	}
@@ -105,7 +104,18 @@ export function buildAres01Scene(
 	terrainAnchors.push({ object: samplingKit.group, point: SAMPLING_KIT, heightOffset: 0 });
 	samplingKit.setContact(rockX - kitX,
 		outcrop.group.position.y + ABRASION_HEIGHT - samplingKit.group.position.y, rockZ - kitZ);
-	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
+	const boulder = new Mesh(
+		new DodecahedronGeometry(1),
+		new MeshLambertMaterial({ color: '#795443', flatShading: true })
+	);
+	const boulderHeightOffset = 0.35;
+	boulder.position.set(HAZARD.x, surfaceHeight(HAZARD.x, HAZARD.z) + boulderHeightOffset, HAZARD.z);
+	boulder.scale.set(HAZARD_RADIUS * 0.96, 3.8, HAZARD_RADIUS * 0.92);
+	boulder.rotation.y = 0.55;
+	boulder.castShadow = boulder.receiveShadow = true;
+	registerSwirSurface(boulder, 0.22, 'EXPOSED ROCK');
+	landmarks.add(boulder);
+	terrainAnchors.push({ object: boulder, point: HAZARD, heightOffset: boulderHeightOffset });
 
 	return {
 		group: landmarks,
@@ -130,7 +140,8 @@ export function buildAres01Scene(
 			samplingKit.dispose();
 			outcrop.dispose();
 			for (const model of missionAssets) disposeModel(model);
-			shale.dispose();
+			boulder.geometry.dispose();
+			boulder.material.dispose();
 		}
 	};
 }
