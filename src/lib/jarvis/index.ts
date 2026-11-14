@@ -9,7 +9,7 @@ import { AudioEngine, speechAvailable, type Playable } from './audio.js';
 import { LINE_IDS, buildLineVars, fillLine, getLine, lineUrl, type LineId } from './lines.js';
 import { Recorder, type Clip } from './recorder.js';
 import { LINE_MEDA, createTelemetry } from './telemetry.js';
-import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../mission.js';
+import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../missions/vr-rehearsal/route.js';
 import type {
 	Assistant,
 	AssistantOptions,
@@ -222,7 +222,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 				{ role: 'assistant' as const, content: reply }
 			].slice(-HISTORY_TURNS);
 
-			let playable: Playable = missionContext ? { type: 'speech', text: reply, lang: 'es-ES' } : speechOrNone(reply);
+			let playable: Playable = speechOrNone(reply);
 			if (ttsMode === 'elevenlabs' && audio.unlocked) {
 				try {
 					const mp3 = await api.tts(reply, signal);

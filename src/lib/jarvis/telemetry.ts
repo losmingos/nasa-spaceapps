@@ -11,7 +11,7 @@ import {
 	VISIBILITY_CLEAR_M,
 	VISIBILITY_STORM_MIN_M,
 	WALK_SPEED_MS
-} from '../mission.js';
+} from '../missions/vr-rehearsal/route.js';
 import { P5_VISIBILITY_M, P6_DISTANCE_M, STEP_TIMES_S } from './protocol.js';
 import type { Phase, ProtocolStepId, Telemetry } from './types.js';
 

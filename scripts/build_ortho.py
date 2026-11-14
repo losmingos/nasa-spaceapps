@@ -13,7 +13,7 @@ from rasterio.warp import Resampling, reproject
 from build_terrain import OUTPUT, PRODUCT, STRIDE
 
 
-def build(dtm, ortho):
+def build(dtm, ortho, metres_per_pixel=3, output=OUTPUT.with_name('jezero-ortho.webp')):
     with dtm.open('rb') as source:
         label = source.read(8192).decode('ascii', errors='replace')
 
@@ -35,7 +35,7 @@ def build(dtm, ortho):
         (math.ceil(int(field(name)) / STRIDE) - 1) * STRIDE * scale
         for name in ('LINE_SAMPLES', 'LINES')
     ]
-    cols, rows = math.ceil(width / 3), math.ceil(height / 3)
+    cols, rows = math.ceil(width / metres_per_pixel), math.ceil(height / metres_per_pixel)
     pixels = np.zeros((rows, cols), dtype=np.uint8)
     with rasterio.open(ortho) as source:
         reproject(
@@ -52,7 +52,8 @@ def build(dtm, ortho):
     luminance = np.clip((pixels - low) / max(high - low, 1), 0, 1)
     gray = np.round(255 * (0.32 + 0.68 * luminance)).astype(np.uint8)
     image = np.stack((gray, gray, gray, valid.astype(np.uint8) * 255), axis=-1)
-    Image.fromarray(image).save(OUTPUT.with_name('jezero-ortho.webp'), quality=88)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image).save(output, quality=88)
     print(f'{cols} x {rows}, coverage {valid.mean():.1%}, stretch {low:g}–{high:g}')
 
 
@@ -60,5 +61,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtm', type=Path)
     parser.add_argument('ortho', type=Path)
+    parser.add_argument('--high', action='store_true')
     args = parser.parse_args()
-    build(args.dtm, args.ortho)
+    if args.high:
+        build(args.dtm, args.ortho, 1.5, OUTPUT.with_name('jezero-ortho-high.webp'))
+    else:
+        build(args.dtm, args.ortho)

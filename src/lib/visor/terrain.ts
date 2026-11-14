@@ -1,13 +1,15 @@
 import {
-	BoxGeometry, BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, Group, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFSoftShadowMap,
+	BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
+	IcosahedronGeometry, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, PCFShadowMap,
 	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
-	TextureLoader, Vector3, WebGLRenderer
+	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
+import { buildVisorOptics, dustColor, type VisorMessage } from './optics.js';
+import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
-import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, type Point } from './ares/route.js';
+import { createRockContact, footingOnRocks, type RockContact } from './rock-contact.js';
+import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE, type Point } from '../missions/ares01/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -17,8 +19,8 @@ function buildTerrain(data: ArrayBuffer) {
 	const rows = header.getUint32(4, true);
 	const spacing = header.getFloat32(8, true);
 	const count = columns * rows;
-	if (columns < 2 || rows < 2 || data.byteLength !== 12 + count * 4 || !(spacing > 0)) {
-		throw new Error('La cuadrícula de elevación no es válida.');
+	if (columns < 2 || rows < 2 || data.byteLength !== 12 + count * 4 || !Number.isFinite(spacing) || !(spacing > 0)) {
+		throw new Error('Invalid elevation grid.');
 	}
 
 	const elevations = new Float32Array(data, 12);
@@ -29,7 +31,7 @@ function buildTerrain(data: ArrayBuffer) {
 		low = Math.min(low, height);
 		high = Math.max(high, height);
 	}
-	if (!(high > low)) throw new Error('No hay elevaciones válidas.');
+	if (!(high > low)) throw new Error('No valid elevations found.');
 
 	const width = (columns - 1) * spacing;
 	const length = (rows - 1) * spacing;
@@ -46,7 +48,9 @@ function buildTerrain(data: ArrayBuffer) {
 			const elevation = elevations[i];
 			const present = Number.isFinite(elevation);
 			const height = present ? elevation - low : 0;
-			positions.set([col * spacing - width / 2, height, row * spacing - length / 2], i * 3);
+			positions[i * 3] = col * spacing - width / 2;
+			positions[i * 3 + 1] = height;
+			positions[i * 3 + 2] = row * spacing - length / 2;
 			uv[i * 2] = col / (columns - 1);
 			uv[i * 2 + 1] = 1 - row / (rows - 1);
 
@@ -63,12 +67,14 @@ function buildTerrain(data: ArrayBuffer) {
 			const hasSouth = Number.isFinite(elevations[south]);
 			if (hasEast && hasSouth) {
 				if (present) {
-					indices.set([i, south, east], index);
-					index += 3;
+					indices[index++] = i;
+					indices[index++] = south;
+					indices[index++] = east;
 				}
 				if (Number.isFinite(elevations[southeast])) {
-					indices.set([east, south, southeast], index);
-					index += 3;
+					indices[index++] = east;
+					indices[index++] = south;
+					indices[index++] = southeast;
 				}
 			}
 		}
@@ -96,12 +102,15 @@ function buildTerrain(data: ArrayBuffer) {
 		return elevations[i + columns + 1] * (u + v - 1) + east * (1 - v) + south * (1 - u) - low;
 	}
 
-	return { geometry, width, length, spacing, surfaceHeight };
+	return { geometry, width, length, surfaceHeight };
 }
 
 export type TerrainNotice = 'ready' | 'edge';
 
 interface MissionView {
+	samplesCollected: boolean;
+	drilling: boolean;
+	drillPaused: boolean;
 	point: Point;
 	ahead: Point;
 	route: readonly Point[];
@@ -109,7 +118,7 @@ interface MissionView {
 	baseRoute: boolean;
 	showPosition: boolean;
 	tilt: number;
-	player?: { run: number; enabled: boolean; driving: boolean; target?: Point };
+	player?: { run: number; enabled: boolean; speedMultiplier: number; driving: boolean; target?: Point };
 }
 
 const mapSize = 96;
@@ -118,8 +127,20 @@ const metresPerPixel = mapSpan / mapSize;
 const walkKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
 const rockTileSize = 64;
 const rockLoadRadius = 128;
+const rockPalette = ['#806955', '#a0856e', '#9b745a'];
 
-type RockCollider = { x: number; z: number; radius: number };
+const rockProfiles = [
+	// Low flakes, layered slabs, fractured blocks and weathered cobbles.
+	{ material: 2, shape: [1.1, 0.26, 0.78], crown: 0.31, shear: 0.16 },
+	{ material: 2, shape: [1.3, 0.32, 0.59], crown: 0.45, shear: -0.24 },
+	{ material: 2, shape: [0.86, 0.45, 1.06], crown: 0.38, shear: 0.07 },
+	{ material: 0, shape: [1.04, 0.66, 0.85], crown: 0.54, shear: 0.25 },
+	{ material: 0, shape: [0.72, 0.83, 1.02], crown: 0.62, shear: -0.19 },
+	{ material: 0, shape: [1.20, 0.51, 0.64], crown: 0.77, shear: 0.33 },
+	{ material: 1, shape: [0.92, 0.66, 0.9], crown: 0.91, shear: 0.05 },
+	{ material: 1, shape: [1.15, 0.48, 0.75], crown: 0.88, shear: -0.1 },
+	{ material: 1, shape: [0.74, 0.71, 1.1], crown: 0.95, shear: 0.12 }
+];
 
 function seededRandom(seed: number) {
 	let state = seed >>> 0;
@@ -140,25 +161,30 @@ export function mountTerrain(
 	notify: (notice: TerrainNotice) => void,
 	getNotice: () => string,
 	getClock: () => string,
-	getMessage: () => VisorMessage
+	getMessage: () => VisorMessage,
+	modelUrls: Ares01ModelUrls
 ) {
-	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
+	const lightTerrain = buildTerrain(data);
+	const { width, length } = lightTerrain;
+	let { surfaceHeight } = lightTerrain;
+	let highTerrain: ReturnType<typeof buildTerrain> | undefined;
+	let explored = false;
 	let renderer: WebGLRenderer;
 	try {
 		renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
 	} catch (error) {
-		geometry.dispose();
+		lightTerrain.geometry.dispose();
 		throw error;
 	}
 	renderer.shadowMap.enabled = true;
-	renderer.shadowMap.type = PCFSoftShadowMap;
+	renderer.shadowMap.type = PCFShadowMap;
 
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
 	const scene = new Scene();
 	const fog = new FogExp2('#bb8867', 0.00042);
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
-	const orthoTint = new Color('#bf9d83');
+	const orthoTint = new Color('#bfa38e');
 	// Meter-scale detail is illustrative. The HiRISE grid determines the geometry.
 	terrainMaterial.onBeforeCompile = (shader) => {
 		shader.vertexShader = 'varying vec3 groundPoint;\n' + shader.vertexShader.replace(
@@ -175,31 +201,61 @@ export function mountTerrain(
 				return mix(mix(dustHash(cell).x, dustHash(cell + vec2(1, 0)).x, f.x),
 					mix(dustHash(cell + vec2(0, 1)).x, dustHash(cell + vec2(1, 1)).x, f.x), f.y);
 			}
+			float gravelHeight(vec2 p, float scale, float density) {
+				vec2 st = p * scale;
+				vec2 cell = floor(st);
+				vec2 jitter = dustHash(cell);
+				vec2 shape = dustHash(cell + vec2(71.3, -43.7));
+				vec2 q = fract(st) - mix(vec2(0.21), vec2(0.79), jitter);
+				q.x += q.y * (shape.x - 0.5);
+				q.y *= mix(0.85, 1.65, shape.y);
+				float radius = mix(0.035, 0.20, shape.x * shape.x);
+				float edge = max(abs(q.x), abs(q.x * 0.45) + abs(q.y) * 0.82);
+				return (1.0 - smoothstep(radius * 0.25, radius, edge))
+					* smoothstep(1.0 - density, 1.08 - density, shape.y) * mix(0.35, 1.0, jitter.x);
+			}
+			vec3 groundNormal(vec3 point, vec3 n, float height) {
+				vec3 dx = dFdx(point);
+				vec3 dy = dFdy(point);
+				vec3 r1 = cross(dy, n);
+				vec3 r2 = cross(n, dx);
+				float det = dot(dx, r1);
+				vec3 gradient = r1 * dFdx(height) + r2 * dFdy(height);
+				return normalize(max(abs(det), 1e-12) * n - sign(det) * gradient);
+			}
 		` + shader.fragmentShader.replace(
-			'#include <map_fragment>',
-			`#ifdef USE_MAP
-				vec4 ortho = texture2D(map, vMapUv);
-				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a);
-			#endif`
+			'#include <map_fragment>', ''
 		).replace(
 			'#include <color_fragment>',
 			`#include <color_fragment>
 			vec2 p = groundPoint.xz;
-			vec2 st = p * 2.8;
-			vec2 cell = floor(st);
-			vec2 jitter = dustHash(cell);
-			vec2 gravel = (fract(st) - (0.19 + 0.62 * jitter)) * vec2(1.0, 1.45);
-			float pebble = (1.0 - smoothstep(0.025, 0.05 + 0.17 * jitter.x, length(gravel)))
-				* smoothstep(0.30, 0.80, jitter.y);
-			float distanceFade = 1.0 - smoothstep(14.0, 65.0, vViewPosition.z);
-			float dust = dustNoise(p * 0.19) * 0.17 + dustNoise(p * 1.2) * 0.07;
-			float strata = (dustNoise(vec2(p.x * 0.035, groundPoint.y * 0.12)) - 0.5) * 0.11;
-			diffuseColor.rgb *= 0.86 + strata + (dust - pebble * 0.32) * distanceFade;`
+			#ifdef USE_MAP
+				vec4 ortho = texture2D(map, vMapUv);
+				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a * 0.72);
+			#endif
+			float footprint = max(length(dFdx(p)), length(dFdy(p)));
+			float gravelBed = smoothstep(0.29, 0.72, dustNoise(p * 0.38) * 0.68 + dustNoise(p * 1.4) * 0.32);
+			vec2 scattered = p + 0.7 * vec2(dustNoise(p * 0.8), dustNoise(p * 0.8 + vec2(29.7, 12.8)));
+			float coarse = gravelHeight(scattered, 2.6, mix(0.10, 0.78, gravelBed))
+				* (1.0 - smoothstep(0.025, 0.15, footprint));
+			float fine = gravelHeight(vec2(scattered.x + scattered.y, scattered.y - scattered.x) * 0.7071,
+				11.0, mix(0.03, 0.85, gravelBed))
+				* (1.0 - smoothstep(0.006, 0.04, footprint));
+			float closeDetail = 1.0 - smoothstep(12.0, 55.0, length(vViewPosition));
+			float gravel = (coarse * mix(0.45, 1.0, gravelBed) + fine * 0.42) * closeDetail;
+			float windDust = dustNoise(p * vec2(0.18, 0.72)) - 0.5;
+			float grain = (dustNoise(p * 21.0) - 0.5) * mix(0.15, 1.0, gravelBed)
+				* (1.0 - smoothstep(0.009, 0.045, footprint));
+			diffuseColor.rgb *= 1.0 + windDust * 0.16 + grain * 0.13 * closeDetail - gravel * 0.26;
+			float microHeight = gravel * 0.018 + grain * 0.0015 * closeDetail;`
+		).replace(
+			'#include <normal_fragment_maps>',
+			'#include <normal_fragment_maps>\nnormal = groundNormal(-vViewPosition, normal, microHeight);'
 		);
 		shader.uniforms.orthoTint = { value: orthoTint };
 		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
 	};
-	const mesh = new Mesh(geometry, terrainMaterial);
+	const mesh = new Mesh(lightTerrain.geometry, terrainMaterial);
 	mesh.castShadow = true;
 	mesh.receiveShadow = true;
 	const ambient = new HemisphereLight('#ffe4cc', '#82604c', 1.65);
@@ -229,10 +285,10 @@ export function mountTerrain(
 	const eyeHeight = 1.68;
 	camera.position.set(spawnX, surfaceHeight(spawnX, spawnZ) + eyeHeight, spawnZ);
 
-	const rockGeometries = [0, 1, 2].map((variant) => {
-		const geometry = new IcosahedronGeometry(1, variant === 0 ? 1 : 2);
+	const rockGeometries = rockProfiles.map(({ material, shape, crown, shear }, variant) => {
+		const geometry = new IcosahedronGeometry(1, material === 1 ? 2 : 1);
 		const positions = geometry.getAttribute('position');
-		const roughness = [0.16, 0.22, 0.18][variant];
+		const roughness = [0.20, 0.14, 0.18][material];
 		for (let i = 0; i < positions.count; i++) {
 			const x = positions.getX(i);
 			const y = positions.getY(i);
@@ -243,8 +299,8 @@ export function mountTerrain(
 			const chips = Math.sin(x * 23.0 + z * 17.0 + variant * 5.0)
 				* Math.cos(y * 19.0 - x * 13.0 + variant * 3.0);
 			const radius = 0.86 + broad * roughness + chips * 0.035;
-			const flattening = variant === 2 ? 0.62 : 1;
-			positions.setXYZ(i, x * radius, y * radius * flattening, z * radius);
+			const height = MathUtils.clamp(y * radius, -0.56, crown + 0.14 * x - 0.10 * z);
+			positions.setXYZ(i, (x * radius + height * shear) * shape[0], height * shape[1], z * radius * shape[2]);
 		}
 		geometry.computeVertexNormals();
 		return geometry;
@@ -290,8 +346,8 @@ export function mountTerrain(
 		};
 		return material;
 	});
-	const rockTiles = new Map<string, { meshes: InstancedMesh[]; colliders: RockCollider[] }>();
-	let rockColliders: RockCollider[] = [];
+	const rockTiles = new Map<string, { meshes: InstancedMesh[]; colliders: RockContact[] }>();
+	let rockColliders: RockContact[] = [];
 	let lastRockTileX = Number.NaN;
 	let lastRockTileZ = Number.NaN;
 	const placement = new Object3D();
@@ -304,19 +360,19 @@ export function mountTerrain(
 	function makeRockTile(tileX: number, tileZ: number) {
 		const seed = Math.imul(tileX + 1, 73856093) ^ Math.imul(tileZ + 1, 19349663) ^ 0x51ed270b;
 		const random = seededRandom(seed);
-		const colliders: RockCollider[] = [];
-		const variants: Array<Array<{ x: number; z: number; y: number; sx: number; sy: number; sz: number; yaw: number; color: Color }>> =
+		const colliders: RockContact[] = [];
+		const variants: Array<Array<{ x: number; z: number; radius: number; slopeX: number; slopeZ: number; yaw: number; color: Color }>> =
 			rockGeometries.map(() => []);
 		const clusterCount = 2 + Math.floor(random() * 2);
 		const clusters = Array.from({ length: clusterCount }, () => ({ x: random(), z: random() }));
-		const count = 14 + Math.floor(random() * 9);
+		const count = 38 + Math.floor(random() * 18);
 		for (let i = 0; i < count; i++) {
 			let localX: number;
 			let localZ: number;
 			if (random() < 0.76) {
 				const cluster = clusters[Math.floor(random() * clusters.length)];
-				const offsetX = (random() + random() + random() - 1.5) * 13;
-				const offsetZ = (random() + random() + random() - 1.5) * 13;
+				const offsetX = (random() + random() + random() - 1.5) * 16;
+				const offsetZ = (random() + random() + random() - 1.5) * 16;
 				localX = cluster.x * rockTileSize + offsetX;
 				localZ = cluster.z * rockTileSize + offsetZ;
 			} else {
@@ -326,31 +382,27 @@ export function mountTerrain(
 			const x = -width / 2 + tileX * rockTileSize + localX;
 			const z = -length / 2 + tileZ * rockTileSize + localZ;
 			if (x < -width / 2 || x > width / 2 || z < -length / 2 || z > length / 2) continue;
-			if (Math.hypot(x - spawnX, z - spawnZ) < 4.5) continue;
+			if (Math.hypot(x - spawnX, z - spawnZ) < 1.5) continue;
 			const y = surfaceHeight(x, z);
-			const left = surfaceHeight(x - spacing, z);
-			const right = surfaceHeight(x + spacing, z);
-			const back = surfaceHeight(x, z - spacing);
-			const front = surfaceHeight(x, z + spacing);
+			const sizeRoll = random();
+			const radius = sizeRoll < 0.74 ? 0.055 + random() * 0.17
+				: sizeRoll < 0.97 ? 0.23 + random() * 0.26 : 0.50 + random() * 0.55;
+			const sampleOffset = Math.max(0.2, radius);
+			const left = surfaceHeight(x - sampleOffset, z);
+			const right = surfaceHeight(x + sampleOffset, z);
+			const back = surfaceHeight(x, z - sampleOffset);
+			const front = surfaceHeight(x, z + sampleOffset);
 			if (![y, left, right, back, front].every(Number.isFinite)) continue;
-			const slopeX = (left - right) / (2 * spacing);
-			const slopeZ = (back - front) / (2 * spacing);
+			const slopeX = (left - right) / (2 * sampleOffset);
+			const slopeZ = (back - front) / (2 * sampleOffset);
 			if (Math.hypot(slopeX, slopeZ) > 0.78) continue;
 
-			const sizeRoll = random();
-			const radius = sizeRoll < 0.72 ? 0.16 + random() * 0.28
-				: sizeRoll < 0.96 ? 0.42 + random() * 0.62
-					: 1.15 + random() * 1.15;
-			const sx = radius * (0.78 + random() * 0.48);
-			const sy = radius * (0.52 + random() * 0.42);
-			const sz = radius * (0.78 + random() * 0.48);
 			const variant = Math.floor(random() * rockGeometries.length);
-			const palette = ['#765947', '#b4815c', '#916a51'];
-			rockColor.set(palette[variant]);
-			rockColor.multiplyScalar(0.9 + random() * 0.2);
+			rockColor.set(rockPalette[rockProfiles[variant].material]);
+			rockColor.multiplyScalar(0.78 + random() * 0.38);
 
 			variants[variant].push({
-				x, z, y, sx, sy, sz,
+				x, z, radius, slopeX, slopeZ,
 				yaw: random() * Math.PI * 2,
 				color: rockColor.clone()
 			});
@@ -359,33 +411,42 @@ export function mountTerrain(
 		const meshes: InstancedMesh[] = [];
 		variants.forEach((instances, variant) => {
 			if (instances.length === 0) return;
-			const rocks = new InstancedMesh(rockGeometries[variant], rockMaterials[variant], instances.length);
+			const geometry = rockGeometries[variant];
+			const rocks = new InstancedMesh(geometry, rockMaterials[rockProfiles[variant].material], instances.length);
 			rocks.castShadow = true;
 			rocks.receiveShadow = true;
-			instances.forEach((rock, index) => {
-				placement.quaternion.setFromUnitVectors(up, normal.set(
-					(surfaceHeight(rock.x - spacing, rock.z) - surfaceHeight(rock.x + spacing, rock.z)) / (2 * spacing),
-					1,
-					(surfaceHeight(rock.x, rock.z - spacing) - surfaceHeight(rock.x, rock.z + spacing)) / (2 * spacing)
-				).normalize());
+			const firstContact = colliders.length;
+			placeRock: for (const rock of instances) {
+				placement.quaternion.setFromUnitVectors(up, normal.set(rock.slopeX, 1, rock.slopeZ).normalize());
 				yaw.setFromAxisAngle(up, rock.yaw);
 				placement.quaternion.multiply(yaw);
-				placement.scale.set(rock.sx, rock.sy, rock.sz);
-				const vertices = rockGeometries[variant].getAttribute('position');
+				placement.scale.setScalar(rock.radius);
+				const vertices = geometry.getAttribute('position');
 				let supportY = -Infinity;
+				let lowestClearance = Infinity;
 				for (let vertex = 0; vertex < vertices.count; vertex++) {
 					supportPoint.fromBufferAttribute(vertices, vertex)
 						.multiply(placement.scale)
 						.applyQuaternion(placement.quaternion);
 					const groundY = surfaceHeight(rock.x + supportPoint.x, rock.z + supportPoint.z);
-					if (Number.isFinite(groundY)) supportY = Math.max(supportY, groundY - supportPoint.y);
+					if (!Number.isFinite(groundY)) continue placeRock;
+					const contactY = groundY - supportPoint.y;
+					supportY = Math.max(supportY, contactY);
+					lowestClearance = Math.min(lowestClearance, contactY);
 				}
-				const sink = Math.max(0.035, rock.sy * 0.045);
-				placement.position.set(rock.x, Number.isFinite(supportY) ? supportY - sink : rock.y + rock.sy * 0.5, rock.z);
+				const sink = rock.radius * 0.07;
+				placement.position.set(rock.x, supportY - sink, rock.z);
 				placement.updateMatrix();
+				const index = colliders.length - firstContact;
 				rocks.setMatrixAt(index, placement.matrix);
 				rocks.setColorAt(index, rock.color);
-			});
+				colliders.push(createRockContact(geometry, placement.matrix, supportY - sink - lowestClearance));
+			}
+			rocks.count = colliders.length - firstContact;
+			if (!rocks.count) {
+				rocks.dispose();
+				return;
+			}
 			rocks.instanceMatrix.needsUpdate = true;
 			if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
 			scene.add(rocks);
@@ -402,7 +463,7 @@ export function mountTerrain(
 		lastRockTileZ = centerTileZ;
 		const tileRadius = Math.ceil(rockLoadRadius / rockTileSize);
 		const wanted = new Set<string>();
-		const colliders: RockCollider[] = [];
+		const colliders: RockContact[] = [];
 		for (let tileX = Math.max(0, centerTileX - tileRadius); tileX <= Math.min(Math.ceil(width / rockTileSize) - 1, centerTileX + tileRadius); tileX++) {
 			for (let tileZ = Math.max(0, centerTileZ - tileRadius); tileZ <= Math.min(Math.ceil(length / rockTileSize) - 1, centerTileZ + tileRadius); tileZ++) {
 				const tileCenterX = -width / 2 + (tileX + 0.5) * rockTileSize;
@@ -422,37 +483,18 @@ export function mountTerrain(
 		}
 		for (const [key, rocks] of rockTiles) {
 			if (!wanted.has(key)) {
-				for (const mesh of rocks.meshes) scene.remove(mesh);
+				for (const mesh of rocks.meshes) {
+					scene.remove(mesh);
+					mesh.dispose();
+				}
 				rockTiles.delete(key);
 			}
 		}
 		rockColliders = colliders;
 	}
 
-	const landmarks = new Group();
-	landmarks.visible = false;
-	scene.add(landmarks);
-	const hardware = new BoxGeometry(1, 1, 1);
-	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
-	const frameMaterial = new MeshLambertMaterial({ color: '#332b25' });
-	const shale = new MeshLambertMaterial({ color: '#6e4736' });
-	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
-		const block = new Mesh(hardware, paint);
-		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
-		block.scale.set(w, h, d);
-		landmarks.add(block);
-	}
-	part(ROVER, 0, 1.5, 0, 3, 1.9, 5, cabin);
-	part(ROVER, 0, 1.9, -2.51, 2.2, 0.7, 0.04, frameMaterial);
-	for (const side of [-1, 1]) {
-		for (const axle of [-1.6, 0, 1.6]) part(ROVER, side * 1.6, 0.53, axle, 0.65, 1.05, 1.05, frameMaterial);
-	}
-	part(BASE, 0, 1.9, 8, 7, 3.8, 8, cabin);
-	const outcrop = { x: SAMPLE.x - 3, z: SAMPLE.z - 2 };
-	part(outcrop, 0, 0.45, 0, 2.8, 0.85, 2, shale);
-	part(outcrop, 0.24, 0.99, 0, 2.2, 0.26, 1.6, shale);
-	part(outcrop, 0.25, 1.26, 0, 1.5, 0.32, 0.78, cabin);
-	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
+	const missionScene = buildAres01Scene((x, z) => surfaceHeight(x, z), modelUrls, () => draw());
+	scene.add(missionScene.group);
 	let missionView: MissionView | undefined;
 
 	const mapContext = map.getContext('2d');
@@ -569,8 +611,10 @@ export function mountTerrain(
 	let stormFrame = 0;
 	let stormStarted = 0;
 	let gustTime = 0;
+	const drillMoving = () => !!missionView?.drilling && !missionView.drillPaused;
 	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
+		missionScene.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
@@ -620,7 +664,7 @@ export function mountTerrain(
 	function updateStormMotion() {
 		cancelAnimationFrame(stormFrame);
 		gustTime = 0;
-		if (dust > 0 && !reducedMotion.matches) {
+		if ((dust > 0 || drillMoving()) && !reducedMotion.matches) {
 			stormStarted = performance.now();
 			stormFrame = requestAnimationFrame(animateStorm);
 		}
@@ -640,7 +684,11 @@ export function mountTerrain(
 		const wasActive = !!previousView;
 		if (!wasActive && !view) return;
 		missionView = view;
-		landmarks.visible = !!view;
+		const drillMotionChanged = (previousView?.drilling && !previousView.drillPaused) !==
+			(view?.drilling && !view.drillPaused);
+		if (drillMotionChanged) updateStormMotion();
+		missionScene.setView(!!view, !!view?.samplesCollected, !!view?.baseRoute);
+		if (view) explored = true;
 		if (wasActive !== !!view || view?.baseRoute !== previousView?.baseRoute) mapX = Infinity;
 		const player = view?.player;
 		const previousPlayer = previousView?.player;
@@ -656,6 +704,7 @@ export function mountTerrain(
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
 				&& previousPlayer.target === player.target && previousView.showHazard === view.showHazard
 				&& previousView.showPosition === view.showPosition && previousView.baseRoute === view.baseRoute
+				&& previousView.samplesCollected === view.samplesCollected && previousView.drilling === view.drilling
 				&& previousView.tilt === view.tilt) return;
 			const tilt = reducedMotion.matches ? 0 : view.tilt;
 			camera.rotation.z = 0.32 * tilt;
@@ -670,7 +719,11 @@ export function mountTerrain(
 		const { x, z } = view?.point ?? { x: spawnX, z: spawnZ };
 		const height = surfaceHeight(x, z);
 		const tilt = reducedMotion.matches ? 0 : (view?.tilt ?? 0);
-		if (Number.isFinite(height)) camera.position.set(x, height + eyeHeight - 0.64 * tilt, z);
+		if (Number.isFinite(height)) {
+			camera.position.set(x, height + eyeHeight - 0.64 * tilt, z);
+			updateRockTiles();
+			camera.position.y = eyeY() - 0.64 * tilt;
+		}
 		camera.rotation.set(-0.085 - 0.26 * tilt, view
 			? Math.atan2(x - view.ahead.x, z - view.ahead.z)
 			: 0.58, 0.32 * tilt);
@@ -701,8 +754,11 @@ export function mountTerrain(
 	let atEdge = false;
 	const canLook = () => !missionView || !!missionView.player;
 	const canMove = () => !missionView || !!missionView.player?.enabled;
-	const eyeY = () => surfaceHeight(camera.position.x, camera.position.z) + eyeHeight
-		+ (missionView?.player?.driving ? 0.8 : 0);
+	const eyeOffset = () => eyeHeight + (missionView?.player?.driving ? 0.8 : 0);
+	const eyeY = () => {
+		const { x, z } = camera.position;
+		return footingOnRocks(rockColliders, surfaceHeight(x, z), x, z, true).height + eyeOffset();
+	};
 
 	function step(now: number) {
 		const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
@@ -716,7 +772,9 @@ export function mountTerrain(
 		const driving = missionView?.player?.driving;
 		const side = driving ? 0 : steering;
 		if (driving) camera.rotation.y -= steering * dt * 0.9;
-		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) / Math.max(1, Math.hypot(forward, side));
+		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
+		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) * speedMultiplier
+			/ Math.max(1, Math.hypot(forward, side));
 		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
@@ -727,12 +785,9 @@ export function mountTerrain(
 		const blockedByHazard = !!missionView?.player && missionView.showHazard
 			&& distanceBetween({ x, z }, HAZARD) < HAZARD_RADIUS
 			&& distanceBetween({ x, z }, HAZARD) < distanceBetween(camera.position, HAZARD);
-		const hitsRock = rockColliders.some((rock) =>
-			Math.hypot(x - rock.x, z - rock.z) < rock.radius + 0.42
-			&& Math.hypot(x - rock.x, z - rock.z) < Math.hypot(camera.position.x - rock.x, camera.position.z - rock.z)
-		);
-		const blocked = blockedByHazard || hitsRock || !Number.isFinite(nextHeight)
-			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72;
+		const footing = footingOnRocks(rockColliders, nextHeight, x, z);
+		const blocked = blockedByHazard || footing.blocked || !Number.isFinite(nextHeight)
+			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
 		if (blocked !== atEdge && (forward || side)) {
 			atEdge = blocked;
 			notify(blocked ? 'edge' : 'ready');
@@ -742,14 +797,19 @@ export function mountTerrain(
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = reducedMotion.matches || blocked || missionView?.player?.driving ? 0 : Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
-		camera.position.y = eyeY() + bob;
-		draw();
-		if (keys.size || Math.hypot(velocityX, velocityZ) > 0.015) frame = requestAnimationFrame(step);
+		const bob = reducedMotion.matches || blocked || driving ? 0
+			: Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+		const tilt = reducedMotion.matches ? 0 : (missionView?.tilt ?? 0);
+		const targetY = (blocked ? eyeY() : footing.height + eyeOffset()) + bob - 0.64 * tilt;
+		camera.position.y = reducedMotion.matches ? targetY
+			: Math.max(targetY, MathUtils.damp(camera.position.y, targetY, 18, dt));
+		if (keys.size || Math.hypot(velocityX, velocityZ) > 0.015 || camera.position.y - targetY > 0.003) frame = requestAnimationFrame(step);
 		else {
+			camera.position.y = targetY;
 			frame = 0;
 			previous = velocityX = velocityZ = 0;
 		}
+		draw();
 	}
 
 	function look(dx: number, dy: number) {
@@ -773,6 +833,7 @@ export function mountTerrain(
 		if (walkKeys.includes(event.code)) {
 			event.preventDefault();
 			if (!canMove()) return;
+			explored = true;
 			keys.add(event.code);
 			if (!frame) frame = requestAnimationFrame(step);
 		}
@@ -820,14 +881,76 @@ export function mountTerrain(
 		if (abort.signal.aborted) return;
 		texture.colorSpace = SRGBColorSpace;
 		texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-		terrainMaterial.map = texture;
-		terrainMaterial.needsUpdate = true;
-		draw();
+		if (!highTexture) {
+			terrainMaterial.map = texture;
+			terrainMaterial.needsUpdate = true;
+			draw();
+		}
 	}, undefined, () => {
-		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
+		if (!abort.signal.aborted) console.warn('Could not load the HiRISE orthoimage.');
 	});
+	let highTexture: Texture | undefined;
+
+	async function loadHighQuality(gridUrl: string, imageUrl: string) {
+		if (renderer.capabilities.maxTextureSize < 7765) return;
+		try {
+			const response = await fetch(gridUrl, options);
+			if (!response.ok) throw new Error('Could not download the high-resolution HiRISE grid.');
+			const grid = await response.arrayBuffer();
+			if (abort.signal.aborted || explored) return;
+			const image = await new TextureLoader().loadAsync(imageUrl);
+			try {
+				if (abort.signal.aborted || explored) return;
+				const { width: imageWidth, height: imageHeight } = image.image;
+				if (Math.max(imageWidth, imageHeight) > renderer.capabilities.maxTextureSize) {
+					throw new Error('The orthoimage exceeds the maximum texture size.');
+				}
+				const candidate = buildTerrain(grid);
+				if (candidate.width !== width || candidate.length !== length ||
+					!Number.isFinite(candidate.surfaceHeight(spawnX, spawnZ))) {
+					candidate.geometry.dispose();
+					throw new Error('The high-resolution grid does not match the terrain.');
+				}
+				image.colorSpace = SRGBColorSpace;
+				image.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+				highTexture = image;
+				highTerrain = candidate;
+				applyHighQuality(candidate, image);
+			} finally {
+				if (highTexture !== image) image.dispose();
+			}
+		} catch (error) {
+			if (!abort.signal.aborted) console.warn('Could not load the high-resolution terrain.', error);
+		}
+	}
+
+	function applyHighQuality(active: ReturnType<typeof buildTerrain>, image: Texture) {
+		surfaceHeight = active.surfaceHeight;
+		mesh.geometry = active.geometry;
+		terrainMaterial.map = image;
+		terrainMaterial.needsUpdate = true;
+		sun.shadow.dispose();
+		sun.shadow.map = null;
+		sun.shadow.mapSize.setScalar(4096);
+		for (const tile of rockTiles.values()) {
+			for (const rocks of tile.meshes) {
+				scene.remove(rocks);
+				rocks.dispose();
+			}
+		}
+		rockTiles.clear();
+		lastRockTileX = lastRockTileZ = Number.NaN;
+		mapX = Infinity;
+		missionScene.reground();
+		updateRockTiles();
+		camera.position.y = eyeY();
+		atEdge = false;
+		notify('ready');
+		draw();
+	}
 
 	return {
+		loadHighQuality,
 		refresh: draw,
 		setTime,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
@@ -841,20 +964,23 @@ export function mountTerrain(
 			cancelAnimationFrame(frame);
 			observer.disconnect();
 			for (const rocks of rockTiles.values()) {
-				for (const mesh of rocks.meshes) scene.remove(mesh);
+				for (const mesh of rocks.meshes) {
+					scene.remove(mesh);
+					mesh.dispose();
+				}
 			}
 			rockTiles.clear();
-			geometry.dispose();
+			lightTerrain.geometry.dispose();
+			highTerrain?.geometry.dispose();
+			highTexture?.dispose();
+			sun.shadow.dispose();
 			terrainMaterial.dispose();
 			for (const rockGeometry of rockGeometries) rockGeometry.dispose();
 			for (const material of rockMaterials) {
 				material.dispose();
 			}
 			texture.dispose();
-			hardware.dispose();
-			cabin.dispose();
-			frameMaterial.dispose();
-			shale.dispose();
+			missionScene.dispose();
 			optics.dispose();
 			renderer.dispose();
 		}
