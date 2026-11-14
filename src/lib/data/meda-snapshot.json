@@ -1,0 +1,39 @@
+{
+  "source": "NASA PDS Atmospheres Node — Mars 2020 MEDA, sol 313: WE__0313___________CAL_ATS_________________P01 (air temp), WE__0313___________DER_PS__________________P03 (pressure), WE__0313___________DER_RHS_________________P03 (humidity), WE__0313___________DER_WS__________________P02 (wind)",
+  "sol": 313,
+  "utc_date": "2022-01-06",
+  "local_time": "LMST 12:00",
+  "air_temp_c": { "value": -18.8, "min_sol": -77.9, "max_sol": -2.9 },
+  "pressure_pa": 624.6,
+  "relative_humidity_pct": 0.0,
+  "wind_ms": 6.5,
+  "dust_opacity": null,
+  "notes": "Sol 313 (5-6 Jan 2022, Ls ~153) is the day the January 2022 regional dust storm reached Jezero (late morning, per Lemmon et al.). All values were computed from the PDS CSVs, not copied from a paper. Values at the snapshot time are 30-minute means over LMST 11:45-12:15 (LTST ~12:34, ~07:15 UTC on 2022-01-06). air_temp_c = mean of the three mast ATS sensors (ATS_LOCAL_TEMP1-3, ~1.45 m); min_sol/max_sol are the extreme 1-s values that sol (04:58 and 13:38 LMST). pressure_pa = sol mean (mean of the 24 hourly means); 613.3 Pa at the snapshot time; the sol range was 583.5-642.9 Pa, and this afternoon had the storm's deepest pressure minimum. relative_humidity_pct = 0.0 at midday (MEDA RHS hourly means are 0.00 from 09 to 17 LMST); the sol peak was 34.6 % at 04:28 LMST. wind_ms = mean horizontal speed; peak gusts were 22.5 m/s at 09:48 LMST and 22.2 m/s at 13:08 LMST (13:42 LTST, matching the 22 m/s peak reported by Lemmon et al.). WIND IS ONLY PARTIAL: derived wind data on sol 313 stops at ~13:08 LMST (the boom-2 sensor was damaged by wind-blown debris that afternoon), and the derived WS files for sols 314-315 contain only fill values (999999999). dust_opacity is null because no direct measurement exists for sol 313: the Mastcam-Z optical-depth record has no points between sol 311 (tau 0.327 at 544 nm, pre-storm) and sol 319 (0.458). The storm peak was ~2 (Lemmon et al. 2022). See dust_opacity_context. Sensors with data on sol 313: ATS, PS, RHS, TIRS, WS (until ~13:08 LMST). Not used: RDS (would need a radiative-transfer retrieval to give tau).",
+  "source_url": "https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/",
+  "product_urls": {
+    "air_temp": "https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/data_calibrated_env/sol_0300_0419/sol_0313/WE__0313___________CAL_ATS_________________P01.CSV",
+    "pressure": "https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/data_derived_env/sol_0300_0419/sol_0313/WE__0313___________DER_PS__________________P03.CSV",
+    "humidity": "https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/data_derived_env/sol_0300_0419/sol_0313/WE__0313___________DER_RHS_________________P03.CSV",
+    "wind": "https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/data_derived_env/sol_0300_0419/sol_0313/WE__0313___________DER_WS__________________P02.CSV"
+  },
+  "retrieved": "2026-11-14",
+  "sol_utc_span": "2022-01-05T18:55:07Z to 2022-01-06T19:34:41Z (from the PDS labels)",
+  "pressure_at_local_time_pa": 613.3,
+  "pressure_min_sol_pa": 583.5,
+  "pressure_max_sol_pa": 642.9,
+  "relative_humidity_max_sol_pct": 34.6,
+  "wind_max_sol_ms": 22.5,
+  "dust_opacity_context": {
+    "pre_storm": { "value": 0.327, "sol": 311, "wavelength_nm": 544, "ltst": "08:47" },
+    "after_storm": { "value": 0.458, "sol": 319, "wavelength_nm": 544, "ltst": "08:20" },
+    "storm_peak_approx": 2,
+    "sources": [
+      "Lemmon, M. T. (2026). The Perseverance Rover's Mastcam-Z Visible Aerosol Optical Depth Record, Mendeley Data v2, doi:10.17632/gktjp9jptb.2 (file m20-ztau-merged-1717.txt, marked PRELIMINARY by the author) — https://data.mendeley.com/datasets/gktjp9jptb/2",
+      "Lemmon, M. T., et al. (2022). Dust, Sand, and Winds Within an Active Martian Storm in Jezero Crater. Geophys. Res. Lett. 49, e2022GL100126, doi:10.1029/2022GL100126 (abstract: 'Peak visible optical depth was ~2')"
+    ]
+  },
+  "references": [
+    "Lemmon, M. T., et al. (2022), GRL 49, e2022GL100126, doi:10.1029/2022GL100126 — storm 5-11 Jan 2022 (Ls 153-156), arrival late morning of sol 313, 22 m/s peak at 13:42 LTST, wind booms lost on sol 313 (boom 2) and sol 315 14:24 (other boom)",
+    "Conference abstract, same storm: https://web.lmd.jussieu.fr/~aspiga/antichambre/ABS/antoinem/oral_Lemmon_Mark.txt"
+  ]
+}

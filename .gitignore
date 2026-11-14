@@ -22,3 +22,10 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Jarvis TTS cache (spec §4.4)
+.cache/
+
+# Wrangler local secrets (copy of .env for `wrangler dev`)
+.dev.vars
+.dev.vars.*
