@@ -1,8 +1,8 @@
 import {
 	BoxGeometry, BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, Group, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFSoftShadowMap,
+	IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap,
 	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
-	TextureLoader, Vector3, WebGLRenderer
+	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
@@ -16,7 +16,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const rows = header.getUint32(4, true);
 	const spacing = header.getFloat32(8, true);
 	const count = columns * rows;
-	if (columns < 2 || rows < 2 || data.byteLength !== 12 + count * 4 || !(spacing > 0)) {
+	if (columns < 2 || rows < 2 || data.byteLength !== 12 + count * 4 || !Number.isFinite(spacing) || !(spacing > 0)) {
 		throw new Error('La cuadrícula de elevación no es válida.');
 	}
 
@@ -45,7 +45,9 @@ function buildTerrain(data: ArrayBuffer) {
 			const elevation = elevations[i];
 			const present = Number.isFinite(elevation);
 			const height = present ? elevation - low : 0;
-			positions.set([col * spacing - width / 2, height, row * spacing - length / 2], i * 3);
+			positions[i * 3] = col * spacing - width / 2;
+			positions[i * 3 + 1] = height;
+			positions[i * 3 + 2] = row * spacing - length / 2;
 			uv[i * 2] = col / (columns - 1);
 			uv[i * 2 + 1] = 1 - row / (rows - 1);
 
@@ -62,12 +64,14 @@ function buildTerrain(data: ArrayBuffer) {
 			const hasSouth = Number.isFinite(elevations[south]);
 			if (hasEast && hasSouth) {
 				if (present) {
-					indices.set([i, south, east], index);
-					index += 3;
+					indices[index++] = i;
+					indices[index++] = south;
+					indices[index++] = east;
 				}
 				if (Number.isFinite(elevations[southeast])) {
-					indices.set([east, south, southeast], index);
-					index += 3;
+					indices[index++] = east;
+					indices[index++] = south;
+					indices[index++] = southeast;
 				}
 			}
 		}
@@ -140,23 +144,27 @@ export function mountTerrain(
 	getClock: () => string,
 	getMessage: () => VisorMessage
 ) {
-	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
+	const lightTerrain = buildTerrain(data);
+	const { width, length } = lightTerrain;
+	let { spacing, surfaceHeight } = lightTerrain;
+	let highTerrain: ReturnType<typeof buildTerrain> | undefined;
+	let explored = false;
 	let renderer: WebGLRenderer;
 	try {
 		renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
 	} catch (error) {
-		geometry.dispose();
+		lightTerrain.geometry.dispose();
 		throw error;
 	}
 	renderer.shadowMap.enabled = true;
-	renderer.shadowMap.type = PCFSoftShadowMap;
+	renderer.shadowMap.type = PCFShadowMap;
 
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
 	const scene = new Scene();
 	const fog = new FogExp2('#bb8867', 0.00042);
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
-	const orthoTint = new Color('#bf9d83');
+	const orthoTint = new Color('#bfa38e');
 	// Meter-scale detail is illustrative. The HiRISE grid determines the geometry.
 	terrainMaterial.onBeforeCompile = (shader) => {
 		shader.vertexShader = 'varying vec3 groundPoint;\n' + shader.vertexShader.replace(
@@ -173,31 +181,54 @@ export function mountTerrain(
 				return mix(mix(dustHash(cell).x, dustHash(cell + vec2(1, 0)).x, f.x),
 					mix(dustHash(cell + vec2(0, 1)).x, dustHash(cell + vec2(1, 1)).x, f.x), f.y);
 			}
+			float gravelHeight(vec2 p, float scale) {
+				vec2 st = p * scale;
+				vec2 jitter = dustHash(floor(st));
+				vec2 q = fract(st) - mix(vec2(0.24), vec2(0.76), jitter);
+				q.x += q.y * (jitter.x - 0.5);
+				float radius = mix(0.07, 0.21, jitter.x);
+				float edge = max(abs(q.x), abs(q.x * 0.45) + abs(q.y) * 0.82);
+				return (1.0 - smoothstep(radius * 0.25, radius, edge))
+					* smoothstep(0.27, 0.82, jitter.y);
+			}
+			vec3 groundNormal(vec3 point, vec3 n, float height) {
+				vec3 dx = dFdx(point);
+				vec3 dy = dFdy(point);
+				vec3 r1 = cross(dy, n);
+				vec3 r2 = cross(n, dx);
+				float det = dot(dx, r1);
+				vec3 gradient = r1 * dFdx(height) + r2 * dFdy(height);
+				return normalize(max(abs(det), 1e-12) * n - sign(det) * gradient);
+			}
 		` + shader.fragmentShader.replace(
-			'#include <map_fragment>',
-			`#ifdef USE_MAP
-				vec4 ortho = texture2D(map, vMapUv);
-				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a);
-			#endif`
+			'#include <map_fragment>', ''
 		).replace(
 			'#include <color_fragment>',
 			`#include <color_fragment>
 			vec2 p = groundPoint.xz;
-			vec2 st = p * 2.8;
-			vec2 cell = floor(st);
-			vec2 jitter = dustHash(cell);
-			vec2 gravel = (fract(st) - (0.19 + 0.62 * jitter)) * vec2(1.0, 1.45);
-			float pebble = (1.0 - smoothstep(0.025, 0.05 + 0.17 * jitter.x, length(gravel)))
-				* smoothstep(0.30, 0.80, jitter.y);
-			float distanceFade = 1.0 - smoothstep(14.0, 65.0, vViewPosition.z);
-			float dust = dustNoise(p * 0.19) * 0.17 + dustNoise(p * 1.2) * 0.07;
-			float strata = (dustNoise(vec2(p.x * 0.035, groundPoint.y * 0.12)) - 0.5) * 0.11;
-			diffuseColor.rgb *= 0.86 + strata + (dust - pebble * 0.32) * distanceFade;`
+			#ifdef USE_MAP
+				vec4 ortho = texture2D(map, vMapUv);
+				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a * 0.72);
+			#endif
+			float footprint = max(length(dFdx(p)), length(dFdy(p)));
+			float gravelBed = smoothstep(0.30, 0.66, dustNoise(p * 0.32));
+			float coarse = gravelHeight(p, 2.6) * (1.0 - smoothstep(0.025, 0.15, footprint));
+			float fine = gravelHeight(vec2(p.x + p.y, p.y - p.x) * 0.7071, 11.0)
+				* (1.0 - smoothstep(0.006, 0.04, footprint));
+			float closeDetail = 1.0 - smoothstep(12.0, 55.0, length(vViewPosition));
+			float gravel = (coarse * mix(0.45, 1.0, gravelBed) + fine * 0.42) * closeDetail;
+			float windDust = dustNoise(p * vec2(0.18, 0.72)) - 0.5;
+			float grain = (dustNoise(p * 21.0) - 0.5) * (1.0 - smoothstep(0.009, 0.045, footprint));
+			diffuseColor.rgb *= 1.0 + windDust * 0.16 + grain * 0.13 * closeDetail - gravel * 0.26;
+			float microHeight = gravel * 0.018 + grain * 0.0015 * closeDetail;`
+		).replace(
+			'#include <normal_fragment_maps>',
+			'#include <normal_fragment_maps>\nnormal = groundNormal(-vViewPosition, normal, microHeight);'
 		);
 		shader.uniforms.orthoTint = { value: orthoTint };
 		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
 	};
-	const mesh = new Mesh(geometry, terrainMaterial);
+	const mesh = new Mesh(lightTerrain.geometry, terrainMaterial);
 	mesh.castShadow = true;
 	mesh.receiveShadow = true;
 	const ambient = new HemisphereLight('#ffe4cc', '#82604c', 1.65);
@@ -420,7 +451,10 @@ export function mountTerrain(
 		}
 		for (const [key, rocks] of rockTiles) {
 			if (!wanted.has(key)) {
-				for (const mesh of rocks.meshes) scene.remove(mesh);
+				for (const mesh of rocks.meshes) {
+					scene.remove(mesh);
+					mesh.dispose();
+				}
 				rockTiles.delete(key);
 			}
 		}
@@ -434,11 +468,13 @@ export function mountTerrain(
 	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
 	const frameMaterial = new MeshLambertMaterial({ color: '#332b25' });
 	const shale = new MeshLambertMaterial({ color: '#6e4736' });
+	const landmarkGrounding: { block: Mesh; anchor: Point; offset: number }[] = [];
 	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
 		const block = new Mesh(hardware, paint);
 		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
 		block.scale.set(w, h, d);
 		landmarks.add(block);
+		landmarkGrounding.push({ block, anchor, offset: y });
 	}
 	part(ROVER, 0, 1.5, 0, 3, 1.9, 5, cabin);
 	part(ROVER, 0, 1.9, -2.51, 2.2, 0.7, 0.04, frameMaterial);
@@ -612,6 +648,7 @@ export function mountTerrain(
 		const wasActive = !!missionView;
 		if (!wasActive && !view) return;
 		missionView = view;
+		if (view) explored = true;
 		landmarks.visible = !!view;
 		if (wasActive !== !!view) mapX = Infinity;
 		keys.clear();
@@ -710,6 +747,7 @@ export function mountTerrain(
 		if (event.code === 'Enter' && !event.repeat) void captureLook();
 		if (walkKeys.includes(event.code)) {
 			event.preventDefault();
+			explored = true;
 			keys.add(event.code);
 			if (!frame) frame = requestAnimationFrame(step);
 		}
@@ -756,14 +794,91 @@ export function mountTerrain(
 		if (abort.signal.aborted) return;
 		texture.colorSpace = SRGBColorSpace;
 		texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-		terrainMaterial.map = texture;
-		terrainMaterial.needsUpdate = true;
-		draw();
+		if (!usingHighQuality) {
+			terrainMaterial.map = texture;
+			terrainMaterial.needsUpdate = true;
+			draw();
+		}
 	}, undefined, () => {
 		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
 	});
+	let highTexture: Texture | undefined;
+	let usingHighQuality = false;
+
+	async function prepareHighQuality(gridUrl: string, imageUrl: string) {
+		const response = await fetch(gridUrl, options);
+		if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE de alta resolución.');
+		const grid = await response.arrayBuffer();
+		if (abort.signal.aborted) return;
+		const image = await new TextureLoader().loadAsync(imageUrl);
+		try {
+			if (abort.signal.aborted) return;
+			const { width: imageWidth, height: imageHeight } = image.image;
+			if (Math.max(imageWidth, imageHeight) > renderer.capabilities.maxTextureSize) {
+				throw new Error('La ortoimagen supera el tamaño máximo de textura.');
+			}
+			const candidate = buildTerrain(grid);
+			if (candidate.width !== width || candidate.length !== length ||
+				!Number.isFinite(candidate.surfaceHeight(spawnX, spawnZ))) {
+				candidate.geometry.dispose();
+				throw new Error('La cuadrícula de alta resolución no coincide con el terreno.');
+			}
+			image.colorSpace = SRGBColorSpace;
+			image.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+			highTexture?.dispose();
+			highTerrain?.geometry.dispose();
+			highTexture = image;
+			highTerrain = candidate;
+		} finally {
+			if (highTexture !== image) image.dispose();
+		}
+	}
+
+	function setQuality(high: boolean, restart = false) {
+		if (missionView || (!restart && explored) || (high && !highTerrain)) return false;
+		if (high === usingHighQuality) return true;
+		const active = high ? highTerrain! : lightTerrain;
+		usingHighQuality = high;
+		spacing = active.spacing;
+		surfaceHeight = active.surfaceHeight;
+		mesh.geometry = active.geometry;
+		terrainMaterial.map = high ? highTexture! : texture.image ? texture : null;
+		terrainMaterial.needsUpdate = true;
+		sun.shadow.dispose();
+		sun.shadow.map = null;
+		sun.shadow.mapSize.setScalar(high ? 4096 : 2048);
+		for (const tile of rockTiles.values()) {
+			for (const rocks of tile.meshes) {
+				scene.remove(rocks);
+				rocks.dispose();
+			}
+		}
+		rockTiles.clear();
+		lastRockTileX = lastRockTileZ = Number.NaN;
+		mapX = Infinity;
+		for (const { block, anchor, offset } of landmarkGrounding) {
+			block.position.y = surfaceHeight(anchor.x, anchor.z) + offset;
+		}
+		if (explored) {
+			keys.clear();
+			cancelAnimationFrame(frame);
+			frame = previous = velocityX = velocityZ = stride = 0;
+			camera.position.x = spawnX;
+			camera.position.z = spawnZ;
+			camera.rotation.set(-0.085, 0.58, 0);
+			explored = false;
+		}
+		camera.position.y = eyeY();
+		atEdge = false;
+		notify('ready');
+		draw();
+		return true;
+	}
 
 	return {
+		supportsHighQuality: renderer.capabilities.maxTextureSize >= 8192,
+		prepareHighQuality,
+		setQuality,
 		refresh: draw,
 		setTime,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
@@ -776,10 +891,16 @@ export function mountTerrain(
 			cancelAnimationFrame(frame);
 			observer.disconnect();
 			for (const rocks of rockTiles.values()) {
-				for (const mesh of rocks.meshes) scene.remove(mesh);
+				for (const mesh of rocks.meshes) {
+					scene.remove(mesh);
+					mesh.dispose();
+				}
 			}
 			rockTiles.clear();
-			geometry.dispose();
+			lightTerrain.geometry.dispose();
+			highTerrain?.geometry.dispose();
+			highTexture?.dispose();
+			sun.shadow.dispose();
 			terrainMaterial.dispose();
 			for (const rockGeometry of rockGeometries) rockGeometry.dispose();
 			for (const material of rockMaterials) {

@@ -15,6 +15,10 @@
 	let map: HTMLCanvasElement;
 	let messageText: HTMLSpanElement;
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
+	let quality = $state<'high' | 'light'>('light');
+	let requestedQuality = $state<'high' | 'light'>('light');
+	let highStatus = $state<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
+	let restartForQuality = $state(false);
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
 	let noticeTimer: ReturnType<typeof setTimeout>;
 	let exited = $state(false);
@@ -205,6 +209,38 @@
 		}, duration);
 	}
 
+	async function changeQuality(next: typeof quality, restart = false) {
+		const viewer = terrain;
+		if (!viewer || mission) return;
+		requestedQuality = next;
+		restartForQuality = false;
+		if (next === 'high' && highStatus !== 'ready') {
+			if (!viewer.supportsHighQuality || highStatus === 'unavailable') {
+				requestedQuality = quality;
+				return;
+			}
+			if (highStatus === 'loading') return;
+			highStatus = 'loading';
+			try {
+				await viewer.prepareHighQuality(
+					asset('terrain/jezero-high.bin'),
+					asset('terrain/jezero-ortho-high.webp')
+				);
+				if (terrain !== viewer) return;
+				highStatus = 'ready';
+			} catch (error) {
+				if (terrain !== viewer) return;
+				console.warn('No se pudo cargar el terreno de alta calidad.', error);
+				highStatus = 'unavailable';
+				requestedQuality = quality;
+				return;
+			}
+		}
+		if (requestedQuality !== next || quality === next) return;
+		if (viewer.setQuality(next === 'high', restart)) quality = next;
+		else restartForQuality = true;
+	}
+
 	onMount(() => {
 		const request = new AbortController();
 		const jarvis = createAssistant({
@@ -228,6 +264,8 @@
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSA' : ''}` : `SOL ${sol} · ${clock} LMST`,
 					() => hudMessage);
 				showNotice('ready');
+				if (!terrain.supportsHighQuality) highStatus = 'unavailable';
+				else if (matchMedia('(pointer: fine) and (min-width: 900px)').matches) void changeQuality('high');
 			} catch (cause) {
 				if (request.signal.aborted) return;
 				console.error(cause);
@@ -243,6 +281,7 @@
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
 			terrain?.dispose();
+			terrain = undefined;
 		};
 	});
 </script>
@@ -305,6 +344,27 @@
 				mission = view;
 			}} ondialogue={playMissionDialogue} />
 			{#if !mission}
+				{#if terrain}
+					<label class="hud-action quality-control">
+						Calidad
+						<select value={requestedQuality} onchange={(event) => {
+							void changeQuality(event.currentTarget.value === 'high' ? 'high' : 'light');
+						}}>
+							<option value="light">Ligera</option>
+							<option value="high" disabled={highStatus === 'unavailable'}>Alta</option>
+						</select>
+					</label>
+					{#if restartForQuality}
+						<button type="button" class="hud-action" onclick={() => void changeQuality(requestedQuality, true)}>
+							Reiniciar visor y aplicar
+						</button>
+					{/if}
+					<span class="quality-status" role="status">
+						{#if highStatus === 'loading'}Cargando calidad alta…
+						{:else if highStatus === 'unavailable'}Calidad alta no disponible
+						{/if}
+					</span>
+				{/if}
 				<button type="button" class="hud-action voice-control"
 					aria-label="JARVIS. Mantén pulsado para hablar y suelta para enviar"
 					aria-keyshortcuts="Space"

@@ -4,6 +4,8 @@ Visor 3D del delta occidental de Jezero. Ejecuta `npm ci` y `npm run dev` y abre
 
 Al cargar apareces a pie en el delta. Haz clic en la escena (o pulsa **Intro** con el visor enfocado) para girar con el ratón y usa **WASD** para caminar. Pulsa **Esc** para liberar el ratón. También puedes arrastrar sobre el visor o usar las flechas para mirar. El minimapa muestra el relieve local y tu rumbo. El oxígeno y la temperatura son valores simulados.
 
+El selector **Calidad** permite elegir entre **Ligera** y **Alta**. En escritorio, el visor intenta cargar la calidad alta en segundo plano. Si ya has empezado a explorar, **Reiniciar visor y aplicar** te devuelve al punto de partida con la calidad elegida.
+
 El casco muestra la hora solar media local de Jezero. Pulsa **H** y abre **Cambiar hora** para explorar otro sol u otra hora. **Volver a la hora actual** reanuda el reloj en directo.
 
 ## Despliegue en Cloudflare Workers

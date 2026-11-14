@@ -63,6 +63,21 @@ body { margin: 0; background: #0b0d0e; }
 .hud-action:hover, .hud-action[aria-expanded='true'] { background: #163227e8; }
 .hud-action:focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
 .hud-action:disabled { opacity: .6; cursor: wait; }
+.quality-control select {
+	background: #0b1915;
+	color: inherit;
+	font: inherit;
+	border: 1px solid #a4dfc8;
+	padding: 4px;
+}
+.quality-control select:focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
+.quality-status:not(:empty) {
+	flex-basis: 100%;
+	order: 1;
+	text-align: center;
+	font-size: 13px;
+	text-shadow: 0 1px 4px #05110b;
+}
 .voice-control { touch-action: none; user-select: none; }
 .voice-control[data-recording='true'] { color: #ffb4a1; border-color: currentColor; }
 .voice-control svg { width: 16px; height: 16px; }
