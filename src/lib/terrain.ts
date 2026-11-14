@@ -7,7 +7,7 @@ import {
 import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
 import { createRockContact, footingOnRocks, type RockContact } from './rock-contact.js';
-import { BASE, HAZARD, ROVER, SAMPLE, type Point } from './ares/route.js';
+import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, type Point } from './ares/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -113,6 +113,7 @@ interface MissionView {
 	baseRoute: boolean;
 	showPosition: boolean;
 	tilt: number;
+	player?: { run: number; enabled: boolean; driving: boolean; target?: Point };
 }
 
 const mapSize = 96;
@@ -504,6 +505,7 @@ export function mountTerrain(
 	part(outcrop, 0, 0.45, 0, 2.8, 0.85, 2, shale);
 	part(outcrop, 0.24, 0.99, 0, 2.2, 0.26, 1.6, shale);
 	part(outcrop, 0.25, 1.26, 0, 1.5, 0.32, 0.78, cabin);
+	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
 	let missionView: MissionView | undefined;
 
 	const mapContext = map.getContext('2d');
@@ -550,7 +552,7 @@ export function mountTerrain(
 			if (missionView.showHazard) {
 				mapContext.fillStyle = '#f2a05070';
 				mapContext.beginPath();
-				mapContext.ellipse(px(HAZARD.x), pz(HAZARD.z), 7, 10, 0, 0, Math.PI * 2);
+				mapContext.arc(px(HAZARD.x), pz(HAZARD.z), HAZARD_RADIUS / scale, 0, Math.PI * 2);
 				mapContext.fill();
 			}
 			mapContext.beginPath();
@@ -571,6 +573,14 @@ export function mountTerrain(
 			mapContext.fillRect(px(objective.x) - 2, pz(objective.z) - 2, 4, 4);
 			mapContext.fillStyle = '#edfff6';
 			mapContext.fillRect(px(ROVER.x) - 3, pz(ROVER.z) - 2, 6, 4);
+			const target = missionView.player?.target;
+			if (target) {
+				mapContext.strokeStyle = '#ffe19b';
+				mapContext.lineWidth = 1.5;
+				mapContext.beginPath();
+				mapContext.arc(px(target.x), pz(target.z), 3, 0, Math.PI * 2);
+				mapContext.stroke();
+			}
 			if (!missionView.showPosition) {
 				mapContext.restore();
 				return;
@@ -663,14 +673,34 @@ export function mountTerrain(
 	}
 
 	function setMissionView(view?: MissionView) {
-		const wasActive = !!missionView;
+		const previousView = missionView;
+		const wasActive = !!previousView;
 		if (!wasActive && !view) return;
 		missionView = view;
 		if (view) explored = true;
 		landmarks.visible = !!view;
-		if (wasActive !== !!view) mapX = Infinity;
-		keys.clear();
-		velocityX = velocityZ = 0;
+		if (wasActive !== !!view || view?.baseRoute !== previousView?.baseRoute) mapX = Infinity;
+		const player = view?.player;
+		const previousPlayer = previousView?.player;
+		const sameRun = player && previousPlayer && previousPlayer.run === player.run;
+		if (!sameRun) {
+			keys.clear();
+			velocityX = velocityZ = 0;
+		} else if (!player.enabled) {
+			for (const key of walkKeys) keys.delete(key);
+			velocityX = velocityZ = 0;
+		}
+		if (sameRun && previousView) {
+			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
+				&& previousPlayer.target === player.target && previousView.showHazard === view.showHazard
+				&& previousView.showPosition === view.showPosition && previousView.baseRoute === view.baseRoute
+				&& previousView.tilt === view.tilt) return;
+			const tilt = reducedMotion.matches ? 0 : view.tilt;
+			camera.rotation.z = 0.32 * tilt;
+			camera.position.y = eyeY() - 0.64 * tilt;
+			draw();
+			return;
+		}
 		if (!view && atEdge) {
 			atEdge = false;
 			notify('ready');
@@ -681,7 +711,7 @@ export function mountTerrain(
 		if (Number.isFinite(height)) {
 			camera.position.set(x, height + eyeHeight - 0.64 * tilt, z);
 			updateRockTiles();
-			if (view) camera.position.y = footingOnRocks(rockColliders, height, x, z, true).height + eyeHeight - 0.64 * tilt;
+			camera.position.y = eyeY() - 0.64 * tilt;
 		}
 		camera.rotation.set(-0.085 - 0.26 * tilt, view
 			? Math.atan2(x - view.ahead.x, z - view.ahead.z)
@@ -711,14 +741,27 @@ export function mountTerrain(
 	let previous = 0;
 	let frame = 0;
 	let atEdge = false;
-	const eyeY = () => surfaceHeight(camera.position.x, camera.position.z) + eyeHeight;
+	const canLook = () => !missionView || !!missionView.player;
+	const canMove = () => !missionView || !!missionView.player?.enabled;
+	const eyeOffset = () => eyeHeight + (missionView?.player?.driving ? 0.8 : 0);
+	const eyeY = () => {
+		const { x, z } = camera.position;
+		return footingOnRocks(rockColliders, surfaceHeight(x, z), x, z, true).height + eyeOffset();
+	};
 
 	function step(now: number) {
 		const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
 		previous = now;
+		const turn = Number(keys.has('ArrowRight')) - Number(keys.has('ArrowLeft'));
+		const pitch = Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'));
+		camera.rotation.y -= turn * dt * 1.4;
+		camera.rotation.x = MathUtils.clamp(camera.rotation.x - pitch * dt * 1.1, -1.48, 1.48);
 		const forward = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
-		const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
-		const speed = 1.45 / Math.max(1, Math.hypot(forward, side));
+		const steering = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+		const driving = missionView?.player?.driving;
+		const side = driving ? 0 : steering;
+		if (driving) camera.rotation.y -= steering * dt * 0.9;
+		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) / Math.max(1, Math.hypot(forward, side));
 		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
@@ -726,9 +769,12 @@ export function mountTerrain(
 		const z = camera.position.z + velocityZ * dt;
 		const nextHeight = surfaceHeight(x, z);
 		const distance = Math.hypot(velocityX, velocityZ) * dt;
+		const blockedByHazard = !!missionView?.player && missionView.showHazard
+			&& distanceBetween({ x, z }, HAZARD) < HAZARD_RADIUS
+			&& distanceBetween({ x, z }, HAZARD) < distanceBetween(camera.position, HAZARD);
 		const footing = footingOnRocks(rockColliders, nextHeight, x, z);
-		const blocked = !Number.isFinite(nextHeight) || footing.blocked ||
-			Math.abs(nextHeight + eyeHeight - eyeY()) > distance * 0.72 + 1e-6;
+		const blocked = blockedByHazard || footing.blocked || !Number.isFinite(nextHeight)
+			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
 		if (blocked !== atEdge && (forward || side)) {
 			atEdge = blocked;
 			notify(blocked ? 'edge' : 'ready');
@@ -738,10 +784,10 @@ export function mountTerrain(
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = reducedMotion.matches || blocked ? 0 : Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
-		const currentHeight = blocked ? footingOnRocks(rockColliders, eyeY() - eyeHeight, camera.position.x, camera.position.z).height
-			: footing.height;
-		const targetY = currentHeight + eyeHeight + bob;
+		const bob = reducedMotion.matches || blocked || driving ? 0
+			: Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+		const tilt = reducedMotion.matches ? 0 : (missionView?.tilt ?? 0);
+		const targetY = (blocked ? eyeY() : footing.height + eyeOffset()) + bob - 0.64 * tilt;
 		camera.position.y = reducedMotion.matches ? targetY
 			: Math.max(targetY, MathUtils.damp(camera.position.y, targetY, 18, dt));
 		if (keys.size || Math.hypot(velocityX, velocityZ) > 0.015 || camera.position.y - targetY > 0.003) frame = requestAnimationFrame(step);
@@ -769,10 +815,11 @@ export function mountTerrain(
 	}
 
 	canvas.addEventListener('keydown', (event) => {
-		if (missionView) return;
+		if (!canLook()) return;
 		if (event.code === 'Enter' && !event.repeat) void captureLook();
 		if (walkKeys.includes(event.code)) {
 			event.preventDefault();
+			if (!canMove()) return;
 			explored = true;
 			keys.add(event.code);
 			if (!frame) frame = requestAnimationFrame(step);
@@ -781,7 +828,8 @@ export function mountTerrain(
 		const dy = Number(event.code === 'ArrowDown') - Number(event.code === 'ArrowUp');
 		if (dx || dy) {
 			event.preventDefault();
-			look(dx * 14, dy * 14);
+			keys.add(event.code);
+			if (!frame) frame = requestAnimationFrame(step);
 		}
 	}, options);
 	window.addEventListener('keyup', (event) => keys.delete(event.code), options);
@@ -791,10 +839,10 @@ export function mountTerrain(
 		if (document.pointerLockElement !== canvas) keys.clear();
 	}, options);
 	document.addEventListener('mousemove', (event) => {
-		if (document.pointerLockElement === canvas) look(event.movementX, event.movementY);
+		if (canLook() && document.pointerLockElement === canvas) look(event.movementX, event.movementY);
 	}, options);
 	canvas.addEventListener('pointerdown', (event) => {
-		if (missionView || event.button !== 0 || drag || document.pointerLockElement === canvas) return;
+		if (!canLook() || event.button !== 0 || drag || document.pointerLockElement === canvas) return;
 		dragged = false;
 		canvas.focus();
 		canvas.setPointerCapture(event.pointerId);
@@ -808,7 +856,7 @@ export function mountTerrain(
 		drag.y = event.clientY;
 	}, options);
 	canvas.addEventListener('click', (event) => {
-		if (!missionView && event.pointerType === 'mouse' && !dragged) void captureLook();
+		if (canLook() && event.pointerType === 'mouse' && !dragged) void captureLook();
 	}, options);
 	canvas.addEventListener('lostpointercapture', () => { drag = undefined; }, options);
 
@@ -893,6 +941,7 @@ export function mountTerrain(
 			camera.rotation.set(-0.085, 0.58, 0);
 			explored = false;
 		}
+		updateRockTiles();
 		camera.position.y = eyeY();
 		atEdge = false;
 		notify('ready');
@@ -909,6 +958,7 @@ export function mountTerrain(
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
 		setDust,
 		setMissionView,
+		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
 		dispose() {
 			abort.abort();
 			cancelAnimationFrame(stormFrame);

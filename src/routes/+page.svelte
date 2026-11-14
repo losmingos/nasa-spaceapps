@@ -2,13 +2,15 @@
 	import { onMount, tick } from 'svelte';
 	import { asset } from '$app/paths';
 	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
 	import './visor.css';
 	import { BASE, ROVER } from '#lib/ares/route.js';
 	import Ares01 from '#lib/ares/Ares01.svelte';
-	import { DURATION, type Ares01Dialogue, type MissionSnapshot } from '#lib/ares/ares01.js';
+	import type { interactiveSnapshot } from '#lib/ares/interactive.js';
+	import { type Ares01Dialogue, type MissionSnapshot } from '#lib/ares/ares01.js';
 	import type { VisorMessage } from '#lib/visor-optics.js';
 
 	let canvas: HTMLCanvasElement;
@@ -29,7 +31,30 @@
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
 	let storm = $state(false);
-	let mission = $state.raw<(MissionSnapshot & { time: number; paused: boolean }) | undefined>();
+	let mission = $state.raw<(MissionSnapshot & {
+		time: number;
+		paused: boolean;
+		player?: ReturnType<typeof interactiveSnapshot> & { run: number; enabled: boolean };
+	})>();
+	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
+	let pendingMissionLine: string | undefined;
+	function flushMissionLine() {
+		if (voiceInput || !pendingMissionLine || (voice && !['idle', 'locked'].includes(voice.status))) return;
+		const text = pendingMissionLine;
+		pendingMissionLine = undefined;
+		void missionVoice?.speak(text);
+	}
+	$effect(() => {
+		assistant?.setMissionContext(mission ? JSON.stringify({
+			scenario: 'ARES-01', state: mission.cue.state, objective: mission.cue.title,
+			guidance: mission.cue.text, navigation: mission.navigation, pressure: mission.pressure,
+			sample: mission.sample, logSaved: !!mission.log,
+			target: mission.player?.heading,
+			distanceToTargetM: mission.positionLost ? null : mission.player?.targetDistance,
+			bearingDegrees: mission.positionLost ? null : mission.player?.compass,
+			secondsElapsed: mission.time
+		}) : undefined);
+	});
 	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
 	const clock = $derived(formatMarsTime(sceneSol));
 	let assistant: Assistant | undefined;
@@ -65,7 +90,7 @@
 	};
 	const hudMessage: VisorMessage = $derived(mission ? {
 		title: missionTitles[mission.cue.id] ?? mission.cue.title,
-		detail: mission.jump || (mission.time >= DURATION ? 'Testigo pendiente · bitácora guardada'
+		detail: mission.jump || (mission.player?.move && mission.player.heading ? `${mission.player.heading} · ${mission.player.targetDistance} m · ${mission.player.compass}°` : undefined) || (mission.cue.id === 'closed' ? 'Testigo pendiente · bitácora guardada'
 			: mission.walking && !mission.positionLost ? `Rover · ${mission.remaining} m` : undefined),
 		kind: mission.critical ? 'danger' : mission.time >= 20 && mission.time < 40 ? 'warning' : undefined
 	} : {
@@ -98,22 +123,27 @@
 	$effect(() => terrain?.setMissionView(mission && {
 		point: mission.point,
 		ahead: mission.ahead,
-		route: mission.time >= 155 ? [ROVER, BASE] : mission.route,
-		baseRoute: mission.time >= 155,
-		showHazard: mission.time >= 90 && mission.time < 155,
+		route: mission.player?.route ?? (mission.time >= 155 ? [ROVER, BASE] : mission.route),
+		baseRoute: mission.player?.baseRoute ?? mission.time >= 155,
+		showHazard: mission.player?.showHazard ?? (mission.time >= 90 && mission.time < 155),
 		showPosition: mission.navigation !== 'Sin referencias',
-		tilt: mission.time >= 108 && mission.time < 122 ? 1 : 0
+		tilt: mission.player?.tilt ?? (mission.time >= 108 && mission.time < 122 ? 1 : 0),
+		player: mission.player
 	}));
 
-	function playMissionDialogue(line: Ares01Dialogue) {
+	function playMissionDialogue(line: Ares01Dialogue, interactive: boolean) {
 		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
+		if (interactive && line.speaker === 'jarvis') {
+			pendingMissionLine = line.text;
+			flushMissionLine();
+		}
 	}
 
 	async function voiceDown(input: NonNullable<typeof voiceInput>) {
-		if (mission) return;
 		const currentAssistant = assistant;
 		if (voiceInput || unlocking || !currentAssistant) return;
 		voiceInput = input;
+		missionVoice?.stop();
 		if (voiceStatus === 'locked' || micUnavailable) {
 			unlocking = true;
 			unlockFailed = false;
@@ -127,7 +157,7 @@
 				unlocking = false;
 			}
 		}
-		if (!mission && voiceInput === input && assistant === currentAssistant) currentAssistant.pttDown();
+		if (voiceInput === input && assistant === currentAssistant) currentAssistant.pttDown();
 	}
 
 	function voiceUp() {
@@ -141,7 +171,7 @@
 		const target = event.target instanceof Element ? event.target : null;
 		const onMic = !!target?.closest('.voice-control');
 		const code = event.code;
-		if (mission || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey ||
+		if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey ||
 			(code !== 'Space' && !(code === 'Enter' && onMic)) ||
 			(!onMic && target?.closest('button, input, select, textarea, a, [contenteditable]'))) return;
 		event.preventDefault();
@@ -243,14 +273,16 @@
 
 	onMount(() => {
 		const request = new AbortController();
+		const useBrowserVoice = new URLSearchParams(location.search).get('tts') === 'browser';
+		missionVoice = createMissionVoice(useBrowserVoice);
 		const jarvis = createAssistant({
 			mode: 'live',
-			tts: new URLSearchParams(location.search).get('tts') === 'browser' ? 'browser' : 'elevenlabs',
+			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
 			cuePolling: false
 		});
 		assistant = jarvis;
 		voice = jarvis.getState();
-		const unsubscribeVoice = jarvis.onState((state) => { voice = state; });
+		const unsubscribeVoice = jarvis.onState((state) => { voice = state; flushMissionLine(); });
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -278,6 +310,7 @@
 			assistant = undefined;
 			unsubscribeVoice();
 			jarvis.dispose();
+			missionVoice?.dispose();
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
 			terrain?.dispose();
@@ -340,32 +373,34 @@
 
 		<div class="visor-controls">
 			<Ares01 ready={!!terrain} onview={(view) => {
-				if (view) voiceUp();
 				mission = view;
-			}} ondialogue={playMissionDialogue} />
-			{#if !mission}
-				{#if terrain}
-					<label class="hud-action quality-control">
-						Calidad
-						<select value={requestedQuality} onchange={(event) => {
-							void changeQuality(event.currentTarget.value === 'high' ? 'high' : 'light');
-						}}>
-							<option value="light">Ligera</option>
-							<option value="high" disabled={highStatus === 'unavailable'}>Alta</option>
-						</select>
-					</label>
-					{#if restartForQuality}
-						<button type="button" class="hud-action" onclick={() => void changeQuality(requestedQuality, true)}>
-							Reiniciar visor y aplicar
-						</button>
-					{/if}
-					<span class="quality-status" role="status">
-						{#if highStatus === 'loading'}Cargando calidad alta…
-						{:else if highStatus === 'unavailable'}Calidad alta no disponible
-						{/if}
-					</span>
+			}} ondialogue={playMissionDialogue}
+				onstart={() => { voiceInput = undefined; assistant?.reset(); missionVoice?.unlock(); }}
+				onpause={() => { pendingMissionLine = undefined; missionVoice?.stop(); }}
+				getPosition={() => terrain?.getPosition()}
+				focusScene={() => canvas.focus()} />
+			{#if !mission && terrain}
+				<label class="hud-action quality-control">
+					Calidad
+					<select value={requestedQuality} onchange={(event) => {
+						void changeQuality(event.currentTarget.value === 'high' ? 'high' : 'light');
+					}}>
+						<option value="light">Ligera</option>
+						<option value="high" disabled={highStatus === 'unavailable'}>Alta</option>
+					</select>
+				</label>
+				{#if restartForQuality}
+					<button type="button" class="hud-action" onclick={() => void changeQuality(requestedQuality, true)}>
+						Reiniciar visor y aplicar
+					</button>
 				{/if}
-				<button type="button" class="hud-action voice-control"
+				<span class="quality-status" role="status">
+					{#if highStatus === 'loading'}Cargando calidad alta…
+					{:else if highStatus === 'unavailable'}Calidad alta no disponible
+					{/if}
+				</span>
+			{/if}
+			<button type="button" class="hud-action voice-control"
 					aria-label="JARVIS. Mantén pulsado para hablar y suelta para enviar"
 					aria-keyshortcuts="Space"
 					data-recording={voiceStatus === 'recording'}
@@ -383,7 +418,6 @@
 					</svg>
 					<span>JARVIS</span><kbd>Espacio</kbd><span class="touch-hint" aria-hidden="true">Mantén</span>
 				</button>
-			{/if}
 		</div>
 	</div>
 
