@@ -3,7 +3,7 @@ import {
 	Mesh, MeshLambertMaterial, PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
 	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { buildVisorOptics, dustColor } from './visor-optics.js';
+import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
 import { BASE, HAZARD, ROVER, SAMPLE, type Point } from './ares/route.js';
 
@@ -121,7 +121,8 @@ export function mountTerrain(
 	orthoUrl: string,
 	notify: (notice: TerrainNotice) => void,
 	getNotice: () => string,
-	getClock: () => string
+	getClock: () => string,
+	getMessage: () => VisorMessage
 ) {
 	const { geometry, width, length, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -132,7 +133,7 @@ export function mountTerrain(
 		throw error;
 	}
 
-	const optics = buildVisorOptics(renderer, map, getNotice, getClock);
+	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
 	const scene = new Scene();
 	const fog = new FogExp2('#bb8867', 0.00042);
 	scene.fog = fog;
@@ -323,7 +324,7 @@ export function mountTerrain(
 		worldToEye.copy(camera.quaternion).invert();
 		lightInView.copy(sun.position).applyQuaternion(worldToEye);
 		drawMap();
-		optics.render(scene, camera, lightInView, twilight, daylight, dust, gustTime, !!missionView);
+		optics.render(scene, camera, lightInView, twilight, daylight, dust, gustTime);
 	};
 	function updateLighting() {
 		const up = sun.position.y;
