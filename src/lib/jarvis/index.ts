@@ -40,6 +40,7 @@ const STEP_CUE = /^step:(P[1-6])$/;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function createAssistant(options: AssistantOptions): Assistant {
+	let missionContext: string | undefined;
 	const mode = options.mode;
 	const ttsMode = options.tts ?? 'elevenlabs';
 	const inBrowser = typeof window !== 'undefined';
@@ -205,7 +206,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			emitSubtitle({ speaker: 'astronaut', text: question, turnId });
 
 			const res = await api.chat(
-				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get() },
+				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext },
 				signal
 			);
 			if (!isCurrent(turnId)) return;
@@ -221,7 +222,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 				{ role: 'assistant' as const, content: reply }
 			].slice(-HISTORY_TURNS);
 
-			let playable: Playable = speechOrNone(reply);
+			let playable: Playable = missionContext ? { type: 'speech', text: reply, lang: 'es-ES' } : speechOrNone(reply);
 			if (ttsMode === 'elevenlabs' && audio.unlocked) {
 				try {
 					const mp3 = await api.tts(reply, signal);
@@ -455,6 +456,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		notify,
 		setStep,
 		reset,
+		setMissionContext: (context) => { missionContext = context; },
 		playLine: (id) => void playLineInternal(id),
 		onSubtitle(cb) {
 			subtitleListeners.add(cb);

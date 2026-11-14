@@ -1,46 +1,105 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { dialogueAt, DURATION, missionAt, SOURCE, type Ares01Dialogue, type MissionSnapshot } from './ares01.js';
+	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
+	import type { Point } from './route.js';
 
-	let { ready, onview, ondialogue }: {
+	let { ready, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
 		ready: boolean;
-		onview: (view?: MissionSnapshot & { time: number }) => void;
-		ondialogue: (line: Ares01Dialogue) => void;
+		onview: (view?: MissionSnapshot & {
+			time: number;
+			player?: ReturnType<typeof interactiveSnapshot> & { run: number; enabled: boolean };
+		}) => void;
+		ondialogue: (line: Ares01Dialogue, interactive: boolean) => void;
+		onstart: () => void;
+		onpause: () => void;
+		focusScene: () => void;
+		getPosition: () => Point | undefined;
 	} = $props();
 
 	let mode = $state<'demo' | 'interactive'>();
 	let time = $state(0);
 	let paused = $state(false);
-	let choice = $state<'continue' | 'return'>();
-	let secured = $state(false);
-	let rerouted = $state(false);
-	let positionLost = $state(false);
-	let testedPosition = $state(false);
-	const snapshot = $derived(missionAt(time, choice, positionLost));
-	const waiting = $derived(mode === 'interactive' && (
-		(time === 25 && !choice) || (time === 48 && !secured) || (time === 96 && !rerouted)
-	));
+	let run = $state.raw(startInteractive());
+	let runId = $state(0);
 	let lastCue = '';
+	const player = $derived(mode === 'interactive' ? interactiveSnapshot(run) : undefined);
+	const snapshot = $derived(player ?? missionAt(time, time >= 25 ? 'continue' : undefined));
+	const elapsed = $derived(player ? run.elapsed : time);
+	const finished = $derived(snapshot.cue.id === 'closed');
+	const actions = $derived(player ? availableActions(run) : []);
+	const actionLabels: Record<MissionAction, string> = {
+		drill: 'Iniciar perforación',
+		continue: 'Continuar muestreo',
+		abort: 'Detener el taladro',
+		secure: 'Asegurar instrumental y guardar bitácora',
+		detour: 'Aceptar desvío (+65 m)',
+		check: 'Comprobar presión',
+		resume: 'Reanudar la marcha',
+		locate: 'Confirmar posición con la baliza',
+		board: 'Entrar y presurizar el rover',
+		drive: 'Iniciar conducción',
+		finish: 'Estacionar y cerrar misión'
+	};
 
 	function start(next: typeof mode) {
 		time = 0;
 		mode = next;
-		paused = secured = rerouted = positionLost = testedPosition = false;
-		choice = undefined;
+		paused = false;
+		run = startInteractive();
+		runId++;
 		lastCue = '';
+		onpause();
+		if (next === 'interactive') onstart();
 		if (document.pointerLockElement) document.exitPointerLock();
+		if (next === 'interactive') void tick().then(focusScene);
 	}
 
-	function advance(delta: number) {
-		if (!mode || paused || waiting || positionLost) return;
-		let next = Math.min(DURATION, time + delta);
-		if (mode === 'demo' && time < 25 && next >= 25) choice = 'continue';
-		if (mode === 'interactive') {
-			if (!choice && time < 25) next = Math.min(next, 25);
-			if (!secured && time < 48) next = Math.min(next, 48);
-			if (!rerouted && time < 96) next = Math.min(next, 96);
+	function perform(action: MissionAction) {
+		if (paused || mode !== 'interactive') return;
+		const next = actInteractive(run, action);
+		if (next === run) return;
+		run = next;
+		void tick().then(focusScene);
+	}
+
+	function togglePause() {
+		paused = !paused;
+		if (paused) onpause();
+		else {
+			lastCue = '';
+			if (player?.move) focusScene();
 		}
-		time = next;
+	}
+
+	function keyboard(event: KeyboardEvent) {
+		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
+			(event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) return;
+		if (!mode) {
+			if (event.code === 'KeyI' && ready) {
+				event.preventDefault();
+				start('interactive');
+			}
+			return;
+		}
+		if (event.code === 'KeyP' && !finished) {
+			event.preventDefault();
+			togglePause();
+			void tick().then(focusScene);
+		} else if (event.code === 'KeyR' && (paused || finished)) {
+			event.preventDefault();
+			start(mode);
+		} else if (event.code === 'KeyQ' && (paused || finished)) {
+			event.preventDefault();
+			start(undefined);
+		} else if (mode === 'interactive' && !paused) {
+			const index = event.code === 'KeyE' || event.code === 'Digit1' || event.code === 'Numpad1' ? 0
+				: event.code === 'Digit2' || event.code === 'Numpad2' ? 1 : -1;
+			if (index >= 0 && actions[index]) {
+				event.preventDefault();
+				perform(actions[index]);
+			}
+		}
 	}
 
 	onMount(() => {
@@ -49,7 +108,9 @@
 			const now = performance.now();
 			const delta = Math.min((now - previous) / 1000, 0.25);
 			previous = now;
-			if (!document.hidden) advance(delta);
+			if (!mode || paused || finished || document.hidden) return;
+			if (mode === 'demo') time = Math.min(DURATION, time + delta);
+			else run = stepInteractive(run, delta, getPosition() ?? run.position);
 		}, 100);
 		return () => clearInterval(timer);
 	});
@@ -59,15 +120,17 @@
 			onview();
 			return;
 		}
-		onview({ ...snapshot, time });
-		if (lastCue !== snapshot.cue.id) {
+		onview({ ...snapshot, time: elapsed, player: player && { ...player, run: runId, enabled: player.move && !paused } });
+		if (!paused && lastCue !== snapshot.cue.id) {
 			lastCue = snapshot.cue.id;
-			ondialogue(dialogueAt(time, snapshot));
+			ondialogue(dialogueAt(elapsed, snapshot), !!player);
 		}
 	});
 
-	const clock = $derived(`${String(Math.floor(time / 60)).padStart(2, '0')}:${String(Math.floor(time % 60)).padStart(2, '0')}`);
+	const clock = $derived(`${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(Math.floor(elapsed % 60)).padStart(2, '0')}`);
 </script>
+
+<svelte:window onkeydown={keyboard} />
 
 {#if !mode}
 	<section class="mission launcher" aria-label="ARES-01">
@@ -76,20 +139,21 @@
 		<p>Una extracción geológica en el delta de Jezero. Demo de 3:30.</p>
 		<div class="actions">
 			<button class="primary" disabled={!ready} onclick={() => start('demo')}>Iniciar demo</button>
-			<button disabled={!ready} onclick={() => start('interactive')}>Modo interactivo</button>
+			<button disabled={!ready} onclick={() => start('interactive')} aria-keyshortcuts="I">Modo interactivo [I]</button>
 		</div>
 	</section>
 {:else}
 	<section class="mission status" aria-label="Estado de ARES-01">
 		<div class="id">ARES-01 <span>· {mode === 'demo' ? 'Demo' : 'Interactiva'}</span></div>
-		<div class="clock"><time datetime={`PT${Math.floor(time)}S`}>{clock}</time> <span>/ 03:30</span></div>
-		<progress value={time} max={DURATION} aria-label="Progreso de la demo"></progress>
+		<p class="detail">WASD mover · Flechas mirar · E actuar · 1/2 elegir · Espacio hablar</p>
+		<div class="clock"><time datetime={`PT${Math.floor(elapsed)}S`}>{clock}</time>{#if !player} <span>/ 03:30</span>{/if}</div>
+		{#if !player}<progress value={time} max={DURATION} aria-label="Progreso de la demo"></progress>{/if}
 		<div class="actions">
-			{#if time < DURATION}
-				<button onclick={() => { paused = !paused; }}>{paused ? 'Reanudar' : 'Pausar'}</button>
+			{#if !finished}
+				<button onclick={togglePause}>{paused ? 'Reanudar' : 'Pausar'} [P]</button>
 			{/if}
-			<button onclick={() => start(mode)}>Reiniciar</button>
-			<button onclick={() => start(undefined)}>Salir</button>
+			<button onclick={() => start(mode)}>Reiniciar{#if paused || finished} [R]{/if}</button>
+			<button onclick={() => start(undefined)}>Salir{#if paused || finished} [Q]{/if}</button>
 		</div>
 	</section>
 
@@ -101,7 +165,7 @@
 		<p class="jump" role="status">{snapshot.jump}</p>
 	{/if}
 
-	<section class="mission briefing" class:critical={snapshot.critical} class:warning={time >= 20 && time < 40}
+	<section class="mission briefing" class:critical={snapshot.critical} class:warning={['advisory', 'continue', 'play-advisory', 'play-continue'].includes(snapshot.cue.id)}
 		aria-label="Mensajes de misión">
 		<div aria-live="polite" aria-atomic="true">
 			<div class="id">{['trip', 'impact'].includes(snapshot.cue.id) ? 'EVA' : 'JARVIS'} <span>· {SOURCE}</span></div>
@@ -109,45 +173,38 @@
 			<p>{snapshot.cue.text}</p>
 		</div>
 
-		{#if time < 40 && choice !== 'return'}
+		{#if !player && time < 40}
 			<p class="detail">Testigo de lutita · ≈13 × 60 mm · faltan 10 min</p>
 		{/if}
 
-		{#if time >= 20 && time < 65}
+		{#if !player && time >= 20 && time < 65}
 			<div class="trend" aria-label="Tendencia simulada del polvo: en aumento">
 				<span>Polvo en aumento</span>
 				<div class="trend-track"><i style:width={`${snapshot.dust * 100}%`}></i></div>
 			</div>
 		{/if}
 
-		{#if time < 155}
+		{#if !finished && !snapshot.sheltered}
 			<dl>
 				<div><dt>Energía del traje</dt><dd>76 %</dd></div>
 				<div><dt>Posición</dt><dd>{snapshot.navigation}</dd></div>
-				{#if !positionLost}<div><dt>Rover por ruta</dt><dd>{snapshot.remaining} m</dd></div>{/if}
-				{#if time >= 113}<div><dt>Presión del traje</dt><dd>{snapshot.pressure}</dd></div>{/if}
+				{#if !snapshot.positionLost}<div><dt>Rover</dt><dd>{snapshot.remaining} m</dd></div>{/if}
+				{#if snapshot.pressure !== 'Nominal'}<div><dt>Presión del traje</dt><dd>{snapshot.pressure}</dd></div>{/if}
 			</dl>
 		{/if}
 
-		{#if positionLost}
-			<button class="primary" onclick={() => { positionLost = false; testedPosition = true; }}>Solicitar relocalización</button>
-		{:else if mode === 'interactive'}
-			{#if time >= 20 && time < 40 && !choice}
-				<div class="actions">
-					<button class="primary" onclick={() => { choice = 'return'; }}>Volver al rover</button>
-					<button onclick={() => { choice = 'continue'; }}>Continuar muestreo</button>
-				</div>
-			{:else if time >= 44 && time < 65 && !secured}
-				<button class="primary" onclick={() => { secured = true; }}>Asegurar instrumental y guardar bitácora</button>
-			{:else if time >= 93 && time < 100 && !rerouted}
-				<div class="actions">
-					<button class="primary" onclick={() => { rerouted = true; }}>Aceptar desvío (+65 m)</button>
-					{#if !testedPosition}<button onclick={() => { positionLost = true; }}>Simular pérdida de posición</button>{/if}
-				</div>
-			{/if}
+		{#if player?.move && player.heading}
+			<p class="detail">{player.driving ? 'W/S acelerar o retroceder · A/D girar' : 'WASD'} · {player.heading} a {player.targetDistance} m · rumbo {player.compass}°</p>
+		{/if}
+		{#if actions.length}
+			<div class="actions">
+				{#each actions as action, index (action)}
+					<button class:primary={index === 0} disabled={paused} onclick={() => perform(action)}>{actionLabels[action]} [{index === 0 ? 'E / 1' : '2'}]</button>
+				{/each}
+			</div>
 		{/if}
 
-		{#if time >= DURATION}
+		{#if finished}
 			<dl class="report">
 				<div><dt>Ciencia</dt><dd>Objetivo parcial · testigo pendiente</dd></div>
 				{#if snapshot.log}
