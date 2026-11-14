@@ -17,3 +17,11 @@ Para regenerar el binario, descarga el IMG desde la ficha de HiRISE y ejecuta:
 ```sh
 python scripts/build_terrain.py ruta/al/DTEEC_002387_1985_003798_1985_A01.IMG
 ```
+
+## ARES-01 · The Last Sample
+
+Abre el visor y elige Iniciar demo para seguir el guion de 3:30. En el modo interactivo puedes decidir si continúas al primer aviso, asegurar el instrumental, confirmar el desvío y ensayar una pérdida de posición. La secuencia guía la cámara y marca los saltos temporales. Pausar y Reiniciar están disponibles durante la misión.
+
+El reloj de la demo activa el aviso en 00:20 y, en la rama canónica, el aborto en 00:40. Son disparadores del guion. La intensidad visual del polvo, el terreno de riesgo y la presión del traje se simulan sobre el relieve HiRISE. Las posiciones de los hitos están en `src/lib/ares/route.ts`. El corredor original mide 350 m, el desvío 415 m y el trayecto en rover 2,4 km.
+
+La interfaz muestra las intervenciones de JARVIS y publica cada cambio de diálogo como `ares01:dialogue` en `window`. El detalle tiene el tipo `Ares01Dialogue` de `src/lib/ares/ares01.ts`. El cliente de voz puede suscribirse y reproducir los eventos con `speaker === 'jarvis'`. Los eventos de caída e impacto usan `speaker === 'scene'`.

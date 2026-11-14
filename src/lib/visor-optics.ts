@@ -23,23 +23,28 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	displayTexture.generateMipmaps = false;
 	let displayWidth = 1;
 	let displayHeight = 1;
-	function drawDisplay() {
+	function drawDisplay(mission: boolean) {
 		const w = displayWidth, h = displayHeight;
 		context.clearRect(0, 0, w, h);
 		const edge = Math.max(40, Math.min(180, w * 0.12));
 		const bottom = Math.max(52, Math.min(160, h * 0.18));
 		const mapSize = Math.max(80, Math.min(128, w * 0.095));
-		const y = h - bottom - mapSize;
+		const mapLeft = mission ? w - mapSize - Math.max(24, w * 0.10) : edge;
+		const y = mission ? Math.max(40, h * 0.21) : h - bottom - mapSize;
 		context.globalAlpha = 0.7;
-		context.drawImage(map, edge, y, mapSize, mapSize);
+		context.drawImage(map, mapLeft, y, mapSize, mapSize);
 		context.globalAlpha = 1;
 		context.strokeStyle = '#a4dfc8';
 		context.lineWidth = 0.8;
 		// Open registration corners keep the map on the glass without a panel backing.
-		for (const [x, yy, dx, dy] of [[edge, y, 1, 1], [edge + mapSize, y, -1, 1],
-			[edge, y + mapSize, 1, -1], [edge + mapSize, y + mapSize, -1, -1]]) {
+		for (const [x, yy, dx, dy] of [[mapLeft, y, 1, 1], [mapLeft + mapSize, y, -1, 1],
+			[mapLeft, y + mapSize, 1, -1], [mapLeft + mapSize, y + mapSize, -1, -1]]) {
 			context.beginPath(); context.moveTo(x, yy + dy * 9);
 			context.lineTo(x, yy); context.lineTo(x + dx * 9, yy); context.stroke();
+		}
+		if (mission) {
+			displayTexture.needsUpdate = true;
+			return;
 		}
 		const fontSize = Math.max(22, Math.min(31, w * 0.025));
 		context.fillStyle = '#c6ffe5';
@@ -81,7 +86,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			viewScale: { value: new Vector2() },
 			twilight: { value: 1 },
 			daylight: { value: 1 },
-			storm: { value: false },
+			storm: { value: 0 },
 			gustTime: { value: 0 },
 			dustColor: { value: new Color() },
 			eyeRotation: { value: new Matrix4() },
@@ -107,7 +112,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform vec2 viewScale;
 			uniform float twilight;
 			uniform float daylight;
-			uniform bool storm;
+			uniform float storm;
 			uniform float gustTime;
 			uniform vec3 dustColor;
 			uniform mat4 eyeRotation;
@@ -189,15 +194,12 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				vec3 dusk = mix(vec3(0.20, 0.082, 0.047), vec3(0.18, 0.27, 0.42),
 					smoothstep(0.94, 1.0, sunAngle));
 				sky = mix(vec3(0.008, 0.012, 0.024), mix(dusk, sky, daylight), twilight);
-				if (storm) {
-					sky = dustColor * (0.74 + 0.26 * twilight
-						+ 0.20 * twilight * pow(max(0.0, sunAngle), 12.0));
-				} else {
-					sky += vec3(1.0, 0.89, 0.72) * 2.0 * smoothstep(0.999978, 0.999987, sunAngle);
-				}
+				sky += (1.0 - storm) * vec3(1.0, 0.89, 0.72) * 2.0 * smoothstep(0.999978, 0.999987, sunAngle);
+				sky = mix(sky, dustColor * (0.74 + 0.26 * twilight
+					+ 0.20 * twilight * pow(max(0.0, sunAngle), 12.0)), storm);
 				vec3 transmitted = mix(sky, sceneColor, world.a);
-				if (storm) {
-					transmitted = scatterDust(transmitted, ray, sampleUV, sunAngle);
+				if (storm > 0.0) {
+					transmitted = mix(transmitted, scatterDust(transmitted, ray, sampleUV, sunAngle), storm);
 				}
 				// Smoked bronze solar filter. Longer oblique paths absorb more light;
 				// the interior HUD is added afterward, so it stays luminous and readable.
@@ -273,8 +275,8 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			material.uniforms.aspect.value = width / height;
 		},
 	render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, twilight: number, daylight: number,
-		storm: boolean, gustTime: number) {
-			drawDisplay();
+		storm: number, gustTime: number, mission: boolean) {
+			drawDisplay(mission);
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
 			material.uniforms.sunDirection.value.copy(sun);
@@ -282,7 +284,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			material.uniforms.twilight.value = twilight;
 			material.uniforms.daylight.value = daylight;
 			material.uniforms.storm.value = storm;
-			if (storm) {
+			if (storm > 0) {
 				material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
 				material.uniforms.gustTime.value = gustTime;
 				dustColor(material.uniforms.dustColor.value, twilight, daylight);
@@ -290,7 +292,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				material.uniforms.eyePosition.value.copy(camera.position);
 			}
 			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0))
-				* (storm ? 0.15 : 1);
+				* (1 - 0.85 * storm);
 			renderer.setRenderTarget(target);
 			renderer.render(scene, camera);
 			renderer.setRenderTarget(null);

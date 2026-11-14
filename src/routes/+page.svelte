@@ -4,6 +4,9 @@
 	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
 	import './visor.css';
+	import { BASE, ROVER } from '#lib/ares/route.js';
+	import Ares01 from '#lib/ares/Ares01.svelte';
+	import type { Ares01Dialogue, MissionSnapshot } from '#lib/ares/ares01.js';
 
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
@@ -15,11 +18,13 @@
 	let now = $state(Date.now());
 	let selectedSol = $state<number>();
 	const localSol = $derived(selectedSol ?? jezeroTime(now));
-	const clock = $derived(formatMarsTime(localSol));
 	const sol = $derived(Math.floor(localSol));
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
 	let storm = $state(false);
+	let mission = $state.raw<(MissionSnapshot & { time: number }) | undefined>();
+	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
+	const clock = $derived(formatMarsTime(sceneSol));
 	let clockButton = $state<HTMLButtonElement>();
 	let solInput = $state<HTMLInputElement>();
 	const notices = {
@@ -34,10 +39,24 @@
 		void current.text;
 		terrain?.refresh();
 	});
-	$effect(() => terrain?.setTime(localSol));
-	$effect(() => terrain?.setStorm(storm));
+	$effect(() => terrain?.setTime(sceneSol));
+	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
+	$effect(() => terrain?.setMissionView(mission && {
+		point: mission.point,
+		ahead: mission.ahead,
+		route: mission.time >= 155 ? [ROVER, BASE] : mission.route,
+		baseRoute: mission.time >= 155,
+		showHazard: mission.time >= 90 && mission.time < 155,
+		showPosition: mission.navigation !== 'Sin referencias',
+		tilt: mission.time >= 108 && mission.time < 122 ? 1 : 0
+	}));
+
+	function playMissionDialogue(line: Ares01Dialogue) {
+		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
+	}
 
 	async function clockShortcut(event: KeyboardEvent) {
+		if (mission) return;
 		if (event.code === 'Escape' && clockVisible) {
 			clockVisible = editingClock = false;
 			canvas.focus();
@@ -165,7 +184,9 @@
 		</div>
 	</div>
 
-	{#if clockVisible}
+	<Ares01 ready={!!terrain} onview={(view) => { mission = view; }} ondialogue={playMissionDialogue} />
+
+	{#if clockVisible && !mission}
 		<div class="clock-controls">
 			<button type="button" bind:this={clockButton} onclick={toggleEditor}
 				aria-expanded={editingClock} aria-controls={editingClock ? 'clock-editor' : undefined}
