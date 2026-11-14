@@ -99,7 +99,8 @@ export function mountHeadLockedHud(camera: Camera) {
 	const context = canvas.getContext('2d')!;
 	const texture = new CanvasTexture(canvas);
 	texture.colorSpace = SRGBColorSpace;
-	texture.anisotropy = 4;
+	texture.minFilter = LinearFilter;
+	texture.generateMipmaps = false;
 	const geometry = new PlaneGeometry(1.7, 0.85);
 	const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
 		fog: false, toneMapped: false });
@@ -108,8 +109,7 @@ export function mountHeadLockedHud(camera: Camera) {
 	plane.renderOrder = 999;
 	camera.add(plane);
 	return {
-		canvas,
-		context,
+		plane,
 		redraw(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void) {
 			context.clearRect(0, 0, canvas.width, canvas.height);
 			paint(context, canvas.width, canvas.height);

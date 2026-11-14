@@ -3,10 +3,12 @@
 	import { dialogueAt, DURATION, missionAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
+	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import type { Point } from './route.js';
 
-	let { ready, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
+	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
 		ready: boolean;
+		immersive: boolean;
 		onview: (view?: Ares01View) => void;
 		ondialogue: (line: Ares01Dialogue, interactive: boolean) => void;
 		onstart: () => void;
@@ -77,6 +79,31 @@
 		}
 	}
 
+	export function getVrControls(): XrMenuItem[] {
+		if (!ready) return [];
+		if (!mode) return [
+			{ id: 'start', label: 'Start mission', run: () => start('interactive') },
+			{ id: 'demo', label: 'Watch demo · 3:30', run: () => start('demo') }
+		];
+
+		const items: XrMenuItem[] = paused ? [] : actions.map((action) => ({
+			id: action, label: actionLabels[action], run: () => perform(action), close: true
+		}));
+		if (!finished) items.push({
+			id: 'pause', label: paused ? 'Resume mission' : 'Pause mission',
+			run: togglePause, close: paused
+		});
+		if (testing && mode === 'interactive' && !finished) items.push({
+			id: 'speed', label: fastTravel ? 'Test speed · 4×' : 'Test speed · 1×',
+			run: () => { fastTravel = !fastTravel; }
+		});
+		items.push(
+			{ id: 'restart', label: 'Restart mission', run: () => start(mode) },
+			{ id: 'leave', label: 'Exit mission', run: () => start(undefined) }
+		);
+		return items;
+	}
+
 	function keyboard(event: KeyboardEvent) {
 		if (event.code === 'Escape' && menuOpen) {
 			menuOpen = false;
@@ -122,7 +149,7 @@
 			const now = performance.now();
 			const delta = Math.min((now - previous) / 1000, 0.25);
 			previous = now;
-			if (!mode || paused || finished || document.hidden) return;
+			if (!mode || paused || finished || (document.hidden && !immersive)) return;
 			if (mode === 'demo') time = Math.min(DURATION, time + delta);
 			else run = stepInteractive(run, delta, getPosition() ?? run.position);
 		}, 100);
