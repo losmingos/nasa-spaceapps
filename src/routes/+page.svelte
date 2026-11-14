@@ -7,7 +7,7 @@
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
 	let error = $state('');
 	let overhead = $state(false);
-	let factor = $state(4);
+	let factor = $state(1);
 	const source = 'https://www.uahirise.org/dtm/PSP_002387_1985';
 	const number = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
 	const format = (value: number) => number.format(value).replace('-', '−');

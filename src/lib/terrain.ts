@@ -1,7 +1,8 @@
 import {
 	BufferAttribute, BufferGeometry, Color, DirectionalLight, HemisphereLight,
-	Mesh, MeshLambertMaterial, PerspectiveCamera, Scene, WebGLRenderer
+	Mesh, MeshStandardMaterial, PCFSoftShadowMap, PerspectiveCamera, Scene, WebGLRenderer
 } from 'three';
+// MeshStandardMaterial responde mejor a la luz
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export const elevationColors = ['#633321', '#ab6643', '#e5ad77'];
@@ -76,6 +77,8 @@ function buildTerrain(data: ArrayBuffer) {
 
 export function mountTerrain(canvas: HTMLCanvasElement, data: ArrayBuffer) {
 	const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = PCFSoftShadowMap;
 	let model;
 	try {
 		model = buildTerrain(data);
@@ -85,14 +88,31 @@ export function mountTerrain(canvas: HTMLCanvasElement, data: ArrayBuffer) {
 	}
 	const { geometry, width, length, low, high, spacing } = model;
 	const scene = new Scene();
-	const material = new MeshLambertMaterial({ vertexColors: true });
+	const material = new MeshStandardMaterial({
+		vertexColors: true,
+		roughness: 1,
+		metalness: 0
+	});
 	const mesh = new Mesh(geometry, material);
-	scene.add(mesh, new HemisphereLight('#ffe4cc', '#4a2720', 1.5));
-	const sun = new DirectionalLight('#fff0d9', 2.1);
-	sun.position.set(-1, 0.48, -0.55);
+	mesh.castShadow = true;
+	mesh.receiveShadow = true;
+	scene.add(mesh, new HemisphereLight('#f6dfc5', '#38231c', 1.15));
+	const span = Math.max(width, length);
+	const sun = new DirectionalLight('#fff0d9', 2.4);
+	sun.position.set(-span * 0.72, span * 1.25, -span * 0.58);
+	sun.castShadow = true;
+	sun.shadow.mapSize.set(2048, 2048);
+	sun.shadow.camera.left = -span * 0.72;
+	sun.shadow.camera.right = span * 0.72;
+	sun.shadow.camera.top = span * 0.72;
+	sun.shadow.camera.bottom = -span * 0.72;
+	sun.shadow.camera.near = 1;
+	sun.shadow.camera.far = span * 3;
+	sun.shadow.camera.updateProjectionMatrix();
+	sun.shadow.bias = -0.0001;
+	sun.shadow.normalBias = 0.03;
 	scene.add(sun);
 
-	const span = Math.max(width, length);
 	const camera = new PerspectiveCamera(38, 1, 10, span * 12);
 	const controls = new OrbitControls(camera, canvas);
 	controls.minDistance = 450;
