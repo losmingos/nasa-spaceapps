@@ -20,7 +20,7 @@ export interface Line {
 export const LINES: readonly Line[] = [
 	{ id: 'L01', kind: 'event', trigger: 'mission_start', template: 'Jarvis online. Sample site is ahead. Air temperature {air_temp_c} degrees Celsius, pressure {pressure_hpa} hectopascals. Conditions nominal.' },
 	{ id: 'L02', kind: 'event', trigger: 'sample_collected', template: 'Sample logged. Seal it and prepare to head back.' },
-	{ id: 'L03', kind: 'event', trigger: 'storm_start', template: 'Warning: dust storm front approaching from the west. Protocol step one: stop sampling and secure the sample now.' },
+	{ id: 'L03', kind: 'event', trigger: 'storm_start', template: 'Warning: dust storm front approaching from the east. Protocol step one: stop sampling and secure the sample now.' },
 	{ id: 'L04', kind: 'event', trigger: 'storm_start + 30 s', template: 'Visibility is dropping fast. Switch on your lights and beacon, and save suit power.' },
 	{ id: 'L05', kind: 'event', trigger: 'P5', template: 'Visibility under twenty metres. Hold position. I have your beacon.' },
 	{ id: 'L06', kind: 'event', trigger: 'P6', template: 'Airlock in range. Dust off before you enter. Well done.' },

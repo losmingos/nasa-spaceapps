@@ -76,19 +76,23 @@ Durante la demo, el juez (en la grabación, un compañero) está en Jezero recog
 
 ```
 src/lib/mission.ts                 # constantes compartidas con la escena (D27)
+src/lib/jarvis/types.ts            # contrato compartido: tipos de la API HTTP y del módulo
+src/lib/jarvis/protocol.ts         # protocolo de tormenta (fuente única de verdad, compartido cliente/servidor)
+src/lib/jarvis/api.ts              # fetch a /api/* (+ cabecera x-demo-token si la URL trae ?k=)
 src/lib/jarvis/index.ts            # createAssistant(): API pública del módulo
 src/lib/jarvis/audio.ts            # AudioContext único + cola con prioridad (D20, D26)
 src/lib/jarvis/recorder.ts         # stream de micro persistente + MediaRecorder (D21, D22)
 src/lib/jarvis/telemetry.ts        # telemetría simulada, reloj desde mission_start (D10, D23)
 src/lib/jarvis/lines.ts            # catálogo de frases pregrabadas → static/jarvis/*.mp3
 src/lib/server/jarvis/prompt.ts    # prompt de sistema fijo: personalidad + protocolo + MEDA
-src/lib/server/jarvis/protocol.ts  # protocolo de tormenta (fuente única de verdad)
 src/lib/data/meda-snapshot.json    # instantánea MEDA de un sol real (D11)
+src/env.ts                         # declaración de variables de entorno (SvelteKit 3: defineEnvVars)
 src/routes/api/stt/+server.ts
 src/routes/api/chat/+server.ts
 src/routes/api/tts/+server.ts
 src/routes/api/cue/+server.ts
 src/routes/operator/+page.svelte
+src/routes/vr-test/+page.svelte    # arnés WebXR mínimo: integración de referencia + prueba D18
 src/hooks.server.ts                # token de demo + límite de peticiones (solo con túnel, D15)
 scripts/gen_lines.ts               # genera los mp3 fijos con ElevenLabs (una vez)
 static/jarvis/*.mp3                # frases pregrabadas, en el repo (D24)
@@ -334,7 +338,7 @@ Ya configurada por si falla el USB:
 
 | Riesgo | Mitigación | Decisión |
 |---|---|---|
-| Claves en el cliente | Las claves solo están en `.env` (en `.gitignore`), se leen con `$env/static/private` y solo se usan en `+server.ts`. **Ninguna clave llega al navegador.** | D6 |
+| Claves en el cliente | Las claves solo están en `.env` (en `.gitignore`), se declaran en `src/env.ts` (`defineEnvVars`, SvelteKit 3), se leen con `$app/env/private` (módulo solo de servidor) y solo se usan en `+server.ts`. **Ninguna clave llega al navegador.** | D6 |
 | Endpoint público que gasta créditos o agota cuotas | Con USB no hay endpoint público. Con túnel, `hooks.server.ts` exige `?k=<DEMO_TOKEN>` (o una cookie que se fija la primera vez) en `/api/*` y aplica un **límite en memoria de 10 peticiones por minuto**. Se pone un **tope de gasto de 5 $** en la consola de Anthropic y se **cierra el túnel** al terminar de grabar. | D15 |
 | Audio de voz (datos personales) | **No se guarda audio en el servidor.** Va a Groq, se transcribe y se descarta. El historial solo está en la memoria del cliente. Se acepta que Groq y ElevenLabs procesan la voz y el texto del compañero según sus condiciones. | D16 |
 | Inyección de instrucciones por voz | Riesgo bajo, porque es una demo controlada. El prompt de sistema prioriza el protocolo y Jarvis no ejecuta acciones, solo habla. | — |
