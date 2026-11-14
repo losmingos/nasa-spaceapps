@@ -1,10 +1,10 @@
 import { asset } from '$app/paths';
 import type { VisorMessage } from '../../visor/optics.js';
-import type { MissionSnapshot } from './ares01.js';
+import { HAZARD_AT, PRESSURE_STABLE_AT, SHELTER_AT, TRIP_AT, type MissionSnapshot } from './ares01.js';
 import type { interactiveSnapshot } from './interactive.js';
 import { buildAres01Scene } from './scene.js';
 import type { MissionSceneFactory, MissionView } from '../../visor/terrain.js';
-import { BASE, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE } from './route.js';
+import { BASE, DETOUR_EXTRA, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE } from './route.js';
 
 export type Ares01View = MissionSnapshot & {
 	time: number;
@@ -20,7 +20,7 @@ const missionTitles: Record<string, string> = {
 	'early-return': 'Precautionary return',
 	return: 'Follow the route to the rover',
 	hazard: 'Stop · unstable slope',
-	reroute: 'Safe detour · +65 m',
+	reroute: `Safe detour · +${DETOUR_EXTRA} m`,
 	trip: 'Caution · loss of balance',
 	impact: 'Suit impact · stop moving',
 	'pressure-check': 'Checking suit pressure',
@@ -60,18 +60,19 @@ const baseMap = { center: { x: ROVER.x, z: (ROVER.z + BASE.z) / 2 }, scale: 30, 
 const hazard = { ...HAZARD, radius: HAZARD_RADIUS };
 
 export function missionTerrainView(mission: Ares01View): MissionView {
-	const baseRoute = mission.player?.baseRoute ?? mission.time >= 155;
+	const baseRoute = mission.player?.baseRoute ?? mission.time >= SHELTER_AT;
 	return {
 		point: mission.point,
 		ahead: mission.ahead,
-		route: mission.player?.route ?? (mission.time >= 155 ? [ROVER, BASE] : mission.route),
+		route: mission.player?.route ?? (mission.time >= SHELTER_AT ? [ROVER, BASE] : mission.route),
 		baseRoute,
 		inCabin: baseRoute,
 		headlamps: baseRoute ? 1 : undefined,
 		map: baseRoute ? baseMap : evaMap,
-		hazard: (mission.player?.showHazard ?? (mission.time >= 90 && mission.time < 155)) ? hazard : undefined,
+		mapObjectiveLabel: baseRoute ? 'BASE' : 'SAMPLE',
+		hazard: (mission.player?.showHazard ?? (mission.time >= HAZARD_AT && mission.time < SHELTER_AT)) ? hazard : undefined,
 		showPosition: !mission.positionLost,
-		tilt: mission.player?.tilt ?? (mission.time >= 108 && mission.time < 122 ? 1 : 0),
+		tilt: mission.player?.tilt ?? (mission.time >= TRIP_AT && mission.time < PRESSURE_STABLE_AT ? 1 : 0),
 		samplesCollected: mission.samplesCollected,
 		drilling: ['SAMPLING', 'WEATHER_ADVISORY', 'CONTINUE_WITH_WARNING', 'sampling', 'advisory', 'continue', 'abort'].includes(mission.cue.state),
 		drillPaused: mission.paused,

@@ -42,6 +42,7 @@
 	let controlsButton = $state<HTMLButtonElement>();
 	let storm = $state(false);
 	let flashlightOn = $state(false);
+	let mapZoom = $state(1);
 	let displayMode = $state<TerrainDisplayMode>('visible');
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
 	let geologyAvailable = $state(false);
@@ -343,7 +344,13 @@
 			toggleFlashlight();
 			return;
 		}
-		if (mission || nightfall || ares02) return;
+		if (event.code === 'Equal' || event.code === 'NumpadAdd' || event.code === 'Minus' || event.code === 'NumpadSubtract') {
+			event.preventDefault();
+			mapZoom = Math.max(0.5, Math.min(4, mapZoom + (event.code === 'Equal' || event.code === 'NumpadAdd' ? 0.5 : -0.5)));
+			terrain?.setMapZoom(mapZoom);
+			return;
+		}
+if (mission || nightfall || ares02) return;
 		if (event.code === 'KeyI' && !ares01) {
 			event.preventDefault();
 			selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
@@ -551,6 +558,14 @@
 					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
 				</button>
 			{/if}
+			<button type="button" class="hud-action" aria-label="Zoom in on minimap" aria-keyshortcuts="Plus"
+				disabled={!terrain || mapZoom >= 4} onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>
+				Map +
+			</button>
+			<button type="button" class="hud-action" aria-label="Zoom out on minimap" aria-keyshortcuts="Minus"
+				disabled={!terrain || mapZoom <= 0.5} onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>
+				Map −
+			</button>
 			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
 				disabled={!terrain} onclick={toggleFlashlight}>
 				{flashlightOn ? 'Flashlight on' : 'Flashlight'} <kbd>F</kbd>

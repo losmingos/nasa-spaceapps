@@ -5,7 +5,7 @@
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
 	import type { XrMenuItem } from '../../visor/xr-controls.js';
-	import type { Point } from './route.js';
+	import { DETOUR_EXTRA, type Point } from './route.js';
 
 	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
 		ready: boolean;
@@ -38,7 +38,7 @@
 		abort: 'Stop drilling',
 		secure: 'Secure equipment and save log',
 		collect: 'Collect the three survey samples',
-		detour: 'Accept detour (+65 m)',
+		detour: `Accept detour (+${DETOUR_EXTRA} m)`,
 		check: 'Check suit pressure',
 		resume: 'Resume walking',
 		locate: 'Confirm position using beacon',

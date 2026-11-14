@@ -93,6 +93,7 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 	};
 	const terrain: MissionView = {
 		point: startPoint, ahead: approach[1],
+		mapObjectiveLabel: service ? 'PANEL' : 'BRAVO',
 		baseRoute: false, showPosition: true, tilt: 0,
 		samplesCollected: false, drilling: false, drillPaused: false,
 		groundRoute: run.stage === 'outbound' ? outboundRoute : run.stage === 'drive' ? alternative : undefined,
