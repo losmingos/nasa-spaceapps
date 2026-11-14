@@ -28,7 +28,7 @@ const cues: readonly Cue[] = [
 	{ at: 20, id: 'advisory', state: 'WEATHER_ADVISORY', title: 'Dust advisory', text: 'Dust is intensifying faster than expected. I recommend aborting sampling and returning to the rover. Do you want to continue?' },
 	{ at: 40, id: 'abort', state: 'EVA_ABORT', title: 'EVA ABORT — RETURN REQUIRED', text: 'Critical alert. Loss of visibility and terrain references is compromising the return. Abort sampling and return to the rover.' },
 	{ at: 44, id: 'prepare', state: 'RETURN_PREP', title: 'Secure the equipment', text: 'Drilling needs ten more minutes. The margin for a safe return is too small. Stop the drill and log your location and progress.' },
-	{ at: 65, id: 'return', state: 'RETURN_EVA', title: 'Return on foot', text: 'The rover is 350 metres away. Follow the marked corridor and prioritize a safe return.' },
+	{ at: 65, id: 'return', state: 'RETURN_EVA', title: 'Return on foot', text: 'Survey samples secured. The rover is 350 metres away. Follow the marked corridor.' },
 	{ at: 90, id: 'hazard', state: 'HAZARD_DETECTED', title: 'Unstable slope', text: 'Stop. The planned corridor crosses a slope covered in loose regolith, increasing the risk of a fall.' },
 	{ at: 93, id: 'reroute', state: 'REROUTE', title: 'Recommended detour · +65 m', text: 'A surveyed alternate corridor avoids unstable ground and adds 65 metres.' },
 	{ at: 100, id: 'reroute-accepted', state: 'REROUTE', title: 'Detour active', text: 'Route updated. Follow the alternate corridor to the waypoint.' },
@@ -94,6 +94,7 @@ export function missionAt(time: number, choice?: 'continue' | 'return', position
 		critical: positionLost || (second >= 40 && second < 65 && choice !== 'return'),
 		sheltered: second >= 155 && second < 210,
 		sample: SAMPLE_STATUS as typeof SAMPLE_STATUS,
+		samplesCollected: second >= 65,
 		log: second >= 65 ? bitacora : null,
 		positionLost
 	};
@@ -113,6 +114,7 @@ export interface Ares01Dialogue {
 		navigation: string;
 		pressure: string;
 		sample: typeof SAMPLE_STATUS;
+		surveySamplesCarried: number;
 		distanceToRoverM: number | null;
 	};
 }
@@ -129,6 +131,7 @@ export function dialogueAt(time: number, snapshot: MissionSnapshot): Ares01Dialo
 			navigation: snapshot.navigation,
 			pressure: snapshot.pressure,
 			sample: snapshot.sample,
+			surveySamplesCarried: snapshot.samplesCollected ? 3 : 0,
 			distanceToRoverM: snapshot.positionLost || snapshot.sheltered || snapshot.cue.id === 'closed' ? null : snapshot.remaining
 		}
 	};

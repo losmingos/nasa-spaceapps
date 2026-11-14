@@ -7,10 +7,10 @@
 	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
 	import './visor.css';
-	import { BASE, ROVER } from '#lib/ares/route.js';
-	import Ares01 from '#lib/ares/Ares01.svelte';
-	import type { interactiveSnapshot } from '#lib/ares/interactive.js';
-	import { type Ares01Dialogue, type MissionSnapshot } from '#lib/ares/ares01.js';
+	import { BASE, ROVER } from '#lib/missions/ares01/route.js';
+	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
+	import type { interactiveSnapshot } from '#lib/missions/ares01/interactive.js';
+	import { type Ares01Dialogue, type MissionSnapshot } from '#lib/missions/ares01/ares01.js';
 	import type { VisorMessage } from '#lib/visor-optics.js';
 
 	let canvas: HTMLCanvasElement;
@@ -44,7 +44,7 @@
 		assistant?.setMissionContext(mission ? JSON.stringify({
 			scenario: 'ARES-01', state: mission.cue.state, objective: mission.cue.title,
 			guidance: mission.cue.text, navigation: mission.navigation, pressure: mission.pressure,
-			sample: mission.sample, logSaved: !!mission.log,
+			sample: mission.sample, surveySamplesCarried: mission.samplesCollected ? 3 : 0, logSaved: !!mission.log,
 			target: mission.player?.heading,
 			distanceToTargetM: mission.positionLost ? null : mission.player?.targetDistance,
 			bearingDegrees: mission.positionLost ? null : mission.player?.compass,
@@ -86,7 +86,7 @@
 	};
 	const hudMessage: VisorMessage = $derived(mission ? {
 		title: missionTitles[mission.cue.id] ?? mission.cue.title,
-		detail: mission.jump || (mission.player?.move && mission.player.heading ? `${mission.player.heading} · ${mission.player.targetDistance} m · ${mission.player.compass}°` : undefined) || (mission.cue.id === 'closed' ? 'Core not collected · log saved'
+		detail: mission.jump || (mission.player?.move && mission.player.heading ? `${mission.player.heading} · ${mission.player.targetDistance} m · ${mission.player.compass}°` : undefined) || (mission.cue.id === 'closed' ? 'Three survey samples recovered · core not collected'
 			: mission.walking && !mission.positionLost ? `Rover · ${mission.remaining} m` : undefined),
 		kind: mission.critical ? 'danger' : mission.time >= 20 && mission.time < 40 ? 'warning' : undefined
 	} : {
@@ -124,6 +124,7 @@
 		showHazard: mission.player?.showHazard ?? (mission.time >= 90 && mission.time < 155),
 		showPosition: !mission.positionLost,
 		tilt: mission.player?.tilt ?? (mission.time >= 108 && mission.time < 122 ? 1 : 0),
+		samplesCollected: mission.samplesCollected,
 		player: mission.player
 	}));
 
@@ -258,7 +259,7 @@
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
 					() => current.text,
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage, asset('models/sev.glb'));
+					() => hudMessage, { rover: asset('models/missions/ares01/sev.glb'), drill: asset('models/missions/ares01/ares-drill.glb'), tube: asset('models/missions/ares01/ares-tube.glb') });
 				showNotice('ready');
 			} catch (cause) {
 				if (request.signal.aborted) return;

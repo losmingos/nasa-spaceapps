@@ -6,10 +6,10 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { buildSamplingKit } from './ares/sampling-kit.js';
+import { buildSamplingKit } from './missions/ares01/sampling-kit.js';
 import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
-import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, SAMPLING_KIT, type Point } from './ares/route.js';
+import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, SAMPLING_KIT, type Point } from './missions/ares01/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -104,6 +104,7 @@ function buildTerrain(data: ArrayBuffer) {
 export type TerrainNotice = 'ready' | 'edge';
 
 interface MissionView {
+	samplesCollected: boolean;
 	point: Point;
 	ahead: Point;
 	route: readonly Point[];
@@ -143,7 +144,7 @@ export function mountTerrain(
 	getNotice: () => string,
 	getClock: () => string,
 	getMessage: () => VisorMessage,
-	roverUrl: string
+	modelUrls: { rover: string; drill: string; tube: string }
 ) {
 	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -447,10 +448,10 @@ export function mountTerrain(
 	const roverAnchor = new Group();
 	roverAnchor.position.set(ROVER.x, surfaceHeight(ROVER.x, ROVER.z), ROVER.z);
 	landmarks.add(roverAnchor);
-	let roverRequested = false;
-	let roverAsset: Object3D | undefined;
+	let assetsRequested = false;
+	const missionAssets: Object3D[] = [];
 
-	function disposeRover(model: Object3D) {
+	function disposeModel(model: Object3D) {
 		const geometries = new Set<BufferGeometry>();
 		const materials = new Set<Material>();
 		const textures = new Set<Texture>();
@@ -469,25 +470,35 @@ export function mountTerrain(
 		for (const texture of textures) texture.dispose();
 	}
 
-	function loadRover() {
-		if (roverRequested) return;
-		roverRequested = true;
-		new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(roverUrl, ({ scene: model }) => {
-			if (abort.signal.aborted) {
-				disposeRover(model);
-				return;
-			}
+	function loadMissionAssets() {
+		if (assetsRequested) return;
+		assetsRequested = true;
+		const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+		function load(url: string, place: (model: Object3D) => void) {
+			loader.load(url, ({ scene: model }) => {
+				if (abort.signal.aborted) {
+					disposeModel(model);
+					return;
+				}
+				model.traverse((object) => { if (object instanceof Mesh) object.castShadow = true; });
+				missionAssets.push(model);
+				place(model);
+				draw();
+			}, undefined, (error) => {
+				if (!abort.signal.aborted) console.warn('Could not load a mission model.', url, error);
+			});
+		}
+
+		load(modelUrls.rover, (model) => {
 			const bounds = new Box3().setFromObject(model);
 			const center = bounds.getCenter(new Vector3());
 			model.position.set(-center.x, -bounds.min.y, -center.z);
-			model.traverse((object) => { if (object instanceof Mesh) object.castShadow = true; });
-			roverAsset = model;
 			roverAnchor.add(model);
-			draw();
-		}, undefined, (error) => {
-			if (!abort.signal.aborted) console.warn('Could not load the NASA SEV model.', error);
 		});
+		load(modelUrls.drill, samplingKit.addDrill);
+		load(modelUrls.tube, samplingKit.addTubes);
 	}
+
 	part(BASE, 0, 1.9, 8, 7, 3.8, 8, cabin);
 	const outcrop = { x: SAMPLE.x - 3, z: SAMPLE.z - 2 };
 	part(outcrop, 0, 0.45, 0, 2.8, 0.85, 2, shale);
@@ -669,7 +680,8 @@ export function mountTerrain(
 		if (!wasActive && !view) return;
 		missionView = view;
 		landmarks.visible = !!view;
-		if (view) loadRover();
+		if (view) loadMissionAssets();
+		samplingKit.samples.visible = !view?.samplesCollected;
 		roverAnchor.visible = !view?.baseRoute;
 		if (wasActive !== !!view || view?.baseRoute !== previousView?.baseRoute) mapX = Infinity;
 		const player = view?.player;
@@ -686,7 +698,7 @@ export function mountTerrain(
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
 				&& previousPlayer.target === player.target && previousView.showHazard === view.showHazard
 				&& previousView.showPosition === view.showPosition && previousView.baseRoute === view.baseRoute
-				&& previousView.tilt === view.tilt) return;
+				&& previousView.samplesCollected === view.samplesCollected && previousView.tilt === view.tilt) return;
 			const tilt = reducedMotion.matches ? 0 : view.tilt;
 			camera.rotation.z = 0.32 * tilt;
 			camera.position.y = eyeY() - 0.64 * tilt;
@@ -886,7 +898,7 @@ export function mountTerrain(
 			hardware.dispose();
 			cabin.dispose();
 			samplingKit.dispose();
-			if (roverAsset) disposeRover(roverAsset);
+			for (const model of missionAssets) disposeModel(model);
 			shale.dispose();
 			optics.dispose();
 			renderer.dispose();

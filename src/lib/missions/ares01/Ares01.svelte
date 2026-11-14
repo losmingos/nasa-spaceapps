@@ -38,6 +38,7 @@
 		continue: 'Continue sampling',
 		abort: 'Stop drilling',
 		secure: 'Secure equipment and save log',
+		collect: 'Collect the three survey samples',
 		detour: 'Accept detour (+65 m)',
 		check: 'Check suit pressure',
 		resume: 'Resume walking',
@@ -172,7 +173,7 @@
 				<button class="hud-action" disabled={!ready} onclick={() => start('demo')}>Watch demo · 3:30</button>
 			</div>
 		{:else if finished}
-			<p>Core not collected. Return to base complete.</p>
+			<p>Return to base complete. Three survey samples recovered. Main core not collected.</p>
 			{#if snapshot.log}<p>{snapshot.log.strata}. {snapshot.log.progress}.</p>{/if}
 			<div class="hud-actions">
 				<button class="hud-action" onclick={() => start(mode)}>Restart</button>
