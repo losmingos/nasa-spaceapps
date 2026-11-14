@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { asset } from '$app/paths';
+	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
 	import './visor.css';
@@ -20,6 +22,19 @@
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
 	let storm = $state(false);
+	let assistant: Assistant | undefined;
+	let voice = $state<AssistantState>();
+	let unlocking = $state(false);
+	let unlockFailed = $state(false);
+	let spaceHeld = false;
+	const voiceStatus = $derived(voice?.status ?? 'locked');
+	const micUnavailable = $derived(voice?.lastError?.startsWith('Microphone unavailable') ?? false);
+	const voiceProblem = $derived(voiceStatus === 'locked' || voiceStatus === 'idle'
+		? unlockFailed ? 'Audio no disponible' : micUnavailable ? 'Micrófono no disponible' : ''
+		: '');
+	const voiceLabel = $derived(unlocking ? 'Activando audio…' : voiceProblem ||
+		(voiceStatus === 'locked' ? 'Activa el micrófono' :
+			voiceStatus === 'idle' ? 'Mantén para hablar' : STATUS_LABEL[voiceStatus]));
 	let clockButton = $state<HTMLButtonElement>();
 	let solInput = $state<HTMLInputElement>();
 	const notices = {
@@ -36,6 +51,47 @@
 	});
 	$effect(() => terrain?.setTime(localSol));
 	$effect(() => terrain?.setStorm(storm));
+
+	async function voiceDown(event: KeyboardEvent) {
+		if (event.code !== 'Space' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey ||
+			(event.target instanceof Element &&
+				event.target.closest('button, input, select, textarea, a, [contenteditable]'))) return;
+		event.preventDefault();
+		const currentAssistant = assistant;
+		if (event.repeat || spaceHeld || unlocking || !currentAssistant) return;
+		spaceHeld = true;
+		if (voiceStatus === 'locked' || micUnavailable) {
+			unlocking = true;
+			unlockFailed = false;
+			try {
+				await currentAssistant.unlock();
+			} catch (cause) {
+				console.error('[jarvis] Audio unavailable', cause);
+				unlockFailed = true;
+				return;
+			} finally {
+				unlocking = false;
+			}
+		}
+		if (spaceHeld && assistant === currentAssistant) currentAssistant.pttDown();
+	}
+
+	function voiceUp() {
+		if (!spaceHeld) return;
+		spaceHeld = false;
+		assistant?.pttUp();
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		void voiceDown(event);
+		void clockShortcut(event);
+	}
+
+	function onKeyUp(event: KeyboardEvent) {
+		if (event.code !== 'Space' || !spaceHeld) return;
+		event.preventDefault();
+		voiceUp();
+	}
 
 	async function clockShortcut(event: KeyboardEvent) {
 		if (event.code === 'Escape' && clockVisible) {
@@ -92,6 +148,14 @@
 
 	onMount(() => {
 		const request = new AbortController();
+		const jarvis = createAssistant({
+			mode: 'live',
+			tts: new URLSearchParams(location.search).get('tts') === 'browser' ? 'browser' : 'elevenlabs',
+			cuePolling: false
+		});
+		assistant = jarvis;
+		voice = jarvis.getState();
+		const unsubscribeVoice = jarvis.onState((state) => { voice = state; });
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -112,6 +176,9 @@
 		void load();
 		return () => {
 			request.abort();
+			assistant = undefined;
+			unsubscribeVoice();
+			jarvis.dispose();
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
 			terrain?.dispose();
@@ -124,7 +191,7 @@
 	<meta name="description" content="Recorre a pie el delta occidental de Jezero desde el visor de un astronauta." />
 </svelte:head>
 
-<svelte:window onkeydown={clockShortcut} />
+<svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
 <main class="visor">
 	<canvas class="terrain" bind:this={canvas} tabindex="0"
@@ -132,9 +199,29 @@
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Haz clic en la escena o pulsa Intro para capturar el ratón.
 		Usa WASD para caminar, las flechas para mirar y Escape para liberar el cursor.
-		Pulsa H para mostrar el control del reloj marciano.</p>
+		Pulsa H para mostrar el control del reloj marciano.
+		Mantén Espacio para hablar con Jarvis y suelta para enviar.</p>
 
 	<div class="projected">
+		<div class="jarvis-status" data-status={voiceProblem && !unlocking ? 'error' : voiceStatus}>
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+				stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				{#if unlocking || voiceStatus === 'thinking'}
+					<path d="M4 12h1m6.5 0h1m6.5 0h1" stroke-width="3" />
+				{:else if voiceProblem}
+					<path d="M12 4v10m0 5h.01" />
+				{:else if voiceStatus === 'speaking'}
+					<path d="M3 10v4m4-7v10m5-14v18m5-14v10m4-7v4" />
+				{:else}
+					<rect x="9" y="3" width="6" height="12" rx="3" />
+					<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
+				{/if}
+			</svg>
+			<span role="status"><strong>Jarvis</strong> · {voiceLabel}</span>
+			{#if !unlocking && (voiceStatus === 'locked' || voiceStatus === 'idle')}
+				<kbd>Espacio</kbd>
+			{/if}
+		</div>
 		<div class="notice" class:sr-only={!current.text || !!terrain} data-kind={current.kind}>
 			<span class="notice-mark" aria-hidden="true"></span>
 			<span class="notice-words" role="status" aria-live="polite">
