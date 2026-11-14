@@ -27,6 +27,11 @@ export interface SwirHudData {
 	surface?: string;
 }
 
+export interface VisorReadings {
+	o2Percent: number;
+	airTempC: number | null;
+}
+
 export const SWIR_DUST_TRANSMISSION = 0.15;
 
 export const SWIR_NOISE_GLSL = `
@@ -120,7 +125,8 @@ export function mountHeadLockedHud(camera: Camera) {
 }
 
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData) {
+	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData,
+	getReadings: () => VisorReadings) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -153,8 +159,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.textAlign = 'right';
 		context.font = `400 ${fontSize}px monospace`;
 		const right = w - edge;
-		context.fillText('96', right - 52, h - bottom - 40);
-		context.fillText('−63', right - 52, h - bottom - 5);
+		const readings = getReadings();
+		context.fillText(readings.o2Percent.toFixed(1), right - 52, h - bottom - 40);
+		context.fillText(readings.airTempC === null ? '—' : `${Math.round(readings.airTempC)}`, right - 52, h - bottom - 5);
 		context.font = '13px monospace';
 		context.fillText('% O₂', right, h - bottom - 40);
 		context.fillText('°C', right, h - bottom - 5);

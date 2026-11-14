@@ -265,7 +265,11 @@
 			return position ? placesFrom(position, { rover: ROVER, sample: SAMPLE, base: BASE }) : null;
 		});
 		voice = jarvis.getState();
-		const unsubscribeVoice = jarvis.onState((state) => { voice = state; flushMissionLine(); });
+		const unsubscribeVoice = jarvis.onState((state) => {
+			voice = state;
+			flushMissionLine();
+			terrain?.refresh();
+		});
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -290,7 +294,9 @@
 					() => current.text,
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
 					() => hudMessage,
-					() => ({ active: displayMode === 'swir' }), missionModelUrls());
+					() => ({ active: displayMode === 'swir' }), missionModelUrls(),
+					() => ({ o2Percent: voice?.telemetry.o2_remaining_pct ?? 96, airTempC: voice?.telemetry.air_temp_c ?? null }),
+					(level) => assistant?.setExertion(level));
 				showNotice('ready');
 				if (matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
 					void terrain.loadHighQuality(asset('terrain/jezero-high.bin'), asset('terrain/jezero-ortho-high.webp'));
@@ -328,7 +334,7 @@
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
-		Use WASD to walk, the arrow keys to look, and Escape to release the pointer.
+		Use WASD to walk, hold Shift while moving forward to run, the arrow keys to look, and Escape to release the pointer.
 		Press H to open scene controls and I to toggle SWIR.
 		Hold Space to talk to SARA and release to send.</p>
 
@@ -361,9 +367,9 @@
 
 			<dl class="readouts" aria-label="Simulated telemetry">
 				<dt class="sr-only">Oxygen</dt>
-				<dd>96<span>% O₂</span></dd>
+				<dd>{(voice?.telemetry.o2_remaining_pct ?? 96).toFixed(1)}<span>% O₂</span></dd>
 				<dt class="sr-only">Temperature</dt>
-				<dd>−63<span>°C</span></dd>
+				<dd>{voice?.telemetry.air_temp_c == null ? '—' : Math.round(voice.telemetry.air_temp_c)}<span>°C</span></dd>
 			</dl>
 			<p>Sol {sol}, {clock} Jezero local mean solar time</p>
 		</div>
@@ -373,7 +379,7 @@
 			<Ares01 ready={!!terrain} onview={(view) => {
 				mission = view;
 			}} ondialogue={playMissionDialogue}
-				onstart={() => { voiceInput = undefined; assistant?.reset(); missionVoice?.unlock(); }}
+				onstart={() => { voiceInput = undefined; assistant?.reset(); assistant?.startMissionClock(); missionVoice?.unlock(); }}
 				onpause={() => { pendingMissionLine = undefined; missionVoice?.stop(); }}
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />

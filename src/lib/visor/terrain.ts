@@ -7,8 +7,9 @@ import {
 import {
 	buildVisorOptics, drawHudTime, drawSwirHud, dustColor, mountHeadLockedHud,
 	SWIR_DEPTH_RESPONSE_GLSL, SWIR_DUST_TRANSMISSION, SWIR_NOISE_GLSL,
-	type SwirHudData, type VisorMessage
+	type SwirHudData, type VisorMessage, type VisorReadings
 } from './optics.js';
+import type { Exertion } from '../jarvis/types.js';
 import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
@@ -396,7 +397,9 @@ export function mountTerrain(
 	getClock: () => string,
 	getMessage: () => VisorMessage,
 	getSwir: () => SwirHudData,
-	modelUrls: Ares01ModelUrls
+	modelUrls: Ares01ModelUrls,
+	getReadings: () => VisorReadings,
+	onExertion: (level: Exertion) => void
 ) {
 	const lightTerrain = buildTerrain(data);
 	const { width, length } = lightTerrain;
@@ -436,7 +439,7 @@ export function mountTerrain(
 		} : { ...data, distanceM: null, albedo: null, surface: undefined };
 	}
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage,
-		() => readSwir(camera.position, camera.getWorldDirection(swirDirection)));
+		() => readSwir(camera.position, camera.getWorldDirection(swirDirection)), getReadings);
 	const scene = new Scene();
 	const dayFog = new Color('#cca88a');
 	const fog = new FogExp2(dayFog, clearDustDensity);
@@ -1040,10 +1043,14 @@ export function mountTerrain(
 		const sameRun = player && previousPlayer && previousPlayer.run === player.run;
 		if (!sameRun) {
 			keys.clear();
+			sprintHeld = false;
 			velocityX = velocityZ = 0;
+			reportExertion('resting');
 		} else if (!player.enabled) {
 			for (const key of walkKeys) keys.delete(key);
+			sprintHeld = false;
 			velocityX = velocityZ = 0;
+			reportExertion('resting');
 		}
 		if (sameRun && previousView) {
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
@@ -1059,6 +1066,7 @@ export function mountTerrain(
 		}
 		if (!view && atEdge) {
 			atEdge = false;
+			edgeNoticeShown = false;
 			notify('ready');
 		}
 		const { x, z } = view?.point ?? { x: spawnX, z: spawnZ };
@@ -1098,6 +1106,14 @@ export function mountTerrain(
 	let previous = 0;
 	let frame = 0;
 	let atEdge = false;
+	let sprintHeld = false;
+	let edgeNoticeShown = false;
+	let currentExertion: Exertion = 'resting';
+	function reportExertion(level: Exertion) {
+		if (level === currentExertion) return;
+		currentExertion = level;
+		onExertion(level);
+	}
 	const canLook = () => !missionView || !!missionView.player;
 	const canMove = () => !missionView || !!missionView.player?.enabled;
 	const eyeOffset = () => eyeHeight + (missionView?.player?.driving ? 0.8 : 0);
@@ -1111,13 +1127,14 @@ export function mountTerrain(
 		previous = now;
 		const driving = missionView?.player?.driving;
 		const side = driving ? 0 : steering;
+		const sprinting = sprintHeld && !driving && forward > 0;
 		if (driving) {
 			const turn = steering * dt * 0.9;
 			camera.rotation.y -= turn;
 			yaw -= turn;
 		}
 		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
-		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) * speedMultiplier
+		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45 * (sprinting ? 1.9 : 1)) * speedMultiplier
 			/ Math.max(1, Math.hypot(forward, side));
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
@@ -1125,23 +1142,55 @@ export function mountTerrain(
 		const z = camera.position.z + velocityZ * dt;
 		const nextHeight = surfaceHeight(x, z);
 		const distance = Math.hypot(velocityX, velocityZ) * dt;
+		const moving = Math.hypot(velocityX, velocityZ) > 0.12;
+		reportExertion(!driving && moving ? (sprinting ? 'running' : 'walking') : 'resting');
 		const blockedByHazard = !!missionView?.player && missionView.showHazard
 			&& distanceBetween({ x, z }, HAZARD) < HAZARD_RADIUS
 			&& distanceBetween({ x, z }, HAZARD) < distanceBetween(camera.position, HAZARD);
 		const footing = footingOnRocks(rockColliders, nextHeight, x, z);
-		const blocked = blockedByHazard || footing.blocked || !Number.isFinite(nextHeight)
-			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
-		if (blocked !== atEdge && (forward || side)) {
-			atEdge = blocked;
-			notify(blocked ? 'edge' : 'ready');
+		let blockedByRock = footing.blocked;
+		const contactSamples = Math.ceil(distance / 0.12);
+		for (let sample = 1; sample < contactSamples && !blockedByRock; sample++) {
+			const fraction = sample / contactSamples;
+			const sampleX = camera.position.x + (x - camera.position.x) * fraction;
+			const sampleZ = camera.position.z + (z - camera.position.z) * fraction;
+			blockedByRock = footingOnRocks(rockColliders, surfaceHeight(sampleX, sampleZ), sampleX, sampleZ).blocked;
 		}
+		const blocked = blockedByHazard || blockedByRock || !Number.isFinite(nextHeight)
+			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
+		if (blockedByRock) {
+			if (edgeNoticeShown) notify('ready');
+			edgeNoticeShown = false;
+		} else if (blocked && (forward || side)) {
+			if (!edgeNoticeShown) notify('edge');
+			edgeNoticeShown = true;
+		} else if (!blocked && edgeNoticeShown) {
+			notify('ready');
+			edgeNoticeShown = false;
+		}
+		atEdge = blocked;
 		if (!blocked) {
 			camera.position.x = x;
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = immersive || reducedMotion.matches || blocked || driving ? 0
-			: Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+		let bob = 0;
+		if (!immersive && !reducedMotion.matches && !blocked && !driving) {
+			if (sprinting && moving) {
+				// Approximate a short running flight arc under Martian gravity (3.71 m/s²).
+				const cycleLength = 1.65;
+				const flightStart = 0.22;
+				const cycleDuration = cycleLength / Math.max(0.8, Math.hypot(velocityX, velocityZ));
+				const phase = (stride % cycleLength) / cycleLength;
+				if (phase >= flightStart) {
+					const flightDuration = cycleDuration * (1 - flightStart);
+					const flightTime = (phase - flightStart) / (1 - flightStart) * flightDuration;
+					bob = Math.max(0, 0.5 * 3.71 * flightTime * (flightDuration - flightTime));
+				}
+			} else {
+				bob = Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+			}
+		}
 		const tilt = immersive || reducedMotion.matches ? 0 : (missionView?.tilt ?? 0);
 		const targetY = (blocked ? eyeY() : footing.height + eyeOffset()) + bob - 0.64 * tilt;
 		camera.position.y = reducedMotion.matches ? targetY
@@ -1275,6 +1324,10 @@ export function mountTerrain(
 
 	canvas.addEventListener('keydown', (event) => {
 		if (!canLook()) return;
+		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+			if (canMove()) { sprintHeld = true; if (!frame) frame = requestAnimationFrame(step); }
+			return;
+		}
 		if (event.code === 'Enter' && !event.repeat) void captureLook();
 		if (walkKeys.includes(event.code)) {
 			event.preventDefault();
@@ -1291,11 +1344,14 @@ export function mountTerrain(
 			if (!frame) frame = requestAnimationFrame(step);
 		}
 	}, options);
-	window.addEventListener('keyup', (event) => keys.delete(event.code), options);
-	canvas.addEventListener('blur', () => keys.clear(), options);
-	window.addEventListener('blur', () => keys.clear(), options);
+	window.addEventListener('keyup', (event) => {
+		keys.delete(event.code);
+		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') sprintHeld = false;
+	}, options);
+	canvas.addEventListener('blur', () => { keys.clear(); sprintHeld = false; reportExertion('resting'); }, options);
+	window.addEventListener('blur', () => { keys.clear(); sprintHeld = false; reportExertion('resting'); }, options);
 	document.addEventListener('pointerlockchange', () => {
-		if (document.pointerLockElement !== canvas) keys.clear();
+		if (document.pointerLockElement !== canvas) { keys.clear(); sprintHeld = false; reportExertion('resting'); }
 	}, options);
 	document.addEventListener('mousemove', (event) => {
 		if (canLook() && document.pointerLockElement === canvas) look(event.movementX, event.movementY);
@@ -1399,6 +1455,7 @@ export function mountTerrain(
 		updateRockTiles();
 		camera.position.y = eyeY();
 		atEdge = false;
+		edgeNoticeShown = false;
 		notify('ready');
 		draw();
 	}

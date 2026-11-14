@@ -1,0 +1,10 @@
+{
+  "source": "NASA PDS Atmospheres Node — Mars 2020 MEDA ATS_LOCAL_TEMP1-3",
+  "sol": 313,
+  "date": "2022-01-06",
+  "unit": "degC",
+  "method": "For each LMST hour, average all valid 1-second observations from ATS_LOCAL_TEMP1-3 after converting kelvin to Celsius.",
+  "sample_counts_by_hour": [3699, 288, 3696, 3699, 3699, 3698, 157, 3696, 3699, 3699, 3699, 3699, 3699, 3699, 79, 3697, 3699, 3699, 2787, 2673, 3699, 3699, 3698, 3699],
+  "hourly_mean_c": [-69.5, -71.4, -72.9, -73.7, -75.0, -72.5, -67.7, -53.2, -41.9, -33.4, -29.4, -21.6, -14.0, -9.8, -9.1, -12.6, -19.7, -33.2, -45.3, -55.4, -59.2, -63.5, -65.5, -67.7],
+  "source_url": "https://atmos.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/data_calibrated_env/sol_0300_0419/sol_0313/WE__0313___________CAL_ATS_________________P01.CSV"
+}

@@ -23,7 +23,7 @@ function getClient(apiKey: string): Anthropic {
 
 type Validated = { ok: true; value: ChatRequest } | { ok: false; error: string };
 
-const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
+const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'o2_remaining_pct', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
 const TELEMETRY_NULLABLE = [
 	'storm_t_s', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity', 'ground_temp_c', 'relative_humidity_pct',
 	'mission_sol', 'ls', 'meda_sol', 'meda_latest_sol', 'meda_data_age_sols', 'latest_air_temp_c', 'latest_pressure_pa',
@@ -31,7 +31,7 @@ const TELEMETRY_NULLABLE = [
 ] as const;
 /** Every Telemetry key, in the order sent to the model. A key missing here is silently dropped. */
 const TELEMETRY_KEYS = [
-	't_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'suit_power_pct', 'visibility_m',
+	't_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'o2_remaining_pct', 'movement_mode', 'suit_power_pct', 'visibility_m',
 	'distance_to_habitat_m', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity', 'ground_temp_c',
 	'relative_humidity_pct', 'lmst', 'mission_sol', 'ls', 'meda_sol', 'meda_curve', 'meda_latest_sol',
 	'meda_data_age_sols', 'latest_air_temp_c', 'latest_pressure_pa', 'signal_delay_min'
@@ -55,6 +55,7 @@ function cleanTelemetry(raw: Record<string, unknown>): Telemetry {
 		else if (k === 'protocolStep') t[k] = step;
 		else if (k === 'lmst') t[k] = typeof raw.lmst === 'string' && /^\d\d:\d\d$/.test(raw.lmst) ? raw.lmst : null;
 		else if (k === 'meda_curve') t[k] = typeof raw.meda_curve === 'string' && MEDA_CURVES.includes(raw.meda_curve) ? raw.meda_curve : null;
+		else if (k === 'movement_mode') t[k] = ['resting', 'walking', 'running'].includes(String(raw[k])) ? raw[k] : 'resting';
 		else if ((TELEMETRY_NUMBERS as readonly string[]).includes(k)) t[k] = num(raw[k]);
 		else if ((TELEMETRY_NULLABLE as readonly string[]).includes(k)) t[k] = numOrNull(raw[k]);
 	}
