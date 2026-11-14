@@ -4,6 +4,7 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Handle } from '@sveltejs/kit/hooks';
+import { building } from '$app/env';
 import { DEMO_TOKEN } from '$app/env/private';
 import { jsonError } from '#lib/server/http.js';
 import { rateLimit } from '#lib/server/ratelimit.js';
@@ -19,6 +20,8 @@ function tokenMatches(candidate: string | null | undefined, token: string): bool
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
+	// Prerendering (npm run build) has no runtime env and no query string — nothing to protect.
+	if (building) return resolve(event);
 	const token = DEMO_TOKEN;
 	if (!token) return resolve(event);
 

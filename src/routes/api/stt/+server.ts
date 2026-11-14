@@ -13,6 +13,9 @@ import {
 } from '#lib/server/jarvis/stt.js';
 import type { RequestHandler } from './$types';
 
+// The site is prerendered (src/routes/+layout.ts); API routes must stay dynamic in the Worker.
+export const prerender = false;
+
 export const POST: RequestHandler = async ({ request }) => {
 	if (!GROQ_API_KEY) return missingEnv('GROQ_API_KEY');
 

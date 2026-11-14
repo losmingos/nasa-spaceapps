@@ -7,6 +7,9 @@ import { ElevenLabsError, elevenLabsTts } from '#lib/server/jarvis/elevenlabs.js
 import { getCachedTts, putCachedTts, ttsCacheKey } from '#lib/server/jarvis/tts-cache.js';
 import type { RequestHandler } from './$types';
 
+// The site is prerendered (src/routes/+layout.ts); API routes must stay dynamic in the Worker.
+export const prerender = false;
+
 const MAX_TEXT = 600;
 
 function audioResponse(audio: Uint8Array, cache: 'hit' | 'miss'): Response {

@@ -1,0 +1,266 @@
+.visor {
+	--hud-text: #ecfff7;
+	--hud-label: #cbebe1;
+	--hud-edge: clamp(24px, 6vw, 100px);
+	--hud-bottom: max(clamp(52px, 10dvh, 106px), calc(env(safe-area-inset-bottom) + 16px));
+	position: relative;
+	isolation: isolate;
+	width: 100%;
+	height: 100vh;
+	height: 100dvh;
+	overflow: hidden;
+	background: linear-gradient(180deg, #655047, #95715d 30%, #bd8a6a 58%, #795440);
+	color: var(--hud-text);
+	font-family: Inter, system-ui, sans-serif;
+	font-variant-numeric: tabular-nums;
+}
+
+body { margin: 0; background: #0b0d0e; }
+.visor *, .visor *::before, .visor *::after { box-sizing: border-box; }
+.terrain, .projected { position: absolute; inset: 0; width: 100%; height: 100%; }
+.terrain { display: block; touch-action: none; cursor: grab; }
+.terrain:active { cursor: grabbing; }
+.terrain:focus-visible { outline: 2px solid var(--hud-text); outline-offset: -2px; }
+.projected { pointer-events: none; perspective: 850px; }
+
+.clock-controls {
+	position: absolute;
+	top: max(12px, env(safe-area-inset-top));
+	right: max(12px, env(safe-area-inset-right));
+	display: grid;
+	justify-items: end;
+	gap: 8px;
+	max-width: calc(100% - 24px);
+	font-size: 14px;
+	color-scheme: dark;
+}
+
+.clock-editor {
+	display: grid;
+	gap: 10px;
+	padding: 12px;
+	background: #201d1a;
+	border: 1px solid #83766c;
+	border-radius: 8px;
+}
+
+.clock-editor label { display: grid; gap: 4px; }
+.clock-controls :is(button, input) {
+	min-height: 40px;
+	padding-inline: 10px;
+	border: 1px solid #83766c;
+	border-radius: 5px;
+	background: #28231f;
+	color: inherit;
+	font: inherit;
+}
+.clock-controls button { cursor: pointer; }
+.clock-controls button[aria-pressed='true'] {
+	background: #59402c;
+	border-color: #e5b485;
+	color: #fff2e4;
+}
+.clock-controls :focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
+
+.notice, .radar, .readouts {
+	text-shadow: 0 1px 2px #111c17, 0 0 6px #102720cc, 0 0 11px #82eaca50;
+}
+
+.notice {
+	--signal: #c5e6dc;
+	position: absolute;
+	top: max(clamp(18px, 5vh, 54px), env(safe-area-inset-top));
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: max-content;
+	max-width: calc(100% - 32px);
+	border-bottom: 1px solid #c5e6dc75;
+	padding: 4px 7px 7px;
+	font-size: 12px;
+	font-weight: 550;
+	line-height: 1.3;
+	text-align: center;
+}
+
+.notice[data-kind='warning'] { --signal: #ffda95; }
+.notice[data-kind='danger'] { --signal: #ffb4a1; }
+.notice-mark { flex: none; width: 6px; height: 6px; background: var(--signal); border-radius: 50%; }
+
+.radar, .readouts {
+	position: absolute;
+	bottom: var(--hud-bottom);
+	margin: 0;
+
+}
+
+.radar {
+	left: var(--hud-edge);
+	width: clamp(96px, 9vw, 128px);
+	transform: rotateY(-18deg) rotateX(9deg) rotateZ(-3deg);
+	transform-origin: left center;
+}
+
+.map-face { overflow: hidden; border: 1px solid #c5f3e37d; border-radius: 12px; }
+.map-face canvas { width: 100%; height: auto; display: block; }
+
+.readouts {
+	right: var(--hud-edge);
+	display: grid;
+	gap: 8px;
+	transform: rotateY(18deg) rotateX(9deg) rotateZ(3deg);
+	transform-origin: right center;
+}
+
+.readouts dd {
+	margin: 0;
+	font: 500 clamp(22px, 2.5vw, 31px)/1 'IBM Plex Mono', ui-monospace, monospace;
+	letter-spacing: -.03em;
+}
+.readouts dd span { font-size: .58em; margin-left: .2em; color: var(--hud-label); }
+
+.error-help {
+	position: absolute;
+	top: max(62px, calc(env(safe-area-inset-top) + 48px), calc(5vh + 44px));
+	inset-inline: 12px;
+	margin: 0 auto;
+	width: fit-content;
+	max-width: calc(100% - 24px);
+	padding: 6px 10px;
+	border-radius: 8px;
+	background: #231b17e6;
+	font-size: 12px;
+	text-align: center;
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+@media (max-height: 460px) {
+	.visor { --hud-bottom: max(44px, calc(env(safe-area-inset-bottom) + 22px)); }
+	.radar { width: 98px; }
+	.readouts dd { font-size: 20px; }
+}
+
+/* transitions-dev — copy this :root block into your project once.
+   Every transition snippet reads from these semantic names. */
+:root {
+  /* Card resize */
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Number pop-in */
+  --digit-dur: 500ms;
+  --digit-distance: 8px;
+  --digit-stagger: 70ms;
+  --digit-blur: 2px;
+  --digit-ease: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --digit-dir-x: 0;
+  --digit-dir-y: 1;
+  /* Notification badge */
+  --badge-slide-dur: 260ms;
+  --badge-pop-dur: 500ms;
+  --badge-pop-close-dur: 180ms;
+  --badge-fade-dur: 400ms;
+  --badge-fade-close-dur: 180ms;
+  --badge-blur: 2px;
+  --badge-offset-x: -8.2px;
+  --badge-offset-y: 12.4px;
+  --badge-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --badge-pop-ease: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --badge-close-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Text states swap */
+  --text-swap-dur: 200ms;
+  --text-swap-translate-y: 8px;
+  --text-swap-blur: 2px;
+  --text-swap-ease: ease-out;
+  /* Menu dropdown */
+  --dropdown-open-dur: 250ms;
+  --dropdown-close-dur: 150ms;
+  --dropdown-pre-scale: 0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Modal open / close */
+  --modal-open-dur: 250ms;
+  --modal-close-dur: 150ms;
+  --modal-scale: 0.96;
+  --modal-scale-close: 0.96;
+  --modal-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Panel reveal */
+  --panel-open-dur: 400ms;
+  --panel-close-dur: 350ms;
+  --panel-translate-y: 100px;
+  --panel-blur: 2px;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Page side-by-side */
+  --page-slide-dur: 200ms;
+  --page-fade-dur: 200ms;
+  --page-slide-distance: 8px;
+  --page-blur: 3px;
+  --page-stagger: 0ms;
+  --page-exit-enabled: 1;
+  --page-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --page-fade-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Icon swap */
+  --icon-swap-dur: 200ms;
+  --icon-swap-blur: 2px;
+  --icon-swap-start-scale: 0.25;
+  --icon-swap-ease: ease-in-out;
+  /* Success check */
+  --check-opacity-dur: 550ms;
+  --check-rotate-dur: 550ms;
+  --check-rotate-from: 80deg;
+  --check-bob-dur: 450ms;
+  --check-y-amount: 40px;
+  --check-blur-dur: 500ms;
+  --check-blur-from: 10px;
+  --check-path-dur: 550ms;
+  --check-path-delay: 80ms;
+  --check-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-opacity: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-rotate: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --check-ease-path: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Avatar group hover */
+  --avatar-lift: -4px;
+  --avatar-dur: 320ms;
+  --avatar-scale: 1.05;
+  --avatar-falloff: 0.45;
+  --avatar-ease-in: cubic-bezier(0.22, 1, 0.36, 1);
+  --avatar-ease-out: cubic-bezier(0.34, 3.85, 0.64, 1);
+  /* Error state shake */
+  --shake-distance: 6px;
+  --shake-overshoot: 4px;
+  --shake-dur-a: 80ms;
+  --shake-dur-b: 60ms;
+  --shake-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --revert-hold: 3000ms;
+  --revert-dur: 280ms;
+}
+
+.t-text-swap {
+  display: inline-block;
+  transform: translateY(0);
+  filter: blur(0);
+  opacity: 1;
+  transition:
+    transform var(--text-swap-dur) var(--text-swap-ease),
+    filter    var(--text-swap-dur) var(--text-swap-ease),
+    opacity   var(--text-swap-dur) var(--text-swap-ease);
+  will-change: transform, filter, opacity;
+}
+.t-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+.t-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-text-swap { transition: none !important; }
+}

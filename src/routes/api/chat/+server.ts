@@ -7,6 +7,9 @@ import { jsonError, missingEnv, readJson } from '#lib/server/http.js';
 import { runChat, validateChatRequest } from '#lib/server/jarvis/chat.js';
 import type { RequestHandler } from './$types';
 
+// The site is prerendered (src/routes/+layout.ts); API routes must stay dynamic in the Worker.
+export const prerender = false;
+
 export const POST: RequestHandler = async ({ request }) => {
 	if (!ANTHROPIC_API_KEY) return missingEnv('ANTHROPIC_API_KEY');
 
