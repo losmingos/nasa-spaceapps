@@ -815,14 +815,17 @@ export function mountTerrain(
 	const pixels = reliefContext?.createImageData(mapSize, mapSize);
 	let mapX = Infinity;
 	let mapZ = Infinity;
+	let mapScaleLast = 0;
+	let mapZoom = 1;
 	function drawMap() {
 		if (!mapContext || !reliefContext || !pixels) return;
-		const scale = missionView ? (missionView.baseRoute ? 30 : 5) : metresPerPixel;
-		const { x, z } = missionView?.baseRoute ? { x: ROVER.x, z: (ROVER.z + BASE.z) / 2 }
-			: missionView ? { x: SAMPLE.x + 30, z: SAMPLE.z + 175 } : camera.position;
-		if (Math.hypot(x - mapX, z - mapZ) >= scale) {
+		const scale = (missionView ? (missionView.baseRoute ? 30 : 5) : metresPerPixel) / mapZoom;
+		// Keep the astronaut centered while mission landmarks and the route move around them.
+		const { x, z } = camera.position;
+		if (Math.hypot(x - mapX, z - mapZ) >= scale || scale !== mapScaleLast) {
 			mapX = x;
 			mapZ = z;
+			mapScaleLast = scale;
 			for (let row = 0; row < mapSize; row++) {
 				for (let col = 0; col < mapSize; col++) {
 					const groundX = x + (col + 0.5 - mapSize / 2) * scale;
@@ -844,8 +847,22 @@ export function mountTerrain(
 		}
 		mapContext.setTransform(2, 0, 0, 2, 0, 0);
 		mapContext.clearRect(0, 0, mapSize, mapSize);
-		mapContext.drawImage(relief, 0, 0);
+		// Rotate the shaded relief and landmarks together around the astronaut.
 		mapContext.save();
+		mapContext.translate(mapSize / 2, mapSize / 2);
+		mapContext.rotate(camera.rotation.y);
+		mapContext.translate(-mapSize / 2, -mapSize / 2);
+		mapContext.drawImage(relief, 0, 0);
+		const uprightLabels: Array<{ x: number; y: number; text: string; color: string }> = [];
+		const uprightPoint = (x: number, y: number) => {
+			const dx = x - mapSize / 2;
+			const dy = y - mapSize / 2;
+			const angle = camera.rotation.y;
+			return {
+				x: mapSize / 2 + dx * Math.cos(angle) - dy * Math.sin(angle),
+				y: mapSize / 2 + dx * Math.sin(angle) + dy * Math.cos(angle)
+			};
+		};
 		if (missionView) {
 			const px = (value: number) => mapSize / 2 + (value - x) / scale;
 			const pz = (value: number) => mapSize / 2 + (value - z) / scale;
@@ -870,9 +887,23 @@ export function mountTerrain(
 			mapContext.setLineDash([]);
 			mapContext.fillStyle = '#f1d7a1';
 			const objective = missionView.baseRoute ? BASE : SAMPLE;
-			mapContext.fillRect(px(objective.x) - 2, pz(objective.z) - 2, 4, 4);
+			mapContext.beginPath();
+			mapContext.arc(px(objective.x), pz(objective.z), 2.2, 0, Math.PI * 2);
+			mapContext.fill();
+			const objectiveLabel = uprightPoint(px(objective.x) + 3, pz(objective.z) - 2);
+			uprightLabels.push({
+				...objectiveLabel,
+				text: `${missionView.baseRoute ? 'BASE' : 'SAMPLE'} ${Math.round(distanceBetween(camera.position, objective))}m`,
+				color: '#fff2c7'
+			});
 			mapContext.fillStyle = '#edfff6';
-			mapContext.fillRect(px(ROVER.x) - 3, pz(ROVER.z) - 2, 6, 4);
+			mapContext.fillRect(px(ROVER.x) - 2, pz(ROVER.z) - 1.5, 4, 3);
+			const roverLabel = uprightPoint(px(ROVER.x) + 3, pz(ROVER.z) + 1);
+			uprightLabels.push({
+				...roverLabel,
+				text: `ROVER ${Math.round(distanceBetween(camera.position, ROVER))}m`,
+				color: '#edfff6'
+			});
 			const target = missionView.player?.target;
 			if (target) {
 				mapContext.strokeStyle = '#ffe19b';
@@ -885,9 +916,64 @@ export function mountTerrain(
 				mapContext.restore();
 				return;
 			}
-			mapContext.translate(px(camera.position.x), pz(camera.position.z));
-		} else mapContext.translate(mapSize / 2, mapSize / 2);
-		mapContext.rotate(-camera.rotation.y);
+		}
+		// A graduated compass bezel rotates with the map; 15° ticks, with stronger 45° marks.
+		mapContext.strokeStyle = '#c6ffe5b8';
+		mapContext.lineWidth = 0.45;
+		mapContext.beginPath();
+		mapContext.arc(mapSize / 2, mapSize / 2, 44, 0, Math.PI * 2);
+		mapContext.stroke();
+		for (let bearing = 0; bearing < 360; bearing += 15) {
+			const angle = bearing * Math.PI / 180;
+			const major = bearing % 45 === 0;
+			const innerRadius = major ? 40.5 : 42.5;
+			mapContext.beginPath();
+			mapContext.moveTo(mapSize / 2 + Math.sin(angle) * innerRadius, mapSize / 2 - Math.cos(angle) * innerRadius);
+			mapContext.lineTo(mapSize / 2 + Math.sin(angle) * 44, mapSize / 2 - Math.cos(angle) * 44);
+			mapContext.stroke();
+		}
+		mapContext.restore();
+		// Minimal scale bar, kept unobtrusive inside the oval map.
+		const scaleBarPixels = 13;
+		mapContext.fillStyle = '#f0fff8';
+		mapContext.font = '5px monospace';
+		mapContext.strokeStyle = '#07130f';
+		mapContext.lineWidth = 1.5;
+		const scaleLabel = `${Math.round(scaleBarPixels * scale)} m`;
+		mapContext.strokeText(scaleLabel, 4, mapSize - 9);
+		mapContext.fillText(scaleLabel, 4, mapSize - 9);
+		mapContext.strokeStyle = '#dfffee';
+		mapContext.lineWidth = 0.8;
+		mapContext.beginPath();
+		mapContext.moveTo(4, mapSize - 4);
+		mapContext.lineTo(4 + scaleBarPixels, mapSize - 4);
+		mapContext.moveTo(4, mapSize - 6);
+		mapContext.lineTo(4, mapSize - 2);
+		mapContext.moveTo(4 + scaleBarPixels, mapSize - 6);
+		mapContext.lineTo(4 + scaleBarPixels, mapSize - 2);
+		mapContext.stroke();
+		mapContext.textAlign = 'center';
+		for (const [label, angle] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]] as const) {
+			const radians = (angle + camera.rotation.y * 180 / Math.PI) * Math.PI / 180;
+			const x = mapSize / 2 + Math.sin(radians) * 36;
+			const y = mapSize / 2 - Math.cos(radians) * 36;
+			mapContext.fillText(label, x, y);
+		}
+		mapContext.textAlign = 'start';
+		mapContext.font = '5.5px monospace';
+		mapContext.lineWidth = 1.6;
+		mapContext.textBaseline = 'middle';
+		for (const label of uprightLabels) {
+			const labelX = MathUtils.clamp(label.x, 2, Math.max(2, mapSize - label.text.length * 3.3 - 2));
+			const labelY = MathUtils.clamp(label.y, 3, mapSize - 3);
+			mapContext.strokeStyle = '#101a16';
+			mapContext.strokeText(label.text, labelX, labelY);
+			mapContext.fillStyle = label.color;
+			mapContext.fillText(label.text, labelX, labelY);
+		}
+		mapContext.textBaseline = 'alphabetic';
+		mapContext.save();
+		mapContext.translate(mapSize / 2, mapSize / 2);
 		mapContext.fillStyle = '#e0ffeb';
 		mapContext.strokeStyle = '#14231e';
 		mapContext.lineWidth = 1.5;
@@ -1485,6 +1571,11 @@ export function mountTerrain(
 		refresh: draw,
 		setTime,
 		setFlashlight,
+		setMapZoom: (zoom: number) => {
+			mapZoom = MathUtils.clamp(zoom, 0.5, 4);
+			mapX = mapZ = Infinity;
+			draw();
+		},
 		setDisplayMode,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
 		setDust,
