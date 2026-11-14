@@ -17,6 +17,7 @@ import type {
 	AssistantStatus,
 	ChatTurn,
 	CueId,
+	Exertion,
 	MissionEvent,
 	NotifyOptions,
 	ProtocolStepId,
@@ -344,6 +345,19 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		tick();
 	}
 
+	function startMissionClock(): void {
+		if (disposed) return;
+		telemetry.missionStart();
+		silentLines = true;
+		tick();
+	}
+
+	function setExertion(level: Exertion): void {
+		if (disposed) return;
+		telemetry.setExertion(level);
+		emitState();
+	}
+
 	function handleCue(id: CueId): void {
 		if ((LINE_IDS as readonly string[]).includes(id)) void playLineInternal(id as LineId);
 		else if ((MISSION_EVENTS as readonly string[]).includes(id)) notify(id as MissionEvent);
@@ -479,6 +493,8 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		pttUp,
 		notify,
 		setStep,
+		startMissionClock,
+		setExertion,
 		reset,
 		setMissionContext: (context) => { missionContext = context; },
 		setPlacesProvider: (provider) => { placesProvider = provider; },

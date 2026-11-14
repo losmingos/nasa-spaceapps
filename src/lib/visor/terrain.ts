@@ -1,15 +1,17 @@
 import {
 	BufferAttribute, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, FogExp2, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap,
+	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap, SpotLight,
 	PerspectiveCamera, Quaternion, Raycaster, Scene, SRGBColorSpace,
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import {
 	buildVisorOptics, drawHudTime, drawSwirHud, dustColor, mountHeadLockedHud,
 	SWIR_DEPTH_RESPONSE_GLSL, SWIR_DUST_TRANSMISSION, SWIR_NOISE_GLSL,
-	type SwirHudData, type VisorMessage
+	type SwirHudData, type VisorMessage, type VisorReadings
 } from './optics.js';
 import { buildRoverCabin } from './rover-cabin.js';
+import { createXrPointer, drawXrMenu, xrMenuIndex, xrStick, type XrMenuPage } from './xr-controls.js';
+import type { Exertion } from '../jarvis/types.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
 import { createRockContact, footingOnRocks, type RockContact } from './rock-contact.js';
@@ -18,6 +20,18 @@ const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 const clearDustDensity = 0.00048;
 
 export type TerrainDisplayMode = 'visible' | 'geology' | 'slope' | 'swir';
+
+interface XrControls {
+	onEnd: () => void;
+	onTalkStart: () => void;
+	onTalkEnd: () => void;
+	onToggleSwir: () => void;
+	onToggleFlashlight: () => void;
+	onMenuOpen: () => void;
+	getMenu: () => XrMenuPage;
+	getAction: () => string | undefined;
+	getVoiceLabel: () => string;
+}
 
 export interface GeologyData {
 	features: Array<{
@@ -418,6 +432,8 @@ export function mountTerrain(
 	getClock: () => string,
 	getMessage: () => VisorMessage,
 	getSwir: () => SwirHudData,
+	getReadings: () => VisorReadings,
+	onExertion: (level: Exertion) => void,
 	createMissionScene?: MissionSceneFactory
 ) {
 	const lightTerrain = buildTerrain(data);
@@ -458,7 +474,7 @@ export function mountTerrain(
 		} : { ...data, distanceM: null, albedo: null, surface: undefined };
 	}
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage,
-		() => readSwir(camera.position, camera.getWorldDirection(swirDirection)));
+		() => readSwir(camera.position, camera.getWorldDirection(swirDirection)), getReadings);
 	const scene = new Scene();
 	const cabin = buildRoverCabin(map);
 	scene.add(cabin.group);
@@ -585,6 +601,19 @@ export function mountTerrain(
 	const spawnZ = length * 0.166;
 	const eyeHeight = 1.68;
 	camera.position.set(spawnX, surfaceHeight(spawnX, spawnZ) + eyeHeight, spawnZ);
+	// Suit-mounted torch, attached to the camera so it follows the astronaut's view.
+	const flashlight = new SpotLight('#ffe3b5', 0, 32, Math.PI / 5, 0.55, 2);
+	flashlight.position.set(0, -0.08, 0);
+	flashlight.target.position.set(0, -0.08, -1);
+	flashlight.castShadow = true;
+	flashlight.shadow.mapSize.set(1024, 1024);
+	flashlight.shadow.bias = -0.0002;
+	camera.add(flashlight, flashlight.target);
+	scene.add(camera);
+	function setFlashlight(enabled: boolean) {
+		flashlight.intensity = enabled ? 90 : 0;
+		draw();
+	}
 
 	const rockGeometries = rockProfiles.map(({ material, shape, crown, shear }, variant) => {
 		const geometry = new IcosahedronGeometry(1, material === 1 ? 2 : 1);
@@ -864,7 +893,7 @@ export function mountTerrain(
 	const pixels = reliefContext?.createImageData(mapSize, mapSize);
 	let mapX = Infinity;
 	let mapZ = Infinity;
-	function drawMap() {
+	function drawMap(yaw = camera.rotation.y) {
 		if (!mapContext || !reliefContext || !pixels) return;
 		const scale = missionView?.map.scale ?? metresPerPixel;
 		const { x, z } = missionView?.map.center ?? camera.position;
@@ -946,7 +975,7 @@ export function mountTerrain(
 			}
 			mapContext.translate(px(camera.position.x), pz(camera.position.z));
 		} else mapContext.translate(mapSize / 2, mapSize / 2);
-		mapContext.rotate(-(missionView?.inCabin ? roverYaw : camera.rotation.y));
+		mapContext.rotate(-(missionView?.inCabin ? roverYaw : yaw));
 		mapContext.fillStyle = '#e0ffeb';
 		mapContext.strokeStyle = '#14231e';
 		mapContext.lineWidth = 1.5;
@@ -993,6 +1022,7 @@ export function mountTerrain(
 	let xrSession: XRSession | undefined;
 	function updateWorld(frameTime: number) {
 		cabin.group.visible = !!missionView?.inCabin;
+		flashlight.visible = !cabin.group.visible;
 		if (cabin.group.visible) {
 			cabin.group.position.copy(camera.position);
 			cabin.group.rotation.y = roverYaw;
@@ -1011,7 +1041,7 @@ export function mountTerrain(
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
 	}
 	const draw = () => {
-		if (renderer.xr.isPresenting) return;
+		if (xrSession) return;
 		const swir = displayMode === 'swir';
 		updateWorld(performance.now() / 1000);
 		worldToEye.copy(camera.quaternion).invert();
@@ -1127,10 +1157,14 @@ export function mountTerrain(
 		const sameRun = player && previousPlayer && previousPlayer.run === player.run;
 		if (!sameRun) {
 			keys.clear();
+			sprintHeld = false;
 			velocityX = velocityZ = 0;
+			reportExertion('resting');
 		} else if (!player.enabled) {
 			for (const key of walkKeys) keys.delete(key);
+			sprintHeld = false;
 			velocityX = velocityZ = 0;
+			reportExertion('resting');
 		}
 		if (sameRun && previousView) {
 			if (view.inCabin !== previousView.inCabin) {
@@ -1161,6 +1195,7 @@ export function mountTerrain(
 		}
 		if (!view && atEdge) {
 			atEdge = false;
+			edgeNoticeShown = false;
 			notify('ready');
 		}
 		const { x, z } = view?.point ?? { x: spawnX, z: spawnZ };
@@ -1178,7 +1213,7 @@ export function mountTerrain(
 		draw();
 	}
 	function resize() {
-		if (renderer.xr.isPresenting) return;
+		if (xrSession) return;
 		const { clientWidth, clientHeight } = canvas;
 		if (!clientWidth || !clientHeight) return;
 		camera.aspect = clientWidth / clientHeight;
@@ -1201,7 +1236,15 @@ export function mountTerrain(
 	let previous = 0;
 	let frame = 0;
 	let atEdge = false;
-	const canLook = () => !missionView || !!missionView.player;
+	let sprintHeld = false;
+	let edgeNoticeShown = false;
+	let currentExertion: Exertion = 'resting';
+	function reportExertion(level: Exertion) {
+		if (level === currentExertion) return;
+		currentExertion = level;
+		onExertion(level);
+	}
+	const canLook = () => !xrSession && (!missionView || !!missionView.player);
 	const canMove = () => !missionView || !!missionView.player?.enabled;
 	const eyeOffset = () => missionView?.inCabin ? 2.5 : eyeHeight;
 	const eyeY = () => {
@@ -1214,6 +1257,7 @@ export function mountTerrain(
 		previous = now;
 		const driving = !!missionView?.inCabin;
 		const side = driving ? 0 : steering;
+		const sprinting = sprintHeld && !driving && forward > 0;
 		if (driving) {
 			const turn = steering * dt * 0.9;
 			roverYaw -= turn;
@@ -1223,7 +1267,7 @@ export function mountTerrain(
 		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
 		const forwardSpeed = missionView?.player?.forwardSpeed ?? 8;
 		const maxSpeed = driving ? missionView?.player?.maxSpeed ?? Infinity : Infinity;
-		const requestedSpeed = (driving ? (forward < 0 ? Math.min(missionView?.player?.maxSpeed === undefined ? 3 : 1.4, forwardSpeed) : forwardSpeed) : 1.45) * speedMultiplier;
+		const requestedSpeed = (driving ? (forward < 0 ? Math.min(missionView?.player?.maxSpeed === undefined ? 3 : 1.4, forwardSpeed) : forwardSpeed) : 1.45 * (sprinting ? 1.9 : 1)) * speedMultiplier;
 		const speed = Math.min(maxSpeed, requestedSpeed)
 			/ Math.max(1, Math.hypot(forward, side));
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
@@ -1237,24 +1281,55 @@ export function mountTerrain(
 		const z = camera.position.z + velocityZ * dt;
 		const nextHeight = surfaceHeight(x, z);
 		const distance = Math.hypot(velocityX, velocityZ) * dt;
+		const moving = Math.hypot(velocityX, velocityZ) > 0.12;
+		reportExertion(!driving && moving ? (sprinting ? 'running' : 'walking') : 'resting');
 		const hazard = missionView?.player && missionView.hazard;
 		const blockedByHazard = !!hazard && distanceBetween({ x, z }, hazard) < hazard.radius
 			&& distanceBetween({ x, z }, hazard) < distanceBetween(camera.position, hazard);
-		const vehicleSuspension = driving;
-		const footing = footingOnRocks(rockColliders, nextHeight, x, z, vehicleSuspension);
-		const blocked = blockedByHazard || footing.blocked || !Number.isFinite(nextHeight)
-			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
-		if (blocked !== atEdge && (forward || side)) {
-			atEdge = blocked;
-			notify(blocked ? 'edge' : 'ready');
+		const footing = footingOnRocks(rockColliders, nextHeight, x, z, driving);
+		let blockedByRock = footing.blocked;
+		const contactSamples = Math.ceil(distance / 0.12);
+		for (let sample = 1; sample < contactSamples && !blockedByRock; sample++) {
+			const fraction = sample / contactSamples;
+			const sampleX = camera.position.x + (x - camera.position.x) * fraction;
+			const sampleZ = camera.position.z + (z - camera.position.z) * fraction;
+			blockedByRock = footingOnRocks(rockColliders, surfaceHeight(sampleX, sampleZ), sampleX, sampleZ, driving).blocked;
 		}
+		const blocked = blockedByHazard || blockedByRock || !Number.isFinite(nextHeight)
+			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
+		if (blockedByRock) {
+			if (edgeNoticeShown) notify('ready');
+			edgeNoticeShown = false;
+		} else if (blocked && (forward || side)) {
+			if (!edgeNoticeShown) notify('edge');
+			edgeNoticeShown = true;
+		} else if (!blocked && edgeNoticeShown) {
+			notify('ready');
+			edgeNoticeShown = false;
+		}
+		atEdge = blocked;
 		if (!blocked) {
 			camera.position.x = x;
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = immersive || reducedMotion.matches || blocked || driving ? 0
-			: Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+		let bob = 0;
+		if (!immersive && !reducedMotion.matches && !blocked && !driving) {
+			if (sprinting && moving) {
+				// Approximate a short running flight arc under Martian gravity (3.71 m/s²).
+				const cycleLength = 1.65;
+				const flightStart = 0.22;
+				const cycleDuration = cycleLength / Math.max(0.8, Math.hypot(velocityX, velocityZ));
+				const phase = (stride % cycleLength) / cycleLength;
+				if (phase >= flightStart) {
+					const flightDuration = cycleDuration * (1 - flightStart);
+					const flightTime = (phase - flightStart) / (1 - flightStart) * flightDuration;
+					bob = Math.max(0, 0.5 * 3.71 * flightTime * (flightDuration - flightTime));
+				}
+			} else {
+				bob = Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+			}
+		}
 		const tilt = immersive || reducedMotion.matches ? 0 : (missionView?.tilt ?? 0);
 		const targetY = (blocked ? eyeY() : footing.height + eyeOffset()) + bob - 0.64 * tilt;
 		camera.position.y = reducedMotion.matches ? targetY
@@ -1280,7 +1355,7 @@ export function mountTerrain(
 		draw();
 	}
 
-	async function enterVR(xr: XRSystem, onEnd: () => void, onTalkStart: () => void, onTalkEnd: () => void, onToggleSwir: () => void) {
+	async function enterVR(xr: XRSystem, controls: XrControls) {
 		const session = await xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] });
 		if (abort.signal.aborted) {
 			await session.end();
@@ -1292,71 +1367,182 @@ export function mountTerrain(
 		cancelAnimationFrame(frame);
 		frame = previous = velocityX = velocityZ = 0;
 		if (document.pointerLockElement === canvas) document.exitPointerLock();
-		const onSelectStart = (event: XRInputSourceEvent) => {
-			if (event.inputSource.handedness === 'right') onTalkStart();
-		};
-		const onSelectEnd = (event: XRInputSourceEvent) => {
-			if (event.inputSource.handedness === 'right') onTalkEnd();
-		};
-		session.addEventListener('selectstart', onSelectStart, options);
-		session.addEventListener('selectend', onSelectEnd, options);
 		const hudCamera = new PerspectiveCamera();
 		xrOrigin.add(hudCamera);
 		const hud = mountHeadLockedHud(hudCamera);
+		const pointer = createXrPointer(xrOrigin, hud.plane);
 		const headPosition = new Vector3();
+		const sessionEvents = new AbortController();
+		const eventOptions = { signal: sessionEvents.signal };
+		const shadowWasEnabled = flashlight.castShadow;
+		flashlight.castShadow = false;
+		hudCamera.add(flashlight, flashlight.target);
 		let lastHud = -Infinity;
-		let yPressed = false;
+		let menuOpen = true;
+		let displayedMenu: XrMenuPage | undefined;
+		let talking = false;
+		let menuPressed = false;
+		let lightPressed = false;
+		let swirPressed = false;
+		let talkPressed = false;
+		const cancelTalk = () => {
+			if (!talking) return;
+			talking = false;
+			controls.onTalkEnd();
+		};
+		const setMenu = (show: boolean) => {
+			menuOpen = show;
+			displayedMenu = undefined;
+			if (show) {
+				controls.onMenuOpen();
+				velocityX = velocityZ = 0;
+			}
+			lastHud = -Infinity;
+		};
+		session.addEventListener('select', (event) => {
+			if (!menuOpen || session.visibilityState !== 'visible') return;
+			const space = renderer.xr.getReferenceSpace();
+			const point = space && pointer(event.frame, event.inputSource, space);
+			if (!point) return;
+			const id = displayedMenu?.items[xrMenuIndex(point.x, point.y)]?.id;
+			const item = controls.getMenu().items.find((control) => control.id === id);
+			if (!item || item.disabled) return;
+			displayedMenu = undefined;
+			item.run();
+			if (item.close) setMenu(false);
+			lastHud = -Infinity;
+		}, eventOptions);
+		session.addEventListener('inputsourceschange', (event) => {
+			if (event.removed.some((source) => source.handedness === 'right')) cancelTalk();
+		}, eventOptions);
+		session.addEventListener('visibilitychange', () => {
+			if (session.visibilityState !== 'visible') {
+				cancelTalk();
+				sprintHeld = false;
+				previous = velocityX = velocityZ = 0;
+				reportExertion('resting');
+			}
+		}, eventOptions);
+
 		const restoreDesktop = () => {
+			if (xrSession !== session) return;
+			sessionEvents.abort();
+			cancelTalk();
 			hud.dispose();
+			camera.add(flashlight, flashlight.target);
+			flashlight.castShadow = shadowWasEnabled;
 			xrOrigin.remove(hudCamera);
 			xrSession = undefined;
 			renderer.setAnimationLoop(null);
 			renderer.xr.enabled = false;
 			scene.background = null;
+			sprintHeld = false;
 			previous = velocityX = velocityZ = 0;
-			onTalkEnd();
+			reportExertion('resting');
 			if (abort.signal.aborted) return;
 			resize();
-			onEnd();
+			controls.onEnd();
 		};
 		renderer.xr.enabled = true;
 		renderer.xr.setReferenceSpaceType('local-floor');
-		// The desktop sky and HUD are screen-space effects. Draw the world directly into both XR eyes.
+		renderer.xr.setFramebufferScaleFactor(0.9);
 		scene.background = fog.color;
 		renderer.setAnimationLoop((now, xrFrame) => {
 			if (!xrFrame) return;
 			const space = renderer.xr.getReferenceSpace();
 			const pose = space && xrFrame.getViewerPose(space);
-			if (!pose) return;
-			const source = Array.from(session.inputSources).find((input) => input.handedness === 'left' && input.gamepad);
-			const yDown = source?.gamepad?.buttons[5]?.pressed ?? false;
-			if (yDown && !yPressed) onToggleSwir();
-			yPressed = yDown;
-			const axes = source?.gamepad?.axes;
-			const side = axes?.[2] ?? 0;
-			const forward = -(axes?.[3] ?? 0);
-			const orientation = pose.transform.orientation;
+			if (!space || !pose) return;
+			let left: Gamepad | undefined;
+			let right: Gamepad | undefined;
+			for (const source of session.inputSources) {
+				if (source.handedness === 'left') left = source.gamepad;
+				if (source.handedness === 'right') right = source.gamepad;
+			}
+			const menuDown = right?.buttons[4]?.pressed ?? false;
+			const lightDown = right?.buttons[5]?.pressed ?? false;
+			const swirDown = left?.buttons[5]?.pressed ?? false;
+			const talkDown = right?.buttons[1]?.pressed ?? false;
+			const active = session.visibilityState === 'visible';
+			if (active) {
+				if (menuDown && !menuPressed) setMenu(!menuOpen);
+				if (lightDown && !lightPressed) controls.onToggleFlashlight();
+				if (swirDown && !swirPressed) controls.onToggleSwir();
+				if (talkDown && !talkPressed) {
+					talking = true;
+					controls.onTalkStart();
+				}
+			}
+			if (!active || !talkDown) cancelTalk();
+			menuPressed = menuDown;
+			lightPressed = lightDown;
+			swirPressed = swirDown;
+			talkPressed = talkDown;
+
+			const { orientation, position } = pose.transform;
 			worldToEye.set(orientation.x, orientation.y, orientation.z, orientation.w);
 			xrHeading.set(0, 0, -1).applyQuaternion(worldToEye);
-			const yaw = camera.rotation.y + Math.atan2(-xrHeading.x, -xrHeading.z);
-			const walking = canMove() && Math.hypot(side, forward) > 0.2;
-			move(now, walking ? forward : 0, walking ? side : 0, yaw, true);
-			xrOrigin.position.set(camera.position.x, camera.position.y - (missionView?.inCabin ? pose.transform.position.y : eyeHeight), camera.position.z);
+			const headYaw = Math.atan2(-xrHeading.x, -xrHeading.z);
+			const leftStick = xrStick(left?.axes[2], left?.axes[3]);
+			const rightStick = xrStick(right?.axes[2], right?.axes[3]);
+			const moving = active && !menuOpen && canMove();
+			const driving = !!missionView?.inCabin;
+			const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
+			if (active && !menuOpen && !driving) {
+				// Pivot around the headset, including when the player steps away from the tracking origin.
+				const oldYaw = camera.rotation.y;
+				camera.rotation.y -= rightStick.x * dt * 1.15;
+				const yaw = camera.rotation.y;
+				camera.position.x += position.x * (Math.cos(oldYaw) - Math.cos(yaw))
+					+ position.z * (Math.sin(oldYaw) - Math.sin(yaw));
+				camera.position.z += position.x * (Math.sin(yaw) - Math.sin(oldYaw))
+					+ position.z * (Math.cos(oldYaw) - Math.cos(yaw));
+			}
+			sprintHeld = moving && !!left?.buttons[1]?.pressed;
+			// The rover follows its own heading, so looking sideways does not steer it.
+			const yaw = camera.rotation.y + (driving ? 0 : headYaw);
+			if (!missionView || missionView.player) {
+				move(now, moving ? -leftStick.y : 0, moving ? leftStick.x : 0, yaw, true);
+			} else previous = now;
+			xrOrigin.position.set(camera.position.x, camera.position.y - (driving ? position.y : eyeHeight), camera.position.z);
 			xrOrigin.rotation.y = camera.rotation.y;
-			const position = pose.transform.position;
 			hudCamera.position.set(position.x, position.y, position.z);
 			hudCamera.quaternion.copy(worldToEye);
-			xrOrigin.updateMatrixWorld();
+			xrOrigin.updateMatrixWorld(true);
+			if (!reducedMotion.matches && (dust > 0 || drillMoving())) gustTime = (now - stormStarted) / 1000;
 			updateWorld(now / 1000);
-			if (now - lastHud >= 100) {
+
+			if (now - lastHud >= (menuOpen ? 40 : 100)) {
 				lastHud = now;
-				const swir = readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection));
-				hud.redraw((context, width, height) => {
-					drawHudTime(context, width, height - 55, getClock(), swir.active);
-					drawSwirHud(context, width, height, swir);
-					const message = getMessage().title || getNotice();
-					if (message) drawHudTime(context, width, height - 90, message, swir.active);
-				});
+				if (menuOpen) {
+					const points: Array<{ x: number; y: number }> = [];
+					for (const source of session.inputSources) {
+						const point = pointer(xrFrame, source, space);
+						if (point) points.push(point);
+					}
+					const page = controls.getMenu();
+					displayedMenu = page;
+					hud.redraw((context) => drawXrMenu(context, page, points));
+				} else {
+					drawMap(camera.rotation.y + headYaw);
+					const swir = readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection));
+					hud.redraw((context, width, height) => {
+						const message = getMessage();
+						const readings = getReadings();
+						context.drawImage(map, 40, height - 195, 146, 146);
+						drawHudTime(context, width, height - 28, getClock(), swir.active);
+						drawHudTime(context, width, height - 54,
+							message.readouts?.map(({ value, unit }) => (value + ' ' + unit).trim()).join('  ·  ')
+							?? readings.o2Percent.toFixed(1) + '% O₂  ·  ' + (readings.airTempC == null ? '—' : Math.round(readings.airTempC)) + ' °C', false);
+						drawHudTime(context, width, height - 85, message.title || getNotice(), false);
+						if (message.detail) drawHudTime(context, width, height - 108, message.detail, false);
+						const voiceLabel = controls.getVoiceLabel();
+						if (voiceLabel) drawHudTime(context, width, 64, 'SARA · ' + voiceLabel, false);
+						const action = controls.getAction();
+						if (getNotice() && message.title) drawHudTime(context, width, 92, getNotice(), false);
+						if (action) drawHudTime(context, width, height - 136, 'A opens controls · ' + action, false);
+						drawSwirHud(context, width, height, swir);
+					});
+				}
 			}
 			renderer.render(scene, xrCamera);
 		});
@@ -1367,6 +1553,7 @@ export function mountTerrain(
 			await starting;
 		} catch (error) {
 			await session.end().catch(() => {});
+			restoreDesktop();
 			throw error;
 		}
 	}
@@ -1388,6 +1575,14 @@ export function mountTerrain(
 
 	canvas.addEventListener('keydown', (event) => {
 		if (!canLook()) return;
+		if (event.code === 'KeyF' && !event.repeat) {
+			setFlashlight(flashlight.intensity === 0);
+			return;
+		}
+		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+			if (canMove()) { sprintHeld = true; if (!frame) frame = requestAnimationFrame(step); }
+			return;
+		}
 		if (event.code === 'Enter' && !event.repeat) void captureLook();
 		if (walkKeys.includes(event.code)) {
 			event.preventDefault();
@@ -1404,11 +1599,14 @@ export function mountTerrain(
 			if (!frame) frame = requestAnimationFrame(step);
 		}
 	}, options);
-	window.addEventListener('keyup', (event) => keys.delete(event.code), options);
-	canvas.addEventListener('blur', () => keys.clear(), options);
-	window.addEventListener('blur', () => keys.clear(), options);
+	window.addEventListener('keyup', (event) => {
+		keys.delete(event.code);
+		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') sprintHeld = false;
+	}, options);
+	canvas.addEventListener('blur', () => { keys.clear(); sprintHeld = false; reportExertion('resting'); }, options);
+	window.addEventListener('blur', () => { keys.clear(); sprintHeld = false; reportExertion('resting'); }, options);
 	document.addEventListener('pointerlockchange', () => {
-		if (document.pointerLockElement !== canvas) keys.clear();
+		if (document.pointerLockElement !== canvas) { keys.clear(); sprintHeld = false; reportExertion('resting'); }
 	}, options);
 	document.addEventListener('mousemove', (event) => {
 		if (canLook() && document.pointerLockElement === canvas) look(event.movementX, event.movementY);
@@ -1512,6 +1710,7 @@ export function mountTerrain(
 		updateRockTiles();
 		camera.position.y = eyeY();
 		atEdge = false;
+		edgeNoticeShown = false;
 		notify('ready');
 		draw();
 	}
@@ -1523,6 +1722,7 @@ export function mountTerrain(
 		loadHighQuality,
 		refresh: draw,
 		setTime,
+		setFlashlight,
 		setDisplayMode,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
 		setDust,
@@ -1550,6 +1750,7 @@ export function mountTerrain(
 			highTerrain?.geometry.dispose();
 			highTexture?.dispose();
 			sun.shadow.dispose();
+			flashlight.shadow.dispose();
 			terrainMaterial.dispose();
 			for (const rockGeometry of rockGeometries) rockGeometry.dispose();
 			for (const material of rockMaterials) {

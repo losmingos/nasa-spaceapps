@@ -4,6 +4,8 @@
 import type { LineId } from './lines.js';
 import type { Places } from './places.js';
 
+export type Exertion = 'resting' | 'walking' | 'running';
+
 export type MissionEvent = 'mission_start' | 'sample_collected' | 'storm_start';
 export type Phase = 'idle' | 'sampling' | 'storm' | 'safe';
 export type ProtocolStepId = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6';
@@ -17,6 +19,8 @@ export interface Telemetry {
 	phase: Phase;
 	protocolStep: ProtocolStepId | null;
 	o2_remaining_min: number;
+	o2_remaining_pct: number;
+	movement_mode: Exertion;
 	suit_power_pct: number;
 	visibility_m: number;
 	distance_to_habitat_m: number;
@@ -137,6 +141,9 @@ export interface Assistant {
 	setMissionContext(context?: string): void;
 	/** Called at question time to get live distances to named places; return null when the position is unknown. */
 	setPlacesProvider(provider: (() => Places | null) | null): void;
+	/** Start telemetry without playing the scripted mission-start line. */
+	startMissionClock(): void;
+	setExertion(level: Exertion): void;
 	/** Push-to-talk: A button rising edge (or spacebar on the laptop). Interrupts current playback (D26). */
 	pttDown(): void;
 	/** Push-to-talk release: stops recording and runs STT → chat → TTS. */

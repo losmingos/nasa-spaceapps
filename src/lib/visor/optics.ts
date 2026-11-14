@@ -28,6 +28,11 @@ export interface SwirHudData {
 	surface?: string;
 }
 
+export interface VisorReadings {
+	o2Percent: number;
+	airTempC: number | null;
+}
+
 export const SWIR_DUST_TRANSMISSION = 0.15;
 
 export const SWIR_NOISE_GLSL = `
@@ -95,7 +100,8 @@ export function mountHeadLockedHud(camera: Camera) {
 	const context = canvas.getContext('2d')!;
 	const texture = new CanvasTexture(canvas);
 	texture.colorSpace = SRGBColorSpace;
-	texture.anisotropy = 4;
+	texture.minFilter = LinearFilter;
+	texture.generateMipmaps = false;
 	const geometry = new PlaneGeometry(1.7, 0.85);
 	const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
 		fog: false, toneMapped: false });
@@ -104,8 +110,7 @@ export function mountHeadLockedHud(camera: Camera) {
 	plane.renderOrder = 999;
 	camera.add(plane);
 	return {
-		canvas,
-		context,
+		plane,
 		redraw(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void) {
 			context.clearRect(0, 0, canvas.width, canvas.height);
 			paint(context, canvas.width, canvas.height);
@@ -121,7 +126,8 @@ export function mountHeadLockedHud(camera: Camera) {
 }
 
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData) {
+	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData,
+	getReadings: () => VisorReadings) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -155,7 +161,11 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.font = `400 ${fontSize}px monospace`;
 		const right = w - edge;
 		const message = getMessage();
-		const readouts = message.readouts ?? [{ value: '96', unit: '% O₂' }, { value: '−63', unit: '°C' }];
+		const readings = getReadings();
+		const readouts = message.readouts ?? [
+			{ value: readings.o2Percent.toFixed(1), unit: '% O₂' },
+			{ value: readings.airTempC === null ? '—' : String(Math.round(readings.airTempC)), unit: '°C' }
+		];
 		for (const [index, readout] of readouts.entries()) {
 			const y = h - bottom - 40 + index * 35;
 			context.font = '13px monospace';

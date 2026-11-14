@@ -16,6 +16,7 @@
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
 	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
 	import { createMissionScene, missionContext, missionMessage, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
+	import type { XrMenuItem, XrMenuPage } from './xr-controls.js';
 	import type { VisorMessage } from '#lib/visor/optics.js';
 
 	let canvas: HTMLCanvasElement;
@@ -25,6 +26,10 @@
 	let vrSupported = $state(false);
 	let vrBusy = $state(false);
 	let inVR = $state(false);
+	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
+	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
+	let vrPage: 'main' | 'mission' | 'scene' | 'sol' | 'time' | 'help' = 'main';
+	let vrDigits = '';
 	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
 	let noticeTimer: ReturnType<typeof setTimeout>;
@@ -36,6 +41,7 @@
 	let controlsVisible = $state(false);
 	let controlsButton = $state<HTMLButtonElement>();
 	let storm = $state(false);
+	let flashlightOn = $state(false);
 	let displayMode = $state<TerrainDisplayMode>('visible');
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
 	let geologyAvailable = $state(false);
@@ -133,6 +139,7 @@
 	function startMission() {
 		voiceInput = undefined;
 		assistant?.reset();
+		assistant?.startMissionClock();
 		missionVoice?.unlock();
 	}
 
@@ -168,6 +175,103 @@
 		assistant?.pttUp();
 	}
 
+	function getMissionControls() {
+		return (ares02 ? nightfallControls?.getVrControls() : aresControls?.getVrControls()) ?? [];
+	}
+
+	function toggleFlashlight() {
+		flashlightOn = !flashlightOn;
+		terrain?.setFlashlight(flashlightOn);
+	}
+
+	function toggleSwir() {
+		selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
+	}
+
+	function resetClock() {
+		now = Date.now();
+		selectedSol = undefined;
+	}
+
+	function getVrMenu(): XrMenuPage {
+		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
+		if (vrPage === 'help') {
+			return {
+				title: 'Touch controls',
+				items: [back],
+				hint: 'Left stick: move or drive · Right stick: turn',
+				lines: [
+					'Left grip + move forwards: run',
+					'Right grip: hold to talk to SARA, release to send',
+					'Either trigger: select a highlighted control',
+					'A: open or close controls · B: flashlight · Y: SWIR'
+				]
+			};
+		}
+		if (vrPage === 'mission') {
+			if (ares02) return { title: 'ARES-02 · Nightfall Protocol', items: [...getMissionControls(), back] };
+			return { title: 'ARES-01 · The Last Sample', items: [
+				...(aresControls?.getVrControls() ?? []).map((item) => ({
+					...item,
+					close: item.close || ['start', 'restart', 'leave'].includes(item.id)
+				})), back
+			], hint: mission?.log && mission.cue.id === 'closed' ? mission.log.progress : undefined };
+		}
+
+		if (!mission && !nightfall && !ares02 && (vrPage === 'sol' || vrPage === 'time')) {
+			const editingSol = vrPage === 'sol';
+			const limit = editingSol ? 5 : 4;
+			const digits = vrDigits.padEnd(limit, '–');
+			const hours = Number(vrDigits.slice(0, 2));
+			const minutes = Number(vrDigits.slice(2));
+			const valid = editingSol ? !!vrDigits : vrDigits.length === 4 && hours < 24 && minutes < 60;
+			return {
+				title: editingSol ? 'Sol · ' + digits : 'LMST · ' + digits.slice(0, 2) + ':' + digits.slice(2),
+				items: [
+					...Array.from('1234567890', (digit) => ({
+						id: digit, label: digit, disabled: vrDigits.length >= limit,
+						run: () => { vrDigits += digit; }
+					})),
+					{ id: 'erase', label: 'Erase', disabled: !vrDigits, run: () => { vrDigits = vrDigits.slice(0, -1); } },
+					{ id: 'save', label: 'Apply', disabled: !valid, run: () => {
+						if (editingSol) setClock(Number(vrDigits), clock);
+						else setClock(sol, vrDigits.slice(0, 2) + ':' + vrDigits.slice(2));
+						vrPage = 'scene';
+					} }
+				],
+				hint: editingSol ? 'Enter a sol (0–99999)  ·  A: close' : 'Enter 24-hour time (HHMM)  ·  A: close'
+			};
+		}
+
+		if (!mission && !nightfall && !ares02 && vrPage === 'scene') {
+			const layers: Array<[TerrainDisplayMode, string]> = [
+				['visible', 'Relief'], ['geology', 'Geology'], ['slope', 'Slope'], ['swir', 'SWIR simulation']
+			];
+			return { title: 'Scene controls', items: [
+				...layers.map(([mode, label]) => ({
+					id: mode, label, active: displayMode === mode, disabled: mode === 'geology' && !geologyAvailable,
+					run: () => mode === 'swir' ? toggleSwir() : selectDisplayMode(mode)
+				})),
+				{ id: 'storm', label: 'Dust storm', active: storm, run: () => { storm = !storm; } },
+				{ id: 'sol', label: 'Sol · ' + sol, run: () => { vrDigits = ''; vrPage = 'sol'; } },
+				{ id: 'time', label: 'LMST · ' + clock, run: () => { vrDigits = ''; vrPage = 'time'; } },
+				{ id: 'live', label: 'Return to current time', run: resetClock }, back
+			] };
+		}
+
+		const missionItems = getMissionControls();
+		const actions = missionItems.filter((item) => item.close && item.id !== 'pause');
+		return { title: 'Jezero · Astronaut visor', items: [
+			...actions,
+			...(ares01 || ares02 ? [{ id: 'mission', label: mission || nightfall ? 'Mission controls' : ares02 ? 'ARES-02' : 'ARES-01', run: () => { vrPage = 'mission'; } }] : []),
+			{ id: 'flashlight', label: 'Flashlight', active: flashlightOn, run: toggleFlashlight },
+			{ id: 'scene', label: 'Scene controls', disabled: !!mission || !!nightfall || ares02, run: () => { vrPage = 'scene'; } },
+			{ id: 'help', label: 'Touch controls', run: () => { vrPage = 'help'; } },
+			{ id: 'close', label: 'Return to visor', close: true, run: () => {} },
+			{ id: 'exit', label: 'Exit VR', run: () => { void toggleVR(); } }
+		], hint: 'Trigger: select  ·  A: close  ·  Hold right grip: SARA' };
+	}
+
 	async function toggleVR() {
 		const xr = navigator.xr;
 		const scene = terrain;
@@ -178,10 +282,18 @@
 			if (inVR) {
 				await scene.exitVR();
 			} else {
-				const entering = scene.enterVR(xr, () => { inVR = false; },
-					() => { void voiceDown('vr'); },
-					() => { if (voiceInput === 'vr') voiceUp(); },
-					() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir'));
+				vrPage = 'main';
+				const entering = scene.enterVR(xr, {
+					onEnd: () => { inVR = false; },
+					onTalkStart: () => { void voiceDown('vr'); },
+					onTalkEnd: () => { if (voiceInput === 'vr') voiceUp(); },
+					onToggleSwir: () => { if (!mission && !nightfall && !ares02) toggleSwir(); },
+					onToggleFlashlight: toggleFlashlight,
+					onMenuOpen: () => { vrPage = 'main'; },
+					getMenu: getVrMenu,
+					getAction: () => getMissionControls().find((item) => item.close && item.id !== 'pause')?.label,
+					getVoiceLabel: () => voiceLabel
+				});
 				missionVoice?.unlock();
 				void assistant?.unlock().catch((cause) => {
 					console.error('[jarvis] Audio unavailable', cause);
@@ -217,7 +329,7 @@
 	}
 
 	async function clockShortcut(event: KeyboardEvent) {
-		if (mission || ares02 || event.defaultPrevented ||
+		if (event.defaultPrevented ||
 			(event.code === 'Escape' && document.querySelector('.mission-controls [aria-expanded="true"]'))) return;
 		if (event.code === 'Escape' && controlsVisible) {
 			controlsVisible = false;
@@ -226,6 +338,12 @@
 		}
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable]'))) return;
+		if (event.code === 'KeyF') {
+			event.preventDefault();
+			toggleFlashlight();
+			return;
+		}
+		if (mission || nightfall || ares02) return;
 		if (event.code === 'KeyI' && !ares01) {
 			event.preventDefault();
 			selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
@@ -276,15 +394,16 @@
 	onMount(() => {
 		sceneQuery = location.search;
 		const request = new AbortController();
-		const useBrowserVoice = new URLSearchParams(location.search).get('tts') === 'browser';
+		const params = new URLSearchParams(location.search);
+		const useBrowserVoice = params.get('tts') === 'browser';
 		void navigator.xr?.isSessionSupported('immersive-vr').then((supported) => {
 			if (!request.signal.aborted) vrSupported = supported;
 		}).catch(() => {});
 		if (ares01 || ares02) missionVoice = createMissionVoice(useBrowserVoice);
 		const sara = createAssistant({
-			mode: 'live',
+			mode: params.get('mode') === 'scripted' ? 'scripted' : 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
-			cuePolling: false
+			cuePolling: params.get('remote') === '1'
 		});
 		assistant = sara;
 		sara.setPlacesProvider(() => {
@@ -295,7 +414,7 @@
 			return placesFrom(position, parked ? { bravo, rover: parked } : { bravo });
 		});
 		voice = sara.getState();
-		const unsubscribeVoice = sara.onState((state) => { voice = state; flushMissionLine(); });
+		const unsubscribeVoice = sara.onState((state) => { voice = state; flushMissionLine(); terrain?.refresh(); });
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -319,7 +438,10 @@
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), geology, showNotice,
 					() => current.text,
 					() => nightfall ? `ARES-02 · ${missionClock} · ${nightfall.localTime}${nightfall.paused ? " · PAUSED" : ""}` : mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage, () => ({ active: displayMode === 'swir' }), ares02 ? createNightfallScene : ares01 ? createMissionScene : undefined);
+					() => hudMessage, () => ({ active: displayMode === 'swir' }),
+					() => ({ o2Percent: voice?.telemetry.o2_remaining_pct ?? 96, airTempC: voice?.telemetry.air_temp_c ?? null }),
+					(level) => assistant?.setExertion(level),
+					ares02 ? createNightfallScene : ares01 ? createMissionScene : undefined);
 				showNotice('ready');
 				if (!ares02 && matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
 					void terrain.loadHighQuality(asset('terrain/jezero-high.bin'), asset('terrain/jezero-ortho-high.webp'));
@@ -358,7 +480,7 @@
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
 		Use WASD to walk or drive, the mouse or arrow keys to look, and Escape to release the pointer.
-		Press H to show the Mars clock controls.
+		Press Shift while moving forward to run on foot, F to toggle the flashlight, and H to open scene controls.
 		Hold Space to speak English to SARA and release to send. SARA always replies in English.</p>
 
 	<div class="projected">
@@ -395,9 +517,9 @@
 					{/each}
 				{:else}
 					<dt class="sr-only">Oxygen</dt>
-					<dd>96<span>% O₂</span></dd>
+					<dd>{(voice?.telemetry.o2_remaining_pct ?? 96).toFixed(1)}<span>% O₂</span></dd>
 					<dt class="sr-only">Temperature</dt>
-					<dd>−63<span>°C</span></dd>
+					<dd>{voice?.telemetry.air_temp_c == null ? '—' : Math.round(voice.telemetry.air_temp_c)}<span>°C</span></dd>
 				{/if}
 			</dl>
 			<p>{nightfall ? nightfall.localTime : `Sol ${sol}, ${clock} Jezero local mean solar time`}</p>
@@ -406,13 +528,13 @@
 		<div class="visor-controls">
 			{#if vrError}<p class="vr-error" role="alert">{vrError}</p>{/if}
 			{#if ares02}
-				<Ares02 ready={!!terrain} onview={(view) => { nightfall = view; }}
+				<Ares02 bind:this={nightfallControls} immersive={inVR} ready={!!terrain} onview={(view) => { nightfall = view; }}
 					ondialogue={playNightfallDialogue} onstart={startMission} onpause={pauseMission}
 					getPosition={() => terrain?.getPosition()} getHeading={() => terrain?.getHeading()}
 					focusScene={() => canvas.focus()} />
 				<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
 			{:else if ares01}
-			<Ares01 ready={!!terrain} onview={(view) => {
+			<Ares01 bind:this={aresControls} immersive={inVR} ready={!!terrain} onview={(view) => {
 				mission = view;
 			}} ondialogue={playMissionDialogue}
 				onstart={startMission}
@@ -429,6 +551,10 @@
 					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
 				</button>
 			{/if}
+			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
+				disabled={!terrain} onclick={toggleFlashlight}>
+				{flashlightOn ? 'Flashlight on' : 'Flashlight'} <kbd>F</kbd>
+			</button>
 			<button type="button" class="hud-action voice-control"
 					aria-label="SARA. Hold to talk and release to send"
 					aria-keyshortcuts="Space"

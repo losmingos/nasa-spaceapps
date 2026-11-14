@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import MissionControls from '../MissionControls.svelte';
+	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import type { Point } from '../../visor/terrain.js';
 	import { actions, act, startRun, stepRun, type Action } from './interactive.js';
 	import { labels, nightfallView, type NightfallView } from './visor.js';
 
-	let { ready, onview, ondialogue, onstart, onpause, focusScene, getPosition, getHeading }: {
+	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition, getHeading }: {
 		ready: boolean;
+		immersive: boolean;
 		onview: (view?: NightfallView) => void;
 		ondialogue: (view: NightfallView) => void;
 		onstart: () => void;
@@ -69,6 +71,20 @@
 		focusScene();
 	}
 
+	export function getVrControls(): XrMenuItem[] {
+		if (!ready) return [];
+		if (!running) return [{ id: 'start', label: 'Start mission', run: () => start(true), close: true }];
+		const items: XrMenuItem[] = paused ? [] : controls.map((action) => ({
+			id: action, label: labels[action], run: () => perform(action), close: true
+		}));
+		if (!finished) items.push({ id: 'pause', label: paused ? 'Resume mission' : 'Pause mission', run: togglePause, close: paused });
+		items.push(
+			{ id: 'restart', label: 'Restart mission', run: () => start(true), close: true },
+			{ id: 'leave', label: 'Exit mission', run: () => start(false), close: true }
+		);
+		return items;
+	}
+
 	function keyboard(event: KeyboardEvent) {
 		if (event.code === 'Escape' && open) {
 			open = false;
@@ -102,7 +118,7 @@
 			const now = performance.now();
 			const dt = Math.min((now - previous) / 1000, 0.25);
 			previous = now;
-			if (!running || paused || finished || document.hidden) return;
+			if (!running || paused || finished || (document.hidden && !immersive)) return;
 			heading = getHeading() ?? heading;
 			run = stepRun(run, dt, getPosition() ?? run.position);
 		}, 100);

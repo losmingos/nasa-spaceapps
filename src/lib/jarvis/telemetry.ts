@@ -13,10 +13,15 @@ import {
 	WALK_SPEED_MS
 } from '../missions/vr-rehearsal/route.js';
 import { P5_VISIBILITY_M, P6_DISTANCE_M, STEP_TIMES_S } from './protocol.js';
-import type { Phase, ProtocolStepId, Telemetry } from './types.js';
+import type { Exertion, Phase, ProtocolStepId, Telemetry } from './types.js';
 
 /** O2 consumption multiplier during the storm (exertion). */
 const STORM_O2_FACTOR = 1.5;
+/** Relative oxygen endurance burn while running; an accelerated demo workload estimate. */
+const RUN_O2_FACTOR = 1.6;
+/** Accelerate suit oxygen time so the gauge moves during a short demonstration. */
+const O2_TIME_SCALE = 12;
+const O2_START_PCT = 96;
 /** Suit power drain (%/s) before and during the storm. */
 const POWER_DRAIN_PCT_S = 0.01;
 const POWER_DRAIN_STORM_PCT_S = 0.05;
@@ -61,6 +66,7 @@ export interface TelemetrySim {
 	 * advances past both the forced step and the automatic step at the time it was forced.
 	 */
 	setStep(step: ProtocolStepId): void;
+	setExertion(level: Exertion): void;
 	reset(): void;
 	/** Scene local sol (mars-time.ts scale) for the weather replay; null = real current Jezero time. */
 	setSceneClock(localSol: number | null): void;
@@ -81,6 +87,9 @@ export function createTelemetry(
 	let missionT0: number | null = null; // ms
 	let stormT0: number | null = null; // ms
 	let manual: { idx: number; autoIdxAtSet: number } | null = null;
+	let exertion: Exertion = 'resting';
+	let oxygenRemainingMin = O2_START_MIN;
+	let oxygenUpdatedAt = now();
 	/** Mission time (s) at which a manual step ≥ P4 started the walk back. */
 	let manualWalkT: number | null = null;
 	/** Scene local sol, or null to follow the real Jezero clock. Not cleared by reset (the scene owns it). */
@@ -93,6 +102,18 @@ export function createTelemetry(
 		return { t, st };
 	}
 
+	function accountOxygen(at = now()) {
+		const elapsed = Math.max(0, (at - oxygenUpdatedAt) / 1000);
+		const stormSeconds = stormT0 === null
+			? 0
+			: Math.max(0, (at - Math.max(oxygenUpdatedAt, stormT0)) / 1000);
+		const clearSeconds = elapsed - stormSeconds;
+		const workload = exertion === 'running' ? RUN_O2_FACTOR : 1;
+		oxygenRemainingMin = Math.max(0, oxygenRemainingMin
+			- O2_TIME_SCALE * workload * (clearSeconds + stormSeconds * STORM_O2_FACTOR) / 60);
+		oxygenUpdatedAt = at;
+	}
+
 	function autoTimeIndex(st: number | null): number {
 		if (st === null) return -1;
 		if (st >= STEP_TIMES_S.P4) return 3;
@@ -102,11 +123,12 @@ export function createTelemetry(
 	}
 
 	function compute(): Telemetry {
+		accountOxygen();
 		const { t, st } = clocks();
 		const stormS = st ?? 0;
 		const preStormS = Math.max(0, t - stormS);
 
-		const o2 = Math.max(0, O2_START_MIN - preStormS / 60 - (STORM_O2_FACTOR * stormS) / 60);
+		const o2 = oxygenRemainingMin;
 		const power = Math.max(
 			0,
 			SUIT_POWER_START_PCT - POWER_DRAIN_PCT_S * preStormS - POWER_DRAIN_STORM_PCT_S * stormS
@@ -150,6 +172,8 @@ export function createTelemetry(
 			phase,
 			protocolStep,
 			o2_remaining_min: round(o2, 1),
+			o2_remaining_pct: round(O2_START_PCT * o2 / O2_START_MIN, 1),
+			movement_mode: exertion,
 			suit_power_pct: round(power, 1),
 			visibility_m: roundVisibility(visibility),
 			distance_to_habitat_m: Math.round(distance),
@@ -177,6 +201,9 @@ export function createTelemetry(
 		stormT0 = null;
 		manual = null;
 		manualWalkT = null;
+		exertion = 'resting';
+		oxygenRemainingMin = O2_START_MIN;
+		oxygenUpdatedAt = now();
 	}
 
 	return {
@@ -186,9 +213,16 @@ export function createTelemetry(
 		},
 		stormStart() {
 			if (stormT0 !== null) return false;
-			if (missionT0 === null) missionT0 = now();
-			stormT0 = now();
+			const at = now();
+			accountOxygen(at);
+			if (missionT0 === null) missionT0 = at;
+			stormT0 = at;
 			return true;
+		},
+		setExertion(level) {
+			if (level === exertion) return;
+			accountOxygen();
+			exertion = level;
 		},
 		setStep(step) {
 			const idx = STEP_IDS.indexOf(step);
