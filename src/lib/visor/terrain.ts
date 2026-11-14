@@ -12,6 +12,7 @@ import { createRockContact, footingOnRocks, type RockContact } from './rock-cont
 import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE, type Point } from '../missions/ares01/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
+const clearDustDensity = 0.00048;
 
 function buildTerrain(data: ArrayBuffer) {
 	const header = new DataView(data);
@@ -181,7 +182,8 @@ export function mountTerrain(
 
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
 	const scene = new Scene();
-	const fog = new FogExp2('#bb8867', 0.00042);
+	const dayFog = new Color('#cca88a');
+	const fog = new FogExp2(dayFog, clearDustDensity);
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
 	const orthoTint = new Color('#bfa38e');
@@ -598,8 +600,7 @@ export function mountTerrain(
 	const deimosWorld = new Vector3();
 	const worldToEye = new Quaternion();
 	const nightFog = new Color('#161b29');
-	const duskFog = new Color('#9c624a');
-	const dayFog = new Color('#bb8867');
+	const duskFog = new Color('#a57561');
 	const dustFog = new Color();
 	const lowSun = new Color('#ffad78');
 	const highSun = new Color('#fff0d9');
@@ -639,7 +640,8 @@ export function mountTerrain(
 		sun.color.copy(lowSun).lerp(highSun, daylight);
 		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
 		fog.color.copy(nightFog).lerp(duskFog, twilight).lerp(dayFog, daylight);
-		fog.density = MathUtils.lerp(0.00042, 0.006, dust);
+		// Suspended dust softens distant relief while leaving nearby ground clear.
+		fog.density = MathUtils.lerp(clearDustDensity, 0.006, dust);
 		if (dust > 0) {
 			sun.intensity *= Math.exp(-2.8 * dust / Math.max(0.15, up));
 			ambient.intensity *= MathUtils.lerp(1, 0.57, dust);
