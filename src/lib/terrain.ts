@@ -101,7 +101,8 @@ export function mountTerrain(
 	canvas: HTMLCanvasElement,
 	map: HTMLCanvasElement,
 	data: ArrayBuffer,
-	notify: (notice: TerrainNotice) => void
+	notify: (notice: TerrainNotice) => void,
+	getNotice: () => string = () => ''
 ) {
 	const { geometry, width, length, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -112,7 +113,7 @@ export function mountTerrain(
 		throw error;
 	}
 
-	const optics = buildVisorOptics(renderer);
+	const optics = buildVisorOptics(renderer, map, getNotice);
 	const scene = new Scene();
 	scene.fog = new FogExp2('#bb8867', 0.00042);
 	const material = new MeshLambertMaterial({ vertexColors: true });
@@ -185,15 +186,17 @@ export function mountTerrain(
 					const contour = h % 3 < 0.28 ? 19 : 0;
 					const i = (row * mapSize + col) * 4;
 					const tint = Number.isFinite(shade) ? shade + contour : 25;
-					pixels.data[i] = tint - 14;
-					pixels.data[i + 1] = tint;
-					pixels.data[i + 2] = tint - 6;
-					pixels.data[i + 3] = 255;
+					// Project shaded relief as light over the glass, leaving the terrain visible.
+					pixels.data[i] = 160;
+					pixels.data[i + 1] = 244;
+					pixels.data[i + 2] = 215;
+					pixels.data[i + 3] = Math.max(0, (tint - 25) * 1.65);
 				}
 			}
 			reliefContext.putImageData(pixels, 0, 0);
 		}
 		mapContext.setTransform(2, 0, 0, 2, 0, 0);
+		mapContext.clearRect(0, 0, mapSize, mapSize);
 		mapContext.drawImage(relief, 0, 0);
 		mapContext.save();
 		mapContext.translate(mapSize / 2, mapSize / 2);
@@ -218,8 +221,8 @@ export function mountTerrain(
 	const draw = () => {
 		worldToEye.copy(camera.quaternion).invert();
 		lightInView.copy(sunDirection).applyQuaternion(worldToEye);
-		optics.render(scene, camera, MathUtils.clamp(lightInView.x * 1.4, -1.1, 1.1), -lightInView.z);
 		drawMap();
+		optics.render(scene, camera, MathUtils.clamp(lightInView.x * 1.4, -1.1, 1.1), -lightInView.z);
 	};
 	function resize() {
 		const { clientWidth, clientHeight } = canvas;
@@ -341,6 +344,7 @@ export function mountTerrain(
 	resize();
 
 	return {
+		refresh: draw,
 		dispose() {
 			abort.abort();
 			if (document.pointerLockElement === canvas) document.exitPointerLock();

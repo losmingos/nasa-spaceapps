@@ -18,6 +18,11 @@
 		error: { text: 'Terreno no disponible', kind: 'danger', label: 'Peligro' }
 	};
 	const current = $derived(notices[notice]);
+	$effect(() => {
+		// Notices also redraw when the astronaut is stationary (rendering is demand-driven).
+		void current.text;
+		terrain?.refresh();
+	});
 
 	function showNotice(next: typeof notice) {
 		clearTimeout(noticeTimer);
@@ -46,7 +51,7 @@
 				if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE.');
 				const data = await response.arrayBuffer();
 				if (request.signal.aborted) return;
-				terrain = mountTerrain(canvas, map, data, showNotice);
+				terrain = mountTerrain(canvas, map, data, showNotice, () => current.text);
 				showNotice('ready');
 			} catch (cause) {
 				if (request.signal.aborted) return;
@@ -76,7 +81,7 @@
 		Usa WASD para caminar, las flechas para mirar y Escape para liberar el cursor.</p>
 
 	<div class="projected">
-		<div class="notice" class:sr-only={!current.text} data-kind={current.kind}>
+		<div class="notice" class:sr-only={!current.text || !!terrain} data-kind={current.kind}>
 			<span class="notice-mark" aria-hidden="true"></span>
 			<span class="notice-words" role="status" aria-live="polite">
 				<span class="t-text-swap" class:is-exit={exited} bind:this={messageText}>
@@ -89,18 +94,18 @@
 			<p class="error-help">Comprueba que tu navegador admite WebGL 2 y recarga.</p>
 		{/if}
 
-		<div class="instruments" hidden={!terrain}>
+		<div class="instruments sr-only" hidden={!terrain}>
 			<figure class="radar">
-				<figcaption><span>Mapa local</span><span aria-label="Norte">N</span></figcaption>
 				<div class="map-face" role="img" aria-label="Relieve local con la posición al centro y una flecha que indica el rumbo">
 					<canvas bind:this={map} width="192" height="192" aria-hidden="true"></canvas>
 				</div>
-				<span class="map-scale">160 m</span>
 			</figure>
 
 			<dl class="readouts" aria-label="Telemetría simulada">
-				<div><dt>Oxígeno</dt><dd>96<span>%</span></dd></div>
-				<div><dt>Temperatura</dt><dd>−63<span>°C</span></dd></div>
+				<dt class="sr-only">Oxígeno</dt>
+				<dd>96<span>% O₂</span></dd>
+				<dt class="sr-only">Temperatura</dt>
+				<dd>−63<span>°C</span></dd>
 			</dl>
 		</div>
 	</div>
