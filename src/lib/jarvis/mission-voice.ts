@@ -14,12 +14,12 @@ export function createMissionVoice(useBrowserVoice: boolean) {
 		audio.cancel(turnId);
 	}
 
-	async function speak(text: string, lang?: string) {
+	async function speak(text: string) {
 		stop();
 		const id = ++turnId;
 		const controller = new AbortController();
 		request = controller;
-		let playable: Playable = { type: 'speech', text, lang };
+		let playable: Playable = { type: 'speech', text };
 		await unlocked;
 		if (controller.signal.aborted) return;
 		if (!useBrowserVoice && audio.unlocked) {

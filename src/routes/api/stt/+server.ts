@@ -16,7 +16,7 @@ import type { RequestHandler } from './$types';
 // The site is prerendered (src/routes/+layout.ts); API routes must stay dynamic in the Worker.
 export const prerender = false;
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async ({ request }) => {
 	if (!GROQ_API_KEY) return missingEnv('GROQ_API_KEY');
 
 	const file = audioFileInfo(request.headers.get('content-type'));
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 	if (audio.byteLength < STT_MIN_BYTES) return jsonError(400, 'Audio is smaller than 1 KB.');
 
 	try {
-		const raw = await transcribe(GROQ_API_KEY, audio, file, url.searchParams.get('lang') === 'es' ? 'es' : 'en');
+		const raw = await transcribe(GROQ_API_KEY, audio, file);
 		const text = filterTranscript(raw);
 		console.log(`[stt] ${audio.byteLength} B → ${JSON.stringify(raw)}${text ? '' : ' (filtered)'}`);
 		return Response.json({ text } satisfies SttResponse, { headers: { 'cache-control': 'no-store' } });

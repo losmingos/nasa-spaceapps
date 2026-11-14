@@ -1,10 +1,14 @@
+import { alternativeLength, directLength } from './route.js';
+
+export const roverSpeedLimitKmh = 10;
+
 export const routes = [
-	{ id: 'direct', name: 'Corredor directo', km: 7, traction: 7.4, essential: 2.2, terrain: 'Mayor pendiente y resistencia' },
-	{ id: 'alternative', name: 'Corredor de menor consumo', km: 8.1, traction: 4.5, essential: 2.2, terrain: 'Menor resistencia al avance' }
+	{ id: 'direct', name: 'Direct route', km: directLength / 1000, traction: 0.40, essential: 0.05, terrain: 'Steeper and higher rolling resistance' },
+	{ id: 'alternative', name: 'Lower-energy route', km: alternativeLength / 1000, traction: 0.18, essential: 0.07, terrain: 'Lower rolling resistance' }
 ] as const;
 
 export const usableEnergy = 9.5;
-export const reserve = 2;
+export const reserve = 9.15;
 export const waitHours = 8 + 55 / 60;
 export const normalLoad = 1.5;
 export const shelterLoad = 0.9;
@@ -21,22 +25,16 @@ export function routeForecast(route: (typeof routes)[number]) {
 }
 
 export const phases = [
-	{ id: 'NIGHT_TRANSIT', time: '20:40', title: 'Tránsito nocturno', text: 'Ruta autorizada hacia Bravo. Llevamos el módulo de reserva para la perforación de las seis. Sistemas nominales.' },
-	{ id: 'POWER_FAULT', time: '21:05', title: 'Tracción bloqueada', text: 'Fallo del convertidor del módulo B. La protección automática lo ha aislado. El bus esencial sigue alimentado por A. Soporte vital operativo.' },
-	{ id: 'ENERGY_ASSESSMENT', time: '21:07', title: 'Autonomía en parada', text: 'Con 9,5 kilovatios hora y un consumo normal de 1,5 kilovatios, disponemos de seis horas y veinte minutos. Hasta las seis faltaban ocho horas y cincuenta y cinco minutos al producirse el fallo.' },
-	{ id: 'BRAVO_CONTACT', time: '21:12', title: 'Contacto con Bravo', text: 'ARES-02, aquí Bravo. Hemos recibido vuestra alerta. Confirma el plan cuando tengas un margen seguro. Necesitamos el módulo para la perforación.' },
-	{ id: 'ISOLATION_TEST', time: '21:14', title: 'Verificación eléctrica', text: 'Comprobando el aislamiento de B y los límites de corriente y temperatura de A. El controlador solo admite una reconfiguración con las protecciones activas.' },
-	{ id: 'DEGRADED_DRIVE_READY', time: '21:16', title: 'Movilidad degradada disponible', text: 'Aislamiento, temperatura y corriente verificados. El controlador admite tracción limitada con la batería A. La activación requiere tu confirmación.' },
-	{ id: 'ROUTE_OPTIMIZATION', time: '21:18', title: 'Decisión de ruta', text: 'La ruta directa requiere 9,6 kilovatios hora. La alternativa de 8,1 kilómetros prevé un consumo de 6,7 y deja 2,8 al llegar. La reserva mínima es de 2 kilovatios hora.' },
-	{ id: 'DEGRADED_TRANSIT', time: '21:20', title: 'Tracción limitada', text: 'Movilidad degradada autorizada. Limitando par y velocidad. Supervisaré la energía, la temperatura y la proyección de llegada.' },
-	{ id: 'ENERGY_RECHECK', time: 'Ruta en curso', title: 'Demanda de potencia elevada', text: 'Ha subido la demanda de potencia. Reduzco par y velocidad y actualizo la proyección con la energía consumida.' },
-	{ id: 'MISSION_CLOSED', time: 'Llegada nocturna', title: 'Estación Bravo alcanzada', text: 'Bravo confirma la entrega del módulo. Tripulación segura. La batería B permanece aislada para inspección. El material está disponible para la perforación de las seis.' }
+	{ id: 'NIGHT_TRANSIT', time: '20:40', title: 'Night traverse', text: 'Route to Bravo authorized. The spare module is aboard for the six o’clock drilling operation. All systems nominal.' },
+	{ id: 'POWER_FAULT', time: '21:05', title: 'Drive disabled', text: 'Converter B failed and was isolated automatically. Battery A is powering the essential bus. Life support is operational.' },
+	{ id: 'ENERGY_ASSESSMENT', time: '21:07', title: 'Stationary endurance', text: 'At normal load, battery A can last six hours and twenty minutes. At the time of failure, there were eight hours and fifty-five minutes until six.' },
+	{ id: 'BRAVO_CONTACT', time: '21:12', title: 'Bravo contact', text: 'ARES-02, this is Bravo. Confirm your plan once you have a safe margin. We need the module for drilling.' },
+	{ id: 'ISOLATION_TEST', time: '21:14', title: 'Electrical checks', text: 'Checking converter isolation and battery A current and temperature limits. Drive can only be reconfigured with protections active.' },
+	{ id: 'DEGRADED_DRIVE_READY', time: '21:16', title: 'Degraded drive available', text: 'Isolation, temperature and current verified. Battery A can power limited drive. Activation requires your confirmation.' },
+	{ id: 'ROUTE_OPTIMIZATION', time: '21:18', title: 'Route decision', text: 'The direct route would leave too little energy for the emergency reserve. The detour meets the reserve requirement.' },
+	{ id: 'DEGRADED_TRANSIT', time: '21:20', title: 'Limited drive', text: 'Degraded drive authorized. Torque and speed are limited. I will monitor energy, temperature and the projected reserve on arrival.' },
+
+	{ id: 'MISSION_CLOSED', time: 'Night arrival', title: 'Bravo Station reached', text: 'Bravo confirms receipt of the module. The crew is safe. Battery B remains isolated for inspection. The module is ready for drilling at six.' }
 ] as const;
 
 export type Phase = (typeof phases)[number];
-export type SafeHavenReason = 'isolation' | 'energy';
-
-export const havenText: Record<SafeHavenReason, string> = {
-	isolation: 'El diagnóstico no confirma los límites de la batería A. Tracción bloqueada. Modo refugio activado. Operación aplazada.',
-	energy: 'La proyección cae por debajo de la reserva mínima. Rover detenido en un punto seguro del corredor. Modo refugio activado. Operación aplazada.'
-};

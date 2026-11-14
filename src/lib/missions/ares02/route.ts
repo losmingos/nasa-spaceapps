@@ -1,13 +1,13 @@
 import type { Point } from '../../visor/terrain.js';
 import { distanceBetween, pointAlong } from '../ares01/route.js';
 
-export const bravo = { x: 800, z: 3500 };
-export const handoff = { x: 800, z: 3523 };
+export const bravo = { x: 800, z: -3395 };
+export const handoff = { x: 800, z: -3372 };
 export const fault = { x: 800, z: -3500 };
-export const startPoint = { x: 280, z: -3110 };
-const turn = { x: 690, z: -3060 };
-const beforeFault = { x: 785, z: -3370 };
-const detour = { x: 800 - Math.sqrt(4050 ** 2 - 3500 ** 2), z: 0 };
+export const startPoint = { x: 748, z: -3461 };
+const turn = { x: 789, z: -3456 };
+const beforeFault = { x: 798.5, z: -3487 };
+const detour = { x: 760, z: -3447.5 };
 
 export const approach = Array.from({ length: 33 }, (_, i) => {
 	const t = i / 32;
@@ -19,6 +19,8 @@ export const approach = Array.from({ length: 33 }, (_, i) => {
 });
 export const direct = [fault, bravo];
 export const alternative = [fault, detour, bravo];
+export const directLength = distanceBetween(fault, bravo);
+export const alternativeLength = distanceBetween(fault, detour) + distanceBetween(detour, bravo);
 export const approachLength = approach.slice(1).reduce((sum, point, i) => sum + distanceBetween(approach[i], point), 0);
 
 export function approachNavigation(position: Point) {
@@ -39,5 +41,5 @@ export function approachNavigation(position: Point) {
 		}
 		travelled += length;
 	}
-	return { progress, offset: best, ahead: pointAlong(approach, progress + 38) };
+	return { progress, offset: best, ahead: pointAlong(approach, progress + 10) };
 }

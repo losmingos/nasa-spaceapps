@@ -65,15 +65,17 @@ Revisa el resumen que imprime, ejecuta `npm run build` y haz commit del JSON. El
 
 Open **ARES-01 · The Last Sample** from the free exploration visor or visit `/missions/ares01`. Press **I** there to start the interactive mission. Use **WASD** to walk or drive and hold the **arrow keys** to look around. Press **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.
 
-Hold **Space** to speak to SARA and release it to send. SARA speaks English in ARES-01 and Spanish in ARES-02. Add `?tts=browser` to the visor URL to use a browser voice for the current mission language.
+Hold **Space** to speak to SARA and release it to send. **English is the language of the entire app. SARA always speaks and replies in English, including in both missions.** Add `?tts=browser` to the visor URL to use an English browser voice.
 
 The interactive mission follows your position and actions over the full route, including the 2.4 km rover drive. Dust advisories trigger 20 and 40 seconds after drilling starts. Dust, slope hazards and suit pressure are simulated. Route coordinates are in `src/lib/missions/ares01/route.ts` and the mission emits `ares01:dialogue` events.
 
 ## Project layout
 
+Inside the rover in either mission, **W/S** drives forward and in reverse and **A/D** steers. The mouse and arrow keys look around the cabin independently. The dashboard shows the map, speed and heading. The headlights follow the rover heading.
+
 ### ARES-02 · Nightfall Protocol
 
-Open `/missions/ares02` and press **I**. Switch on the headlights and follow the curved ground guide with **WASD**. Use **E / 1 / 2** to operate the rover and confirm actions. A failed diagnostic or insufficient reserve ends the attempt in shelter mode. At Bravo, park, retrieve the module and carry it to the entrance on foot. The parked rover uses the same SEV model as ARES-01.
+Open `/missions/ares02` and press **I**. Switch on the headlights and follow the curved ground guide with **WASD**. Use **E / 1 / 2** to operate the rover and confirm actions. The playable drive is about 200 m along the detour. The rover is limited to 10 km/h and to 8 km/h in degraded drive. After a successful isolation check, follow SARA in English: secure the rover, check the suit, exit through the airlock, walk to the amber service marker, open the panel, reseat battery A’s low-voltage control link, and latch the panel. Walk back to the airlock, reboard, and test the battery A bus before comparing routes. At Bravo, park, retrieve the module and carry it to the entrance on foot. The parked rover uses the same SEV model as ARES-01.
 
 - `src/lib/missions/ares01/` contains the mission timeline, interactive logic, controls, scene and SARA instructions. Its models are in `static/models/missions/ares01/`.
 - `src/lib/missions/vr-rehearsal/` contains the route and telemetry constants for the VR rehearsal.

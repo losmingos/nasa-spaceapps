@@ -46,9 +46,24 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
 			});
 	}
 
+	const serviceBeacon = new PointLight('#ffb45f', 36, 10);
+	serviceBeacon.visible = false;
+	group.add(serviceBeacon);
 	const station = new Group();
 	group.add(station);
 	const box = new BoxGeometry(1, 1, 1);
+	const servicePanel = new Group();
+	servicePanel.visible = false;
+	group.add(servicePanel);
+	const serviceHousing = new MeshStandardMaterial({ color: '#46545a', roughness: 0.8 });
+	const serviceIndicator = new MeshStandardMaterial({ color: '#ffba66', emissive: '#ff991e', emissiveIntensity: 2 });
+	const enclosure = new Mesh(box, serviceHousing);
+	enclosure.scale.set(0.38, 0.7, 0.56);
+	servicePanel.add(enclosure);
+	const indicator = new Mesh(box, serviceIndicator);
+	indicator.position.set(0.21, 0.19, 0);
+	indicator.scale.set(0.04, 0.12, 0.16);
+	servicePanel.add(indicator);
 	const housing = new MeshStandardMaterial({ color: '#9faba6', roughness: 0.82 });
 	const apron = new MeshStandardMaterial({ color: '#373e3e', roughness: 0.9 });
 	const light = new MeshStandardMaterial({ color: '#d8fff4', emissive: '#8bffd7', emissiveIntensity: 2 });
@@ -80,7 +95,13 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
 			group.visible = active;
 			if (active) loadRover();
 		},
-		setParkedRover(position) {
+		setParkedRover(position, marker) {
+			serviceBeacon.visible = servicePanel.visible = !!marker;
+			if (marker) {
+				const height = ground(marker.x, marker.z);
+				serviceBeacon.position.set(marker.x + 0.3, height + 1.55, marker.z);
+				servicePanel.position.set(marker.x - 0.8, height + 1.15, marker.z);
+			}
 			rover.visible = !!position;
 			if (position) rover.position.set(position.x, ground(position.x, position.z), position.z);
 		},
@@ -89,6 +110,8 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
 			disposed = true;
 			if (model) release(model);
 			box.dispose();
+			serviceHousing.dispose();
+			serviceIndicator.dispose();
 			housing.dispose();
 			apron.dispose();
 			light.dispose();

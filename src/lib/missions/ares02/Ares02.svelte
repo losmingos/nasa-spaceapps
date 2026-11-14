@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import MissionControls from '../MissionControls.svelte';
 	import type { Point } from '../../visor/terrain.js';
-	import { actions, act, startRun, stepRun, type Action, type Fault } from './interactive.js';
+	import { actions, act, startRun, stepRun, type Action } from './interactive.js';
 	import { labels, nightfallView, type NightfallView } from './visor.js';
 
 	let { ready, onview, ondialogue, onstart, onpause, focusScene, getPosition, getHeading }: {
@@ -25,9 +25,8 @@
 	let testing = $state(false);
 	let fast = $state(false);
 	let heading = $state(0);
-	let failure = $state<Fault>('none');
 	let lastCue = '';
-	const finished = $derived(run.stage === 'delivered' || run.stage === 'haven');
+	const finished = $derived(run.stage === 'delivered');
 	const controls = $derived(running ? actions(run) : []);
 	const snapshot = $derived(nightfallView(run, paused, runId, fast, heading));
 
@@ -105,7 +104,7 @@
 			previous = now;
 			if (!running || paused || finished || document.hidden) return;
 			heading = getHeading() ?? heading;
-			run = stepRun(run, dt, getPosition() ?? run.position, failure);
+			run = stepRun(run, dt, getPosition() ?? run.position);
 		}, 100);
 		return () => clearInterval(timer);
 	});
@@ -126,26 +125,17 @@
 	actions={controls} actionLabels={labels} {paused} onact={perform}
 	testing={testing && running && !finished} {fast} ontest={toggleTestSpeed}>
 	{#if !running}
-		<span>Nightfall Protocol · Simulación</span>
-		<p>Entrega el módulo de reserva a Bravo. WASD conduce y camina · Flechas para mirar · E / 1 / 2 actúan · Espacio para hablar.</p>
-		{#if testing}
-			<label>Condición de prueba
-				<select bind:value={failure}>
-					<option value="none">Nominal</option>
-					<option value="isolation">Diagnóstico no concluyente</option>
-					<option value="energy">Consumo elevado</option>
-				</select>
-			</label>
-		{/if}
+		<span>Nightfall Protocol · Simulation</span>
+		<p>Deliver the spare module to Bravo. WASD to drive and walk · Arrow keys to look · E / 1 / 2 to act · Hold Space to talk to SARA in English.</p>
 		<div class="hud-actions">
-			<button class="hud-action" disabled={!ready} onclick={() => start(true)}>Iniciar misión [I]</button>
+			<button class="hud-action" disabled={!ready} onclick={() => start(true)}>Start mission [I]</button>
 		</div>
 	{:else}
 		{#if finished}<p>{snapshot.text}</p>{/if}
 		<div class="hud-actions">
-			{#if !finished}<button class="hud-action" onclick={togglePause}>{paused ? 'Reanudar' : 'Pausar'} [P]</button>{/if}
-			<button class="hud-action" onclick={() => start(true)}>Reiniciar</button>
-			<button class="hud-action" onclick={() => start(false)}>Salir</button>
+			{#if !finished}<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'} [P]</button>{/if}
+			<button class="hud-action" onclick={() => start(true)}>Restart</button>
+			<button class="hud-action" onclick={() => start(false)}>Exit</button>
 		</div>
 	{/if}
 </MissionControls>

@@ -5,7 +5,7 @@ export const STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 export const STT_MIN_BYTES = 1024;
 export const STT_MAX_BYTES = 10 * 1024 * 1024;
 const STT_PROMPT =
-	'Jezero, Perseverance, MEDA, habitat, airlock, sample, dust storm, oxygen, suit power, visibility, beacon, Sara';
+	'Jezero, Perseverance, MEDA, habitat, airlock, sample, dust storm, oxygen, suit power, visibility, beacon, Sara, Bravo, battery, converter, degraded drive, reserve';
 
 export class SttUpstreamError extends Error {
 	status: number;
@@ -93,14 +93,14 @@ export function filterTranscript(raw: string): string {
 	return text;
 }
 
-export async function transcribe(apiKey: string, audio: ArrayBuffer, file: { filename: string; type: string }, language: 'en' | 'es' = 'en'): Promise<string> {
+export async function transcribe(apiKey: string, audio: ArrayBuffer, file: { filename: string; type: string }): Promise<string> {
 	const form = new FormData();
 	form.append('file', new Blob([audio], { type: file.type }), file.filename);
 	form.append('model', STT_MODEL);
-	form.append('language', language);
+	form.append('language', 'en');
 	form.append('response_format', 'json');
 	form.append('temperature', '0');
-	form.append('prompt', language === 'es' ? 'JARVIS, rover marciano, estación Bravo, batería A, batería B, modo refugio.' : STT_PROMPT);
+	form.append('prompt', STT_PROMPT);
 
 	const res = await fetch(STT_URL, {
 		method: 'POST',

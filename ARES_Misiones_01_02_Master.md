@@ -192,6 +192,14 @@ La caída **no la provoca una piedra lanzada por el viento**. La causa es una **
 
 **Motivación dramática:** si se cancela la entrega, el compañero probablemente deberá posponer la perforación. **Nunca se permite sacrificar reservas de vida para llegar puntualmente.**
 
+## Exterior battery service
+
+After verifying isolation, the player secures the rover, checks the suit and cycles the airlock. SARA guides each step in English. The player walks to the amber service marker, opens the exterior low-voltage panel, reseats the marked battery A control link, and latches the panel. They walk back, board, confirm cabin pressure and test the battery A bus. Comparing routes and authorizing degraded drive follow the bus test. Battery B remains isolated throughout. The service link, panel and procedure are fictional gameplay elements.
+
+## Playable route
+
+The simulation starts on the final approach, roughly 70 metres before the fault. The direct route from the fault to Bravo is 105 metres and costs 0.45 kWh. The 132-metre detour costs 0.25 kWh. With 9.5 kWh available and an emergency reserve of 9.15 kWh, the detour leaves 9.25 kWh. The rover is capped at 10 km/h, with an 8 km/h degraded-drive limit. The following original scenario figures describe the narrative reference.
+
 ## 3.2. Parámetros de situación
 
 | Parámetro | Valor canónico | Estado |
@@ -238,16 +246,16 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 
 **Interpretación:** la alternativa es **más larga y menos exigente** por sus pendientes y resistencia al avance; la directa, aunque corta, falla la restricción energética. Los 2,2 kWh de cargas esenciales se asumen iguales en el cálculo simplificado para ambas rutas; en una implementación más precisa dependerían de **duración**, temperatura y potencia térmica, y por tanto deben recalcularse. El algoritmo debe actualizar la proyección con la energía realmente consumida.
 
-**Parada de seguridad:** si el diagnóstico falla o se pierde la reserva mínima, la misión termina en modo refugio. El rover protege presión, calefacción esencial y comunicaciones. Bravo recibe información logística durante el diagnóstico. El juego no tiene una acción de solicitud de asistencia.
+**Telemetría de reserva:** el panel actualiza la proyección durante la marcha hacia Bravo.
 
 ## 3.5. Recorrido jugable
 
 | Etapa | Acción del jugador | Respuesta del sistema |
 |---|---|---|
 | Salida | Enciende los faros, inicia la marcha y sigue la línea curva sobre el terreno. | La guía muestra el rumbo hacia Bravo. Al completar la curva, el convertidor B falla sin aviso previo y la protección corta la tracción. |
-| Avería | Consulta la autonomía, informa a Bravo y comprueba el aislamiento y los límites de A. | A mantiene el bus esencial. Solo un diagnóstico favorable habilita la comparación de rutas. |
+| Avería | Consulta la autonomía, informa a Bravo y comprueba el aislamiento y los límites de A. | A mantiene el bus esencial. Un diagnóstico favorable habilita la intervención exterior en el enlace de control de A. La prueba del bus al volver al rover habilita la comparación de rutas. |
 | Recuperación | Compara los presupuestos, autoriza el modo degradado y carga la ruta alternativa. | La ruta directa supera la energía disponible. La alternativa conserva la reserva mínima proyectada. |
-| Trayecto | Conduce por los puntos marcados, comprueba la reserva al aumentar el consumo y reanuda la marcha si hay margen. | El modelo recalcula la proyección con la distancia recorrida. Un margen insuficiente activa la parada de seguridad. |
+| Trayecto | Conduce por el desvío y continúa hasta Bravo. | El modelo recalcula la proyección con la distancia recorrida. La proyección se muestra como información durante el trayecto. |
 | Entrega | Estaciona, recoge el módulo, sale por la esclusa, camina hasta Bravo y confirma la entrega. | El SEV queda visible en el punto de estacionamiento. B permanece aislada. |
 
 ## 3.6. Diálogos centrales recomendados
@@ -277,7 +285,7 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 
 ## 3.7. Decisiones y modos de seguridad ARES-02
 
-**Estados:** `NIGHT_TRANSIT → POWER_FAULT → ENERGY_ASSESSMENT → BRAVO_CONTACT → ISOLATION_TEST → DEGRADED_DRIVE_READY → ROUTE_OPTIMIZATION → DEGRADED_TRANSIT → ENERGY_RECHECK → MISSION_CLOSED`.
+**Estados:** `NIGHT_TRANSIT → POWER_FAULT → ENERGY_ASSESSMENT → BRAVO_CONTACT → ISOLATION_TEST → DEGRADED_DRIVE_READY → ROUTE_OPTIMIZATION → DEGRADED_TRANSIT → MISSION_CLOSED`.
 
 **Reglas:**
 
@@ -286,12 +294,11 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 - No interpretar «9,5 kWh disponibles» como energía total de un rover NASA real; es solo la reserva utilizable de A **en esta escena**.
 - La reconfiguración requiere comprobación de aislamiento, límites eléctricos, estado térmico y confirmación de astronauta; no deshabilitar protecciones.
 - La misión a Bravo solo continúa si la energía estimada para el trayecto **más la reserva** cabe en la energía disponible, con incertidumbre aceptable.
-- Si fallan los requisitos, recomendar `SAFE_HAVEN`: detenerse en zona segura, modo de refugio, conservar energía, **posponer perforación**.
-- Evitar una EVA nocturna de reparación improvisada mientras sea posible permanecer en el habitáculo.
+- La EVA nocturna se limita al panel de baja tensión tras verificar el aislamiento y el traje. El módulo B permanece aislado.
 
 ## 3.8. HUD y efectos visuales ARES-02
 
-**Normal:** mapa nocturno, faros, distancia a Bravo, hora local, ETA, estado de sistemas. **Avería:** interrupción breve, luces secundarias se atenúan, diagrama A verde/B rojo, tracción bloqueada. **Diagnóstico:** árbol causal de avería y comprobaciones de aislamiento, medidores de energía y temperatura. **Decisión:** la tracción degradada se habilita tras validar el diagnóstico y la ruta. El modo refugio cierra un intento sin margen para proseguir. **Rutas:** dos trazados con distancia, pendiente/resistencia, energía total proyectada y reserva final. **En marcha:** potencia, temperatura, consumo real y estimación actualizada. **Cierre:** estado seguro, carga entregada y módulo B pendiente de inspección.
+**Normal:** mapa nocturno, faros, distancia a Bravo, hora local, ETA, estado de sistemas. **Avería:** interrupción breve, luces secundarias se atenúan, diagrama A verde/B rojo, tracción bloqueada. **Diagnóstico:** árbol causal de avería y comprobaciones de aislamiento, medidores de energía y temperatura. **Decisión:** la tracción degradada se habilita tras validar el diagnóstico y la ruta. **Rutas:** dos trazados con distancia, pendiente/resistencia, energía total proyectada y reserva final. **En marcha:** potencia, temperatura, consumo real y estimación actualizada. **Cierre:** estado seguro, carga entregada y módulo B pendiente de inspección.
 
 **Tono:** noche marciana realmente oscura, faros limitados y cabina funcional. El dramatismo se apoya en el silencio, las alarmas y el presupuesto eléctrico, no en que la temperatura interior descienda instantáneamente a −72 °C.
 
@@ -308,7 +315,7 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 | Entregar módulo para perforación de mañana | **Completado, sujeto a seguridad** |
 | Reparar físicamente batería B | **No; queda para mantenimiento** |
 
-**Ramas alternativas:** A no supera diagnóstico → parada en modo refugio; gasto superior al estimado → detenerse en lugar seguro y reevaluar; comunicaciones intermitentes → emitir mensaje cuando exista enlace y no inventar comunicación en tiempo real; modo de refugio energético viable → puede ser más seguro esperar aunque se cancele la misión de Bravo.
+**Flujo jugable:** la reserva proyectada se actualiza durante la conducción hasta Bravo.
 
 ---
 
@@ -331,7 +338,7 @@ SARA debe exponer de manera clara: **qué ha detectado**, **con qué datos**, **
 
 **ARES-01:** `sample_progress`, `sample_secured` (siempre `false` en rama principal), `dust_trend`, `visibility_confidence`, `astronaut_position`, `position_uncertainty_m`, `rover_distance_m`, `terrain_risk`, `route_id`, `suit_outer_damage_possible`, `suit_pressure_trend`, `eva_abort_required`.
 
-**ARES-02:** `battery_a_usable_kwh`, `battery_b_isolated`, `power_converter_fault`, `drive_state`, `cabin_pressure_ok`, `critical_heat_load_kw`, `module_temperature`, `energy_consumption_kw`, `route_direct_kwh`, `route_alternative_kwh`, `minimum_reserve_kwh`, `estimated_arrival_energy_kwh`, `safe_haven_viable`, `bravo_distance_km`.
+**ARES-02:** `battery_a_usable_kwh`, `battery_b_isolated`, `power_converter_fault`, `drive_state`, `cabin_pressure_ok`, `critical_heat_load_kw`, `module_temperature`, `energy_consumption_kw`, `route_direct_kwh`, `route_alternative_kwh`, `minimum_reserve_kwh`, `estimated_arrival_energy_kwh`, `bravo_distance_km`.
 
 **Convención:** todos los campos numéricos deben tener `unit`; todos los sensores tienen `quality` (`valid`, `degraded`, `unavailable`) y `provenance` (`historical_reference`, `simulated_sensor`, `derived`, `design_assumption`).
 
@@ -365,7 +372,7 @@ SI misión = ARES-02:
     SI hay ruta segura y energía con margen:
         recomendar ruta; monitorizar consumo real continuamente
     SI NO:
-        conservar soporte vital, entrar en modo refugio y aplazar la entrega
+        mostrar el déficit en la proyección de reserva
 ```
 
 ## 4.4. Presentación al jurado: qué demuestra cada una
@@ -442,8 +449,8 @@ SI misión = ARES-02:
 | A2-01: fallo de B | B aislada; A y soporte vital permanecen operativos |
 | A2-02: movilidad degradada | Solo se habilita después de confirmar aislamiento y límites |
 | A2-03: cálculo energético | Directa: 9,6 > 9,5 kWh; alternativa: 6,7 kWh; restante 2,8 kWh |
-| A2-04: ruta no viable | Se activa el modo refugio y se aplaza la entrega |
-| A2-05: caída de margen en viaje | Recalcula, advierte y cambia plan si supera límites |
+| A2-04: ruta directa | La comparación muestra el déficit de reserva y propone el desvío |
+| A2-05: paso por el desvío | El destino pasa a Bravo y la conducción continúa |
 | A2-06: llegada a Bravo | Compañero recibe equipo; B sigue aislada, sin «reparación milagrosa» |
 
 ---

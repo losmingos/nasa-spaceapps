@@ -1,20 +1,20 @@
-import { distanceBetween, pointAlong, type Point } from '../ares01/route.js';
-import { forecast, routes, routeForecast, usableEnergy, type SafeHavenReason } from './ares02.js';
-import { alternative, approachLength, approachNavigation, bravo, fault, handoff, startPoint } from './route.js';
+import { distanceBetween, type Point } from '../ares01/route.js';
+import { forecast, routes, routeForecast, usableEnergy } from './ares02.js';
+import { alternative, alternativeLength, approachLength, directLength, approachNavigation, bravo, fault, handoff, startPoint } from './route.js';
 
 export type Stage = 'preflight' | 'outbound' | 'fault' | 'assessment' | 'comms' | 'diagnostic' | 'verified' | 'options'
-	| 'configured' | 'drive' | 'recheck' | 'verified-energy' | 'park' | 'cargo' | 'egress' | 'walk' | 'handoff' | 'delivered' | 'haven';
+	| 'eva-prep' | 'service-walk' | 'panel-closed' | 'panel-open' | 'link-seated' | 'return-airlock' | 'airlock' | 'bus-check' | 'bus-verified'
+	| 'configured' | 'drive' | 'park' | 'cargo' | 'egress' | 'walk' | 'handoff' | 'delivered';
 export type Action = 'lights' | 'depart' | 'assess' | 'contact' | 'diagnose' | 'compare' | 'configure' | 'drive'
-	| 'verify' | 'continue' | 'park' | 'collect' | 'exit' | 'deliver';
-export type Fault = 'none' | 'isolation' | 'energy';
+	| 'suit-check' | 'service-exit' | 'open-panel' | 'reseat-link' | 'close-panel' | 'reboard' | 'test-bus'
+	| 'park' | 'collect' | 'exit' | 'deliver';
 
-const routeLength = 8100;
+const routeLength = alternativeLength;
 const firstLeg = distanceBetween(alternative[0], alternative[1]);
-const checkPoint = pointAlong(alternative, 2100);
-const markers = [checkPoint, alternative[1], bravo];
+const markers = [alternative[1], bravo];
 const plannedKwhPerMetre = routeForecast(routes[1]).total / routeLength;
-const checkRadius = 24;
-const arrivalRadius = 15;
+const checkRadius = 4;
+const arrivalRadius = 4;
 
 export interface Run {
 	stage: Stage;
@@ -23,75 +23,83 @@ export interface Run {
 	stageAt: number;
 	leg: number;
 	driven: number;
-	checkDraw: number;
 	degraded: boolean;
 	lights: boolean;
 	cargoSecured: boolean;
 	parkedAt?: Point;
-	haven?: SafeHavenReason;
+	serviceStop?: Point;
 }
 
 export function startRun(): Run {
-	return { stage: 'preflight', position: startPoint, seconds: 0, stageAt: 0, leg: 0, driven: 0, checkDraw: 0, degraded: false, lights: false, cargoSecured: false };
+	return { stage: 'preflight', position: startPoint, seconds: 0, stageAt: 0, leg: 0, driven: 0, degraded: false, lights: false, cargoSecured: false };
 }
 
 function enter(run: Run, stage: Stage): Run {
 	return { ...run, stage, stageAt: run.seconds };
 }
 
-function shelter(run: Run, haven: SafeHavenReason): Run {
-	return { ...enter(run, 'haven'), haven };
+export function servicePoints(stop: Point) {
+	return {
+		airlock: { x: stop.x + 3.5, z: stop.z },
+		panel: { x: stop.x + 3.5, z: stop.z + 4 }
+	};
+}
+
+export function onServiceEva(run: Run) {
+	return ['service-walk', 'panel-closed', 'panel-open', 'link-seated', 'return-airlock', 'airlock'].includes(run.stage);
 }
 
 export function moving(run: Run) {
-	return run.stage === 'outbound' || run.stage === 'drive' || run.stage === 'walk';
+	return run.stage === 'outbound' || run.stage === 'drive' || run.stage === 'walk' || run.stage === 'service-walk' || run.stage === 'return-airlock';
 }
 
 export function goal(run: Run): Point | undefined {
 	if (run.stage === 'outbound') return approachNavigation(run.position).ahead;
 	if (run.stage === 'drive') return markers[run.leg];
 	if (run.stage === 'walk') return handoff;
+	if (run.serviceStop && run.stage === 'service-walk') return servicePoints(run.serviceStop).panel;
+	if (run.serviceStop && run.stage === 'return-airlock') return servicePoints(run.serviceStop).airlock;
 	return undefined;
 }
 
 export function routeRemaining(run: Run) {
-	if (run.stage === 'preflight' || run.stage === 'outbound') return distanceBetween(run.position, fault) + 7000;
+	if (run.stage === 'preflight' || run.stage === 'outbound') return approachLength - approachNavigation(run.position).progress + directLength;
 	if (['park', 'cargo', 'egress', 'walk', 'handoff', 'delivered'].includes(run.stage)) return 0;
-	if (!run.degraded) return 7000;
+	if (!run.degraded) return directLength;
 	const target = markers[run.leg];
-	return distanceBetween(run.position, target) + (run.leg === 0 ? routeLength - 2100 : run.leg === 1 ? routeLength - firstLeg : 0);
+	return distanceBetween(run.position, target) + (run.leg === 0 ? routeLength - firstLeg : 0);
 }
 
 export function driveBudget(run: Run) {
-	const available = usableEnergy - run.driven * plannedKwhPerMetre - run.checkDraw;
+	const available = usableEnergy - run.driven * plannedKwhPerMetre;
 	const remaining = routeRemaining(run);
 	return { available, remainingKm: remaining / 1000, ...forecast(available, remaining * plannedKwhPerMetre) };
 }
 
-export function stepRun(run: Run, delta: number, position: Point, faultMode: Fault): Run {
+export function stepRun(run: Run, delta: number, position: Point): Run {
 	const next = { ...run, position, seconds: run.seconds + delta };
 	switch (run.stage) {
 		case 'outbound': {
 			const { progress, offset } = approachNavigation(position);
-			return progress >= approachLength - 5 && offset < 35 ? enter(next, 'fault') : next;
+			return progress >= approachLength - 1 && offset < 5 ? enter(next, 'fault') : next;
 		}
 		case 'diagnostic':
 			if (next.seconds < next.stageAt + 8) return next;
-			return faultMode === 'isolation' ? shelter(next, 'isolation') : enter(next, 'verified');
+			return enter(next, 'eva-prep');
 		case 'drive': {
 			next.driven += distanceBetween(run.position, position);
-			if (!driveBudget(next).viable) return shelter(next, 'energy');
 			if (distanceBetween(position, markers[run.leg]) > (run.leg === 2 ? arrivalRadius : checkRadius)) return next;
 			if (run.leg === 0) {
-				next.checkDraw = faultMode === 'energy' ? 1 : 0.25;
-				next.leg++;
-				return enter(next, 'recheck');
-			}
-			if (run.leg === 1) {
 				next.leg++;
 				return next;
 			}
 			return enter(next, 'park');
+		}
+		case 'service-walk':
+		case 'return-airlock': {
+			const target = goal(run);
+			if (!target || distanceBetween(position, target) > 1.2) return next;
+			return enter(next, run.stage === 'service-walk' ? 'panel-closed' : 'airlock');
 		}
 		case 'walk': return distanceBetween(position, handoff) <= 3 ? enter(next, 'handoff') : next;
 		default: return next;
@@ -104,11 +112,16 @@ export function actions(run: Run): readonly Action[] {
 		case 'fault': return ['assess'];
 		case 'assessment': return ['contact'];
 		case 'comms': return ['diagnose'];
-		case 'verified': return ['compare'];
-		case 'options': return routeForecast(routes[1]).viable ? ['configure'] : [];
+		case 'eva-prep': return ['suit-check'];
+		case 'verified': return ['service-exit'];
+		case 'panel-closed': return ['open-panel'];
+		case 'panel-open': return ['reseat-link'];
+		case 'link-seated': return ['close-panel'];
+		case 'airlock': return ['reboard'];
+		case 'bus-check': return ['test-bus'];
+		case 'bus-verified': return ['compare'];
 		case 'configured': return ['drive'];
-		case 'recheck': return ['verify'];
-		case 'verified-energy': return ['continue'];
+		case 'options': return routeForecast(routes[1]).viable ? ['configure'] : [];
 		case 'park': return ['park'];
 		case 'cargo': return ['collect'];
 		case 'egress': return ['exit'];
@@ -125,11 +138,20 @@ export function act(run: Run, action: Action): Run {
 		case 'assess': return enter(run, 'assessment');
 		case 'contact': return enter(run, 'comms');
 		case 'diagnose': return enter(run, 'diagnostic');
+		case 'suit-check': return enter(run, 'verified');
+		case 'service-exit': {
+			const serviceStop = run.position;
+			return enter({ ...run, serviceStop, position: servicePoints(serviceStop).airlock }, 'service-walk');
+		}
+		case 'open-panel': return enter(run, 'panel-open');
+		case 'reseat-link': return enter(run, 'link-seated');
+		case 'close-panel': return enter(run, 'return-airlock');
+		case 'reboard':
+			return run.serviceStop ? enter({ ...run, position: run.serviceStop }, 'bus-check') : run;
+		case 'test-bus': return enter(run, 'bus-verified');
 		case 'compare': return enter(run, 'options');
 		case 'configure': return enter(run, 'configured');
 		case 'drive': return enter({ ...run, degraded: true }, 'drive');
-		case 'verify': return driveBudget(run).viable ? enter(run, 'verified-energy') : shelter(run, 'energy');
-		case 'continue': return enter(run, 'drive');
 		case 'park': return enter({ ...run, parkedAt: run.position }, 'cargo');
 		case 'collect': return enter({ ...run, cargoSecured: true }, 'egress');
 		case 'exit': return enter(run, 'walk');

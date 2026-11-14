@@ -49,7 +49,7 @@
 		if (voiceInput || !pendingMissionLine || (voice && !['idle', 'locked'].includes(voice.status))) return;
 		const text = pendingMissionLine;
 		pendingMissionLine = undefined;
-		void missionVoice?.speak(text, ares02 ? 'es-ES' : undefined);
+		void missionVoice?.speak(text);
 	}
 	$effect(() => {
 		assistant?.setMissionContext(nightfall?.context ?? (mission ? missionContext(mission) : undefined));
@@ -284,8 +284,7 @@
 		const sara = createAssistant({
 			mode: 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
-			cuePolling: false,
-			language: ares02 ? 'es' : undefined
+			cuePolling: false
 		});
 		assistant = sara;
 		sara.setPlacesProvider(() => {
@@ -319,7 +318,7 @@
 				geologyAvailable = !!geology?.features.length;
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), geology, showNotice,
 					() => current.text,
-					() => nightfall ? `ARES-02 · ${missionClock} · ${nightfall.localTime}${nightfall.paused ? " · PAUSA" : ""}` : mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
+					() => nightfall ? `ARES-02 · ${missionClock} · ${nightfall.localTime}${nightfall.paused ? " · PAUSED" : ""}` : mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
 					() => hudMessage, () => ({ active: displayMode === 'swir' }), ares02 ? createNightfallScene : ares01 ? createMissionScene : undefined);
 				showNotice('ready');
 				if (!ares02 && matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
@@ -353,14 +352,14 @@
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
-<main class="visor" lang={ares02 ? "es" : undefined}>
+<main class="visor">
 	<canvas class="terrain" bind:this={canvas} tabindex="0"
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
-		Use WASD to walk, the arrow keys to look, and Escape to release the pointer.
+		Use WASD to walk or drive, the mouse or arrow keys to look, and Escape to release the pointer.
 		Press H to show the Mars clock controls.
-		Hold Space to talk to SARA and release to send.</p>
+		Hold Space to speak English to SARA and release to send. SARA always replies in English.</p>
 
 	<div class="projected">
 		<div class="sr-only" role="status" aria-atomic="true">
@@ -488,7 +487,7 @@
 						<p class="layer-caption">
 							{#if displayMode === 'geology'}USGS SIM 3464 · regional alignment ±100–200 m
 							{:else if displayMode === 'slope'}DTM · green &lt;5° · amber 5–12° · red &gt;12°
-							{:else if displayMode === 'swir'}SIMULATED · 1.65 µm · polvo ×0.15
+							{:else if displayMode === 'swir'}SIMULATED · 1.65 µm · dust ×0.15
 							{:else}HiRISE orthophoto + relief{/if}
 						</p>
 					</div>

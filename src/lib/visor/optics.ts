@@ -221,6 +221,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			eyeRotation: { value: new Matrix4() },
 			eyePosition: { value: new Vector3() },
 			reflection: { value: 0 },
+			cabinView: { value: false },
 			swirMode: { value: 0 },
 			swirTime: { value: 0 }
 		},
@@ -258,6 +259,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform mat4 eyeRotation;
 			uniform vec3 eyePosition;
 			uniform float reflection;
+			uniform bool cabinView;
 			uniform float swirMode;
 			uniform float swirTime;
 			varying vec2 imageUV;
@@ -417,6 +419,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				transmitted *= solarTransmission;
 				transmitted *= 1.0 - 0.10 * smoothstep(0.35, 1.0, r2);
 
+				if (!cabinView) {
 				// A broad reflection catches the upper shoulder of the glass as the head turns.
 				vec2 glass = (p - sunInView) * vec2(clamp(aspect, 0.85, 1.9), 1.0);
 				float flare = exp(-dot(glass, glass) * 2.1) * reflection;
@@ -463,6 +466,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					+ vec3(0.029, 0.025, 0.019) * rubber);
 				lining *= 1.0 - 0.48 * groove;
 				transmitted = mix(transmitted, lining, padding);
+				}
 				gl_FragColor = vec4(transmitted, 1.0);
 				#include <colorspace_fragment>
 			}
@@ -486,8 +490,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
 		phobos: Vector3, phobosElevation: number, phobosRadius: number,
 		deimos: Vector3, deimosElevation: number, deimosRadius: number,
-		twilight: number, daylight: number, storm: number, gustTime: number, swir = false, windMps = 7.4) {
-			drawDisplay();
+		twilight: number, daylight: number, storm: number, gustTime: number, swir = false, windMps = 7.4, cabinView = false) {
+			material.uniforms.cabinView.value = cabinView;
+			if (!cabinView) drawDisplay();
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
 			material.uniforms.sunDirection.value.copy(sun);
