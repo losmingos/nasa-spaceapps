@@ -1,7 +1,7 @@
 import {
 	BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, PCFShadowMap,
-	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
+	IcosahedronGeometry, InstancedMesh, MeshBasicMaterial, Mesh, DoubleSide, MeshStandardMaterial, Object3D, PCFShadowMap,
+	PerspectiveCamera, Quaternion, Scene, SpotLight, SRGBColorSpace,
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import { buildVisorOptics, dustColor, type VisorMessage } from './optics.js';
@@ -112,6 +112,7 @@ export interface MissionScene {
 	group: Object3D;
 	setView(active: boolean, samplesCollected: boolean, baseRoute: boolean): void;
 	updateDrill(engaged: boolean, seconds: number): void;
+	setParkedRover?(position?: Point): void;
 	reground(): void;
 	dispose(): void;
 }
@@ -127,10 +128,15 @@ export interface MissionView {
 	point: Point;
 	ahead: Point;
 	route: readonly Point[];
+	secondaryRoute?: readonly Point[];
+	groundRoute?: readonly Point[];
+	parkedRover?: Point;
 	baseRoute: boolean;
 	showPosition: boolean;
 	tilt: number;
-	player?: { run: number; enabled: boolean; speedMultiplier: number; driving: boolean; target?: Point };
+	cameraHeight?: number;
+	headlamps?: number;
+	player?: { run: number; enabled: boolean; speedMultiplier: number; driving: boolean; target?: Point; forwardSpeed?: number };
 }
 
 const mapSize = 96;
@@ -193,6 +199,8 @@ export function mountTerrain(
 
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage);
 	const scene = new Scene();
+	let headlamps: SpotLight | undefined;
+	const lampAim = new Vector3(0, -0.18, -1);
 	const fog = new FogExp2('#bb8867', 0.00042);
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
@@ -505,6 +513,46 @@ export function mountTerrain(
 		rockColliders = colliders;
 	}
 
+	const routeMaterial = new MeshBasicMaterial({ color: '#88ffd1', transparent: true, opacity: 0.72, depthWrite: false, side: DoubleSide, fog: false });
+	const routeMesh = new Mesh(new BufferGeometry(), routeMaterial);
+	routeMesh.visible = false;
+	scene.add(routeMesh);
+	let drawnRoute: readonly Point[] | undefined;
+
+	function drawGroundRoute(route?: readonly Point[]) {
+		if (route === drawnRoute) return;
+		drawnRoute = route;
+		routeMesh.visible = !!route;
+		if (!route) return;
+		const positions: number[] = [];
+		for (let i = 1; i < route.length; i++) {
+			const a = route[i - 1];
+			const b = route[i];
+			const length = distanceBetween(a, b);
+			if (length === 0) continue;
+			const nx = (b.z - a.z) / length * 0.48;
+			const nz = (a.x - b.x) / length * 0.48;
+			const count = Math.ceil(length / 2);
+			let previous: number[] | undefined;
+			for (let step = 0; step <= count; step++) {
+				const x = MathUtils.lerp(a.x, b.x, step / count);
+				const z = MathUtils.lerp(a.z, b.z, step / count);
+				const left = surfaceHeight(x + nx, z + nz);
+				const right = surfaceHeight(x - nx, z - nz);
+				if (!Number.isFinite(left) || !Number.isFinite(right)) {
+					previous = undefined;
+					continue;
+				}
+				const pair = [x + nx, left + 0.16, z + nz, x - nx, right + 0.16, z - nz];
+				if (previous) positions.push(...previous, ...pair.slice(0, 3), ...pair.slice(0, 3), ...previous.slice(3), ...pair.slice(3));
+				previous = pair;
+			}
+		}
+		routeMesh.geometry.dispose();
+		routeMesh.geometry = new BufferGeometry();
+		routeMesh.geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+	}
+
 	const missionScene = createMissionScene?.((x, z) => surfaceHeight(x, z), () => draw());
 	if (missionScene) scene.add(missionScene.group);
 	let missionView: MissionView | undefined;
@@ -554,6 +602,17 @@ export function mountTerrain(
 				mapContext.beginPath();
 				mapContext.arc(px(missionView.hazard.x), pz(missionView.hazard.z), missionView.hazard.radius / scale, 0, Math.PI * 2);
 				mapContext.fill();
+			}
+			if (missionView.secondaryRoute) {
+				mapContext.beginPath();
+				missionView.secondaryRoute.forEach((point, index) => {
+					if (index === 0) mapContext.moveTo(px(point.x), pz(point.z));
+					else mapContext.lineTo(px(point.x), pz(point.z));
+				});
+				mapContext.setLineDash([4, 3]);
+				mapContext.strokeStyle = '#ff947c';
+				mapContext.lineWidth = 1.5;
+				mapContext.stroke();
 			}
 			mapContext.beginPath();
 			missionView.route.forEach((point, i) => {
@@ -625,6 +684,19 @@ export function mountTerrain(
 	const drillMoving = () => !!missionView?.drilling && !missionView.drillPaused;
 	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
+		const lampPower = missionView?.headlamps ?? 0;
+		if (lampPower > 0) {
+			if (!headlamps) {
+				headlamps = new SpotLight('#fff3df', 0, 105, Math.PI / 6, 0.55, 2);
+				scene.add(headlamps, headlamps.target);
+			}
+			headlamps.visible = true;
+			headlamps.intensity = 1200 * lampPower;
+			headlamps.position.copy(camera.position);
+			headlamps.position.y -= 0.8;
+			headlamps.target.position.copy(lampAim).applyQuaternion(camera.quaternion)
+				.add(headlamps.position);
+		} else if (headlamps) headlamps.visible = false;
 		missionScene?.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
@@ -695,6 +767,8 @@ export function mountTerrain(
 		const wasActive = !!previousView;
 		if (!wasActive && !view) return;
 		missionView = view;
+		drawGroundRoute(view?.groundRoute);
+		missionScene?.setParkedRover?.(view?.parkedRover);
 		const drillMotionChanged = (previousView?.drilling && !previousView.drillPaused) !==
 			(view?.drilling && !view.drillPaused);
 		if (drillMotionChanged) updateStormMotion();
@@ -713,10 +787,13 @@ export function mountTerrain(
 		}
 		if (sameRun && previousView) {
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
-				&& previousPlayer.target === player.target && previousView.hazard === view.hazard
+				&& previousPlayer.target === player.target && previousView.headlamps === view.headlamps && previousView.route === view.route && previousView.secondaryRoute === view.secondaryRoute && previousView.hazard === view.hazard
 				&& previousView.showPosition === view.showPosition && previousView.baseRoute === view.baseRoute
 				&& previousView.samplesCollected === view.samplesCollected && previousView.drilling === view.drilling
-				&& previousView.tilt === view.tilt) return;
+				&& previousView.tilt === view.tilt) {
+				if (view.headlamps !== undefined) draw();
+				return;
+			}
 			const tilt = reducedMotion.matches ? 0 : view.tilt;
 			camera.rotation.z = 0.32 * tilt;
 			camera.position.y = eyeY() - 0.64 * tilt;
@@ -731,9 +808,9 @@ export function mountTerrain(
 		const height = surfaceHeight(x, z);
 		const tilt = reducedMotion.matches ? 0 : (view?.tilt ?? 0);
 		if (Number.isFinite(height)) {
-			camera.position.set(x, height + eyeHeight - 0.64 * tilt, z);
+			camera.position.set(x, height + (view?.cameraHeight ?? eyeHeight) - 0.64 * tilt, z);
 			updateRockTiles();
-			camera.position.y = eyeY() - 0.64 * tilt;
+			if (view?.cameraHeight === undefined) camera.position.y = eyeY() - 0.64 * tilt;
 		}
 		camera.rotation.set(-0.085 - 0.26 * tilt, view
 			? Math.atan2(x - view.ahead.x, z - view.ahead.z)
@@ -765,7 +842,7 @@ export function mountTerrain(
 	let atEdge = false;
 	const canLook = () => !missionView || !!missionView.player;
 	const canMove = () => !missionView || !!missionView.player?.enabled;
-	const eyeOffset = () => eyeHeight + (missionView?.player?.driving ? 0.8 : 0);
+	const eyeOffset = () => missionView?.cameraHeight ?? (eyeHeight + (missionView?.player?.driving ? 0.8 : 0));
 	const eyeY = () => {
 		const { x, z } = camera.position;
 		return footingOnRocks(rockColliders, surfaceHeight(x, z), x, z, true).height + eyeOffset();
@@ -784,7 +861,8 @@ export function mountTerrain(
 		const side = driving ? 0 : steering;
 		if (driving) camera.rotation.y -= steering * dt * 0.9;
 		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
-		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) * speedMultiplier
+		const forwardSpeed = missionView?.player?.forwardSpeed ?? 8;
+		const speed = (driving ? (forward < 0 ? Math.min(3, forwardSpeed) : forwardSpeed) : 1.45) * speedMultiplier
 			/ Math.max(1, Math.hypot(forward, side));
 		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
@@ -796,7 +874,8 @@ export function mountTerrain(
 		const hazard = missionView?.player && missionView.hazard;
 		const blockedByHazard = !!hazard && distanceBetween({ x, z }, hazard) < hazard.radius
 			&& distanceBetween({ x, z }, hazard) < distanceBetween(camera.position, hazard);
-		const footing = footingOnRocks(rockColliders, nextHeight, x, z);
+		const vehicleSuspension = driving && missionView?.cameraHeight !== undefined;
+		const footing = footingOnRocks(rockColliders, nextHeight, x, z, vehicleSuspension);
 		const blocked = blockedByHazard || footing.blocked || !Number.isFinite(nextHeight)
 			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72 + 1e-6;
 		if (blocked !== atEdge && (forward || side)) {
@@ -968,6 +1047,7 @@ export function mountTerrain(
 		setDust,
 		setMissionView,
 		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
+		getHeading: () => ((-camera.rotation.y * 180 / Math.PI) % 360 + 360) % 360,
 		dispose() {
 			abort.abort();
 			cancelAnimationFrame(stormFrame);
@@ -992,6 +1072,8 @@ export function mountTerrain(
 			}
 			texture.dispose();
 			missionScene?.dispose();
+			routeMesh.geometry.dispose();
+			routeMaterial.dispose();
 			optics.dispose();
 			renderer.dispose();
 		}

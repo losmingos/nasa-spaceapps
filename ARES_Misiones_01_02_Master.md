@@ -112,7 +112,7 @@ Se simula un episodio de polvo que ya estaba siendo observado a escala regional 
 
 **Señales observables del rover simulado:** cambios de radiación solar incidente, opacidad inferida, cámara exterior con menor contraste y descenso de la fiabilidad de identificación visual. Las escalas visuales se ajustan artísticamente; ninguna lectura debe etiquetarse «tiempo real de Marte».
 
-## 2.5. Guion maestro audiovisual — 3:30
+## 2.5. Guion narrativo de referencia — 3:30
 
 | Tiempo de pantalla | Acción / imagen | Voz y decisión principal | Estado |
 |---|---|---|---|
@@ -238,24 +238,17 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 
 **Interpretación:** la alternativa es **más larga y menos exigente** por sus pendientes y resistencia al avance; la directa, aunque corta, falla la restricción energética. Los 2,2 kWh de cargas esenciales se asumen iguales en el cálculo simplificado para ambas rutas; en una implementación más precisa dependerían de **duración**, temperatura y potencia térmica, y por tanto deben recalcularse. El algoritmo debe actualizar la proyección con la energía realmente consumida.
 
-**Otro modo seguro que hay que considerar:** JARVIS debe evaluar `SHELTER/RESCUE` (detenerse, conservar energía, comunicar posición y esperar asistencia) antes de forzar el retorno. No asumir automáticamente que el modo de bajo consumo es imposible; de hecho, podría permitir esperar con seguridad si se dispone de redundancia. La rama principal selecciona conducir **solo tras pasar todas las comprobaciones**. Un modo refugio de ejemplo a 0,9 kW durante 8 h 55 min requeriría ≈8,0 kWh (sin otros márgenes), por lo que la espera **podría** ser viable según el diseño final. Esta alternativa debe mencionarse para mantener la credibilidad.
+**Parada de seguridad:** si el diagnóstico falla o se pierde la reserva mínima, la misión termina en modo refugio. El rover protege presión, calefacción esencial y comunicaciones. Bravo recibe información logística durante el diagnóstico. El juego no tiene una acción de solicitud de asistencia.
 
-## 3.5. Guion maestro audiovisual — ≈3:00–3:30
+## 3.5. Recorrido jugable
 
-| Tiempo pantalla / misión | Acción / plano | Voz y decisión | Estado |
-|---|---|---|---|
-| **00:00 / 20:40** | Rover avanza de noche con faros, ruta hacia Bravo, herramientas transportadas. | JARVIS: «Ruta hacia estación Bravo activa. Operación científica programada para las 06:00. Sistemas nominales». | `NIGHT_TRANSIT` |
-| **00:20 / 21:05** | Alarma, bajan luces secundarias, se pierde tracción y el rover se detiene. | JARVIS: «Fallo eléctrico en el módulo B. Protección automática activada. Módulo B aislado. Propulsión deshabilitada. Soporte vital operativo». | `POWER_FAULT` |
-| **00:40 / 21:07** | Interior: termómetro, batería, reloj, gráfico de reserva. | Astronauta: «¿Podemos esperar aquí?». JARVIS: «Con el consumo actual, la energía utilizable cubre aproximadamente seis horas y veinte minutos. Faltan casi nueve horas para las 06:00. No puedo garantizar ese horizonte sin reducir el consumo o recibir ayuda». | `ENERGY_ASSESSMENT` |
-| **01:00 / 21:12** | Mensaje entrante de Bravo en pantalla. | Bravo: «ARES-02, aquí Bravo. Hemos recibido vuestra alerta. ¿Puedes confirmar si vas a llegar? Necesitamos el módulo para comenzar la perforación al amanecer». El astronauta responde que evalúa la avería. | `BRAVO_CONTACT` |
-| **01:20 / 21:14** | Diagnóstico del bus, módulo B marcado rojo y A verde; temperaturas. | JARVIS: «La batería A está operativa. La avería del módulo B permanece aislada. Comprobando compatibilidad del modo de movilidad degradada y los límites térmicos». | `ISOLATION_TEST` |
-| **01:40 / 21:16** | Actuación simulada y autorizada: se reinicia de forma controlada el controlador. | JARVIS: «Comprobaciones completadas. Propulsión disponible con potencia y velocidad limitadas. El módulo B permanecerá desconectado». | `DEGRADED_DRIVE_READY` |
-| **02:00 / 21:18** | Dos rutas en mapa: directa roja (7,0 km) y alternativa verde (8,1 km). | JARVIS: «La ruta directa requiere aproximadamente 9,6 kWh, por encima de la energía disponible. La alternativa requiere 6,7 kWh y conserva una reserva estimada de 2,8 kWh. Recomiendo la ruta de menor consumo, sujeta a monitorización continua». | `ROUTE_OPTIMIZATION` |
-| **02:15 / 21:20** | Astronauta verifica decisión en HUD; inicio de marcha lenta. | Astronauta: «Confirmado. Activa movilidad degradada. Procedemos por la ruta de menor consumo». | `DEGRADED_TRANSIT` |
-| **02:30 / tras varios minutos** | Pendiente/variación de resistencia; aumenta el consumo puntual. | JARVIS: «Demanda de potencia en aumento. Limitando par y ajustando velocidad para mantener el presupuesto. Evaluando nuevamente la reserva». | `ENERGY_RECHECK` |
-| **03:00–03:30 / salto temporal** | Rover llega a Bravo; mensaje de confirmación, luces de estación sugeridas con HUD. | JARVIS: «Estación Bravo alcanzada. Módulo B aislado para inspección. Tripulación segura. Material científico disponible para la operación de las 06:00». | `MISSION_CLOSED` |
-
-**La línea emocional:** el astronauta siente responsabilidad por la tarea del compañero, pero JARVIS evita que esa presión se convierta en una decisión imprudente. Su valor no es «hacer cualquier cosa para llegar», sino demostrar **cuándo** se puede llegar y **cuándo** debe recomendar esperar.
+| Etapa | Acción del jugador | Respuesta del sistema |
+|---|---|---|
+| Salida | Enciende los faros, inicia la marcha y sigue la línea curva sobre el terreno. | La guía muestra el rumbo hacia Bravo. Al completar la curva, el convertidor B falla sin aviso previo y la protección corta la tracción. |
+| Avería | Consulta la autonomía, informa a Bravo y comprueba el aislamiento y los límites de A. | A mantiene el bus esencial. Solo un diagnóstico favorable habilita la comparación de rutas. |
+| Recuperación | Compara los presupuestos, autoriza el modo degradado y carga la ruta alternativa. | La ruta directa supera la energía disponible. La alternativa conserva la reserva mínima proyectada. |
+| Trayecto | Conduce por los puntos marcados, comprueba la reserva al aumentar el consumo y reanuda la marcha si hay margen. | El modelo recalcula la proyección con la distancia recorrida. Un margen insuficiente activa la parada de seguridad. |
+| Entrega | Estaciona, recoge el módulo, sale por la esclusa, camina hasta Bravo y confirma la entrega. | El SEV queda visible en el punto de estacionamiento. B permanece aislada. |
 
 ## 3.6. Diálogos centrales recomendados
 
@@ -293,12 +286,12 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 - No interpretar «9,5 kWh disponibles» como energía total de un rover NASA real; es solo la reserva utilizable de A **en esta escena**.
 - La reconfiguración requiere comprobación de aislamiento, límites eléctricos, estado térmico y confirmación de astronauta; no deshabilitar protecciones.
 - La misión a Bravo solo continúa si la energía estimada para el trayecto **más la reserva** cabe en la energía disponible, con incertidumbre aceptable.
-- Si fallan los requisitos, recomendar `SAFE_HAVEN`: detenerse en zona segura, modo de refugio, conservar energía, contactar con Bravo/base, solicitar asistencia y **posponer perforación**.
-- Evitar una EVA nocturna de reparación improvisada si hay opciones interiores o de rescate más seguras.
+- Si fallan los requisitos, recomendar `SAFE_HAVEN`: detenerse en zona segura, modo de refugio, conservar energía, **posponer perforación**.
+- Evitar una EVA nocturna de reparación improvisada mientras sea posible permanecer en el habitáculo.
 
 ## 3.8. HUD y efectos visuales ARES-02
 
-**Normal:** mapa nocturno, faros, distancia a Bravo, hora local, ETA, estado de sistemas. **Avería:** interrupción breve, luces secundarias se atenúan, diagrama A verde/B rojo, tracción bloqueada. **Diagnóstico:** árbol causal de avería y comprobaciones de aislamiento, medidores de energía y temperatura. **Dilema:** tarjetas «esperar/refugio», «pedir asistencia» y «movilidad degradada, si es validada», nunca solo «conducir o morir». **Rutas:** dos trazados con distancia, pendiente/resistencia, energía total proyectada y reserva final. **En marcha:** potencia, temperatura, consumo real y estimación actualizada. **Cierre:** estado seguro, carga entregada y módulo B pendiente de inspección.
+**Normal:** mapa nocturno, faros, distancia a Bravo, hora local, ETA, estado de sistemas. **Avería:** interrupción breve, luces secundarias se atenúan, diagrama A verde/B rojo, tracción bloqueada. **Diagnóstico:** árbol causal de avería y comprobaciones de aislamiento, medidores de energía y temperatura. **Decisión:** la tracción degradada se habilita tras validar el diagnóstico y la ruta. El modo refugio cierra un intento sin margen para proseguir. **Rutas:** dos trazados con distancia, pendiente/resistencia, energía total proyectada y reserva final. **En marcha:** potencia, temperatura, consumo real y estimación actualizada. **Cierre:** estado seguro, carga entregada y módulo B pendiente de inspección.
 
 **Tono:** noche marciana realmente oscura, faros limitados y cabina funcional. El dramatismo se apoya en el silencio, las alarmas y el presupuesto eléctrico, no en que la temperatura interior descienda instantáneamente a −72 °C.
 
@@ -315,7 +308,7 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 | Entregar módulo para perforación de mañana | **Completado, sujeto a seguridad** |
 | Reparar físicamente batería B | **No; queda para mantenimiento** |
 
-**Ramas alternativas:** A no supera diagnóstico → refugio y rescate; gasto superior al estimado → detenerse en lugar seguro y reevaluar; comunicaciones intermitentes → emitir mensaje cuando exista enlace y no inventar comunicación en tiempo real; modo de refugio energético viable → puede ser más seguro esperar aunque se cancele la misión de Bravo.
+**Ramas alternativas:** A no supera diagnóstico → parada en modo refugio; gasto superior al estimado → detenerse en lugar seguro y reevaluar; comunicaciones intermitentes → emitir mensaje cuando exista enlace y no inventar comunicación en tiempo real; modo de refugio energético viable → puede ser más seguro esperar aunque se cancele la misión de Bravo.
 
 ---
 
@@ -363,7 +356,7 @@ SI misión = ARES-01:
 SI misión = ARES-02:
     AL detectar fallo eléctrico:
         proteger bus esencial; aislar B; diagnosticar causa
-        comparar consumo_normal_hasta_ayuda y opciones de refugio
+        comparar consumo_normal_hasta_amanecer y modo refugio
     SI aislamiento_B_verificado Y controlador_permite_degradado:
         validar límites de A; preparar movilidad degradada para autorización humana
     PARA cada ruta de retorno:
@@ -372,7 +365,7 @@ SI misión = ARES-02:
     SI hay ruta segura y energía con margen:
         recomendar ruta; monitorizar consumo real continuamente
     SI NO:
-        conservar soporte vital, entrar en modo refugio, pedir asistencia
+        conservar soporte vital, entrar en modo refugio y aplazar la entrega
 ```
 
 ## 4.4. Presentación al jurado: qué demuestra cada una
@@ -393,7 +386,7 @@ SI misión = ARES-02:
 2. **Construir una tabla de eventos** con `time`, `trigger`, `telemetry_patch`, `visuals`, `voice_line`, `available_choices`, `next_state`.
 3. **Separar lógica y presentación:** el modelo de riesgo decide el estado; la voz de JARVIS no debe inventar métricas no suministradas.
 4. **Vincular las capas del mapa** a riesgos concretos: pendiente, zonas no verificadas, rutas y energía. Si el polígono es inventado, etiquetarlo «simulado».
-5. **Preparar un modo demo fijo** con el guion principal y un modo interactivo reducido: ARES-01 permite continuar en primer aviso; ARES-02 permite evaluar «refugio» versus «modo degradado».
+5. **Mantener el avance ligado a las acciones del jugador.** ARES-01 permite continuar tras el primer aviso. ARES-02 requiere operar el rover y entregar el módulo en Bravo.
 6. **Añadir saltos temporales visibles** («+4 min»; «secuencia de retorno acelerada»), evitando velocidades irreales.
 7. **Ensayar un fallo controlado de datos:** si un sensor no responde, JARVIS lo comunica y usa un procedimiento conservador.
 8. **Cerrar cada demo con un informe** que separe objetivos logrados/no logrados, sensores utilizados, incertidumbres y razón de la decisión.
@@ -449,7 +442,7 @@ SI misión = ARES-02:
 | A2-01: fallo de B | B aislada; A y soporte vital permanecen operativos |
 | A2-02: movilidad degradada | Solo se habilita después de confirmar aislamiento y límites |
 | A2-03: cálculo energético | Directa: 9,6 > 9,5 kWh; alternativa: 6,7 kWh; restante 2,8 kWh |
-| A2-04: ruta no viable | Se propone refugio/asistencia; no forzar conducción |
+| A2-04: ruta no viable | Se activa el modo refugio y se aplaza la entrega |
 | A2-05: caída de margen en viaje | Recalcula, advierte y cambia plan si supera límites |
 | A2-06: llegada a Bravo | Compañero recibe equipo; B sigue aislada, sin «reparación milagrosa» |
 
@@ -479,6 +472,6 @@ Fuentes que sustentan el **contexto científico**; no prueban las capacidades hi
 >
 > **ARES-01:** testigo de lutita sedimentaria de 13 × 60 mm en terraza de roca inaccesible al rover, 350 m a pie y 2,4 km de rover a base; quedan 10 min de trabajo. En t=00:20 JARVIS recomienda abortar y pregunta si continúa; astronauta decide continuar. A t=00:40, exactamente 20 s después, JARVIS da la orden de abortar por pérdida de margen de navegación; **la muestra NO se obtiene**. Al regresar se identifica pendiente lateral con regolito poco consolidado, desvío +65 m; ocurre caída por piedra suelta y roce exterior del traje; JARVIS verifica que la presión está estable (sin fuga detectada). A t=02:05, tras salto temporal, está a ≈90 m del rover; llega, se presuriza y vuelve 2,4 km a base. Informe final parcial.
 >
-> **ARES-02:** conducción nocturna excepcional y autorizada para entregar equipo al compañero Bravo antes de la perforación de las 06:00. Salida 20:40 a ~12 km; a las 21:05 quedan ~7 km y falla convertidor del módulo B; protección lo aísla, tracción bloqueada, bus esencial en batería A. A tiene 9,5 kWh útiles; consumo normal en parada 1,5 kW = 6 h 20 min, menos de ~8 h 55 min hasta las 06:00. JARVIS evalúa refugio y rescate; si las verificaciones lo permiten, activa modo de tracción degradada con A. Ruta directa 7,0 km: 7,4 kWh tracción + 2,2 esenciales = 9,6 kWh → no viable. Ruta alternativa 8,1 km: 4,5 + 2,2 = 6,7 kWh → resto 2,8 kWh; reserva mínima provisional 2,0 kWh → margen 0,8 kWh. Se elige solo con seguridad y supervisión continua, llegando a Bravo; B permanece aislada. **No hay reparación instantánea ni prioridad científica por encima de supervivencia.**
+> **ARES-02:** conducción nocturna excepcional y autorizada para entregar equipo al compañero Bravo antes de la perforación de las 06:00. Salida 20:40 a ~12 km; a las 21:05 quedan ~7 km y falla convertidor del módulo B; protección lo aísla, tracción bloqueada, bus esencial en batería A. A tiene 9,5 kWh útiles; consumo normal en parada 1,5 kW = 6 h 20 min, menos de ~8 h 55 min hasta las 06:00. JARVIS evalúa la autonomía y el modo refugio; si las verificaciones lo permiten, activa modo de tracción degradada con A. Ruta directa 7,0 km: 7,4 kWh tracción + 2,2 esenciales = 9,6 kWh → no viable. Ruta alternativa 8,1 km: 4,5 + 2,2 = 6,7 kWh → resto 2,8 kWh; reserva mínima provisional 2,0 kWh → margen 0,8 kWh. Se elige solo con seguridad y supervisión continua, llegando a Bravo; B permanece aislada. **No hay reparación instantánea ni prioridad científica por encima de supervivencia.**
 
 **Fin del documento · Versión 1.0, 14 noviembre 2026**

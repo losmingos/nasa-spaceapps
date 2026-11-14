@@ -45,9 +45,9 @@ async function request(
 }
 
 /** POST /api/stt — raw audio bytes as the body (NOT FormData: SvelteKit CSRF). */
-export async function stt(blob: Blob, signal?: AbortSignal): Promise<SttResponse> {
+export async function stt(blob: Blob, signal?: AbortSignal, language?: 'en' | 'es'): Promise<SttResponse> {
 	const res = await request(
-		'/api/stt',
+		language === 'es' ? '/api/stt?lang=es' : '/api/stt',
 		{ method: 'POST', headers: headers({ 'Content-Type': blob.type || 'audio/webm' }), body: blob },
 		{ signal }
 	);

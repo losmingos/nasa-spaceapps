@@ -4,7 +4,19 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ChatRequest, ChatResponse, ChatTurn, Telemetry } from '#lib/jarvis/types.js';
 import { isRecord } from '../http.js';
 import { ARES_PROMPT } from '#lib/missions/ares01/jarvis-prompt.js';
+import { NIGHTFALL_PROMPT } from '#lib/missions/ares02/jarvis-prompt.js';
 import { SYSTEM_PROMPT } from './prompt.js';
+
+function missionPrompt(context?: string) {
+	if (!context) return SYSTEM_PROMPT;
+	try {
+		const data: unknown = JSON.parse(context);
+		if (isRecord(data) && data.scenario === 'ARES-02') return NIGHTFALL_PROMPT;
+	} catch {
+		// Earlier clients may pass a plain-text mission context.
+	}
+	return ARES_PROMPT;
+}
 
 export const CHAT_MODEL = 'claude-haiku-5-5';
 const MAX_TURNS = 6;
@@ -97,7 +109,7 @@ export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatRes
 			model: CHAT_MODEL,
 			max_tokens: 2000,
 			output_config: { effort: 'low' },
-			system: [{ type: 'text', text: req.missionContext ? ARES_PROMPT : SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+			system: [{ type: 'text', text: missionPrompt(req.missionContext), cache_control: { type: 'ephemeral' } }],
 			messages
 		});
 

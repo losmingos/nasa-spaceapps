@@ -93,6 +93,7 @@ export interface AssistantOptions {
 	tts?: TtsMode;
 	/** Poll /api/cue every 500 ms and act on new cues. Default true. */
 	cuePolling?: boolean;
+	language?: 'en' | 'es';
 }
 
 export interface Assistant {

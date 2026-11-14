@@ -17,6 +17,7 @@ export interface VisorMessage {
 	title: string;
 	detail?: string;
 	kind?: 'warning' | 'danger';
+	readouts?: readonly { value: string; unit: string }[];
 }
 
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
@@ -53,16 +54,20 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.textAlign = 'right';
 		context.font = `400 ${fontSize}px monospace`;
 		const right = w - edge;
-		context.fillText('96', right - 52, h - bottom - 40);
-		context.fillText('−63', right - 52, h - bottom - 5);
-		context.font = '13px monospace';
-		context.fillText('% O₂', right, h - bottom - 40);
-		context.fillText('°C', right, h - bottom - 5);
+		const message = getMessage();
+		const readouts = message.readouts ?? [{ value: '96', unit: '% O₂' }, { value: '−63', unit: '°C' }];
+		for (const [index, readout] of readouts.entries()) {
+			const y = h - bottom - 40 + index * 35;
+			context.font = '13px monospace';
+			context.fillText(readout.unit, right, y);
+			const offset = Math.max(52, context.measureText(readout.unit).width + 10);
+			context.font = `400 ${fontSize}px monospace`;
+			context.fillText(readout.value, right - offset, y);
+		}
 		context.font = '12px system-ui, sans-serif';
 		context.textAlign = 'center';
 		context.fillStyle = '#ffe0a6';
 		const notice = getNotice();
-		const message = getMessage();
 		const textWidth = Math.min(w * 0.84, 640);
 		const top = Math.max(32, h * 0.10);
 		if (notice) context.fillText(notice, w / 2, top, textWidth);

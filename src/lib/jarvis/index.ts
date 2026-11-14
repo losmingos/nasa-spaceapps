@@ -130,7 +130,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 	}
 
 	const speechOrNone = (text: string): Playable =>
-		speechAvailable() ? { type: 'speech', text } : { type: 'none' };
+		speechAvailable() ? { type: 'speech', text, lang: options.language === 'es' ? 'es-ES' : undefined } : { type: 'none' };
 
 	// ---- pre-recorded lines -----------------------------------------------------
 
@@ -195,7 +195,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 				return;
 			}
 
-			const { text } = await api.stt(clip.blob, signal);
+			const { text } = await api.stt(clip.blob, signal, options.language);
 			if (!isCurrent(turnId)) return;
 			const question = text.trim();
 			if (!question) {

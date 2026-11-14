@@ -93,14 +93,14 @@ export function filterTranscript(raw: string): string {
 	return text;
 }
 
-export async function transcribe(apiKey: string, audio: ArrayBuffer, file: { filename: string; type: string }): Promise<string> {
+export async function transcribe(apiKey: string, audio: ArrayBuffer, file: { filename: string; type: string }, language: 'en' | 'es' = 'en'): Promise<string> {
 	const form = new FormData();
 	form.append('file', new Blob([audio], { type: file.type }), file.filename);
 	form.append('model', STT_MODEL);
-	form.append('language', 'en');
+	form.append('language', language);
 	form.append('response_format', 'json');
 	form.append('temperature', '0');
-	form.append('prompt', STT_PROMPT);
+	form.append('prompt', language === 'es' ? 'JARVIS, rover marciano, estación Bravo, batería A, batería B, modo refugio.' : STT_PROMPT);
 
 	const res = await fetch(STT_URL, {
 		method: 'POST',

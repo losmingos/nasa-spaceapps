@@ -7,7 +7,10 @@
 	import { mountTerrain, type TerrainNotice } from '#lib/visor/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
 	import '../../routes/visor.css';
-	let { ares01 = false }: { ares01?: boolean } = $props();
+	let { ares01 = false, ares02 = false }: { ares01?: boolean; ares02?: boolean } = $props();
+	import Ares02 from '#lib/missions/ares02/Ares02.svelte';
+	import type { NightfallView } from '#lib/missions/ares02/visor.js';
+	import { createNightfallScene } from '#lib/missions/ares02/scene.js';
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
 	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
 	import { createMissionScene, missionContext, missionMessage, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
@@ -28,6 +31,7 @@
 	let editingClock = $state(false);
 	let storm = $state(false);
 	let mission = $state.raw<Ares01View>();
+	let nightfall = $state.raw<NightfallView>();
 	let sceneQuery = $state('');
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
 	let pendingMissionLine: string | undefined;
@@ -35,12 +39,12 @@
 		if (voiceInput || !pendingMissionLine || (voice && !['idle', 'locked'].includes(voice.status))) return;
 		const text = pendingMissionLine;
 		pendingMissionLine = undefined;
-		void missionVoice?.speak(text);
+		void missionVoice?.speak(text, ares02 ? 'es-ES' : undefined);
 	}
 	$effect(() => {
-		assistant?.setMissionContext(mission ? missionContext(mission) : undefined);
+		assistant?.setMissionContext(nightfall?.context ?? (mission ? missionContext(mission) : undefined));
 	});
-	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
+	const sceneSol = $derived(ares02 ? 400 + 21 / 24 : mission ? Math.floor(localSol) + 14 / 24 : localSol);
 	const clock = $derived(formatMarsTime(sceneSol));
 	let assistant: Assistant | undefined;
 	let voice = $state<AssistantState>();
@@ -54,16 +58,17 @@
 		: '');
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
-	const hudMessage: VisorMessage = $derived(mission ? missionMessage(mission) : {
+	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : {
 		title: voiceLabel ? `JARVIS · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
-	});
-	const missionClock = $derived(mission ? `${Math.floor(mission.time / 60)}:${String(Math.floor(mission.time % 60)).padStart(2, '0')}` : '');
+	}));
+	const activeTime = $derived(nightfall?.time ?? mission?.time ?? 0);
+	const missionClock = $derived(`${Math.floor(activeTime / 60)}:${String(Math.floor(activeTime % 60)).padStart(2, '0')}`);
 	$effect(() => {
 		void voiceLabel;
 		void clock;
 		void sol;
-		if (!mission) terrain?.refresh();
+		if (!mission && !nightfall) terrain?.refresh();
 	});
 	let clockButton = $state<HTMLButtonElement>();
 	let solInput = $state<HTMLInputElement>();
@@ -80,8 +85,8 @@
 		terrain?.refresh();
 	});
 	$effect(() => terrain?.setTime(sceneSol));
-	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
-	$effect(() => terrain?.setMissionView(mission && missionTerrainView(mission)));
+	$effect(() => terrain?.setDust(ares02 ? 0 : mission?.dust ?? Number(storm)));
+	$effect(() => terrain?.setMissionView(nightfall?.terrain ?? (mission && missionTerrainView(mission))));
 
 	function playMissionDialogue(line: Ares01Dialogue, interactive: boolean) {
 		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
@@ -89,6 +94,25 @@
 			pendingMissionLine = line.text;
 			flushMissionLine();
 		}
+	}
+
+	function playNightfallDialogue(view: NightfallView) {
+		window.dispatchEvent(new CustomEvent('ares02:dialogue', {
+			detail: { state: view.state, speaker: view.speaker, text: view.text }
+		}));
+		pendingMissionLine = view.text;
+		flushMissionLine();
+	}
+
+	function startMission() {
+		voiceInput = undefined;
+		assistant?.reset();
+		missionVoice?.unlock();
+	}
+
+	function pauseMission() {
+		pendingMissionLine = undefined;
+		missionVoice?.stop();
 	}
 
 	async function voiceDown(input: NonNullable<typeof voiceInput>) {
@@ -137,7 +161,7 @@
 	}
 
 	async function clockShortcut(event: KeyboardEvent) {
-		if (mission || event.defaultPrevented ||
+		if (mission || ares02 || event.defaultPrevented ||
 			(event.code === 'Escape' && document.querySelector('.mission-controls [aria-expanded="true"]'))) return;
 		if (event.code === 'Escape' && clockVisible) {
 			clockVisible = editingClock = false;
@@ -195,11 +219,12 @@
 		sceneQuery = location.search;
 		const request = new AbortController();
 		const useBrowserVoice = new URLSearchParams(location.search).get('tts') === 'browser';
-		if (ares01) missionVoice = createMissionVoice(useBrowserVoice);
+		if (ares01 || ares02) missionVoice = createMissionVoice(useBrowserVoice || ares02);
 		const jarvis = createAssistant({
 			mode: 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
-			cuePolling: false
+			cuePolling: false,
+			language: ares02 ? 'es' : undefined
 		});
 		assistant = jarvis;
 		voice = jarvis.getState();
@@ -214,10 +239,10 @@
 				if (request.signal.aborted) return;
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
 					() => current.text,
-					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage, ares01 ? createMissionScene : undefined);
+					() => nightfall ? `ARES-02 · ${missionClock} · ${nightfall.localTime}${nightfall.paused ? " · PAUSA" : ""}` : mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
+					() => hudMessage, ares02 ? createNightfallScene : ares01 ? createMissionScene : undefined);
 				showNotice('ready');
-				if (matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
+				if (!ares02 && matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
 					void terrain.loadHighQuality(asset('terrain/jezero-high.bin'), asset('terrain/jezero-ortho-high.webp'));
 				}
 			} catch (cause) {
@@ -242,13 +267,13 @@
 </script>
 
 <svelte:head>
-	<title>Jezero | Astronaut visor</title>
+	<title>{ares02 ? 'ARES-02 · Nightfall Protocol' : 'Jezero | Astronaut visor'}</title>
 	<meta name="description" content="Explore Jezero's western delta on foot through an astronaut visor." />
 </svelte:head>
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
-<main class="visor">
+<main class="visor" lang={ares02 ? "es" : undefined}>
 	<canvas class="terrain" bind:this={canvas} tabindex="0"
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
@@ -259,7 +284,7 @@
 
 	<div class="projected">
 		<div class="sr-only" role="status" aria-atomic="true">
-			{hudMessage.title}{#if mission?.jump} · {mission.jump}{/if}
+			{hudMessage.title}{#if nightfall?.message.detail} · {nightfall.message.detail}{/if}{#if mission?.jump} · {mission.jump}{/if}
 		</div>
 		{#if mission?.walking && !mission.positionLost}
 			<p class="sr-only">Distance to rover {mission.remaining} m</p>
@@ -285,26 +310,39 @@
 			</figure>
 
 			<dl class="readouts" aria-label="Simulated telemetry">
-				<dt class="sr-only">Oxygen</dt>
-				<dd>96<span>% O₂</span></dd>
-				<dt class="sr-only">Temperature</dt>
-				<dd>−63<span>°C</span></dd>
+				{#if nightfall}
+					{#each nightfall.message.readouts ?? [] as readout}
+						<dt>{readout.unit || 'Battery A'}</dt><dd>{readout.value}</dd>
+					{/each}
+				{:else}
+					<dt class="sr-only">Oxygen</dt>
+					<dd>96<span>% O₂</span></dd>
+					<dt class="sr-only">Temperature</dt>
+					<dd>−63<span>°C</span></dd>
+				{/if}
 			</dl>
-			<p>Sol {sol}, {clock} Jezero local mean solar time</p>
+			<p>{nightfall ? nightfall.localTime : `Sol ${sol}, ${clock} Jezero local mean solar time`}</p>
 		</div>
 
 		<div class="visor-controls">
-			{#if ares01}
+			{#if ares02}
+				<Ares02 ready={!!terrain} onview={(view) => { nightfall = view; }}
+					ondialogue={playNightfallDialogue} onstart={startMission} onpause={pauseMission}
+					getPosition={() => terrain?.getPosition()} getHeading={() => terrain?.getHeading()}
+					focusScene={() => canvas.focus()} />
+				<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
+			{:else if ares01}
 			<Ares01 ready={!!terrain} onview={(view) => {
 				mission = view;
 			}} ondialogue={playMissionDialogue}
-				onstart={() => { voiceInput = undefined; assistant?.reset(); missionVoice?.unlock(); }}
-				onpause={() => { pendingMissionLine = undefined; missionVoice?.stop(); }}
+				onstart={startMission}
+				onpause={pauseMission}
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
 			<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
 			{:else}
 				<a class="hud-action" href={resolve('/missions/ares01') + sceneQuery}>ARES-01 · The Last Sample</a>
+				<a class="hud-action" href={resolve('/missions/ares02') + sceneQuery}>ARES-02 · Nightfall Protocol</a>
 			{/if}
 			<button type="button" class="hud-action voice-control"
 					aria-label="JARVIS. Hold to talk and release to send"
