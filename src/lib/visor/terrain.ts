@@ -9,6 +9,7 @@ import {
 	SWIR_DEPTH_RESPONSE_GLSL, SWIR_DUST_TRANSMISSION, SWIR_NOISE_GLSL,
 	type SwirHudData, type VisorMessage, type VisorReadings
 } from './optics.js';
+import { createXrPointer, drawXrMenu, xrMenuIndex, xrStick, type XrMenuPage } from './xr-controls.js';
 import type { Exertion } from '../jarvis/types.js';
 import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
@@ -20,6 +21,18 @@ const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 const clearDustDensity = 0.00048;
 
 export type TerrainDisplayMode = 'visible' | 'geology' | 'slope' | 'swir';
+
+interface XrControls {
+	onEnd: () => void;
+	onTalkStart: () => void;
+	onTalkEnd: () => void;
+	onToggleSwir: () => void;
+	onToggleFlashlight: () => void;
+	onMenuOpen: () => void;
+	getMenu: () => XrMenuPage;
+	getAction: () => string | undefined;
+	getVoiceLabel: () => string;
+}
 
 export interface GeologyData {
 	features: Array<{
@@ -815,7 +828,7 @@ export function mountTerrain(
 	const pixels = reliefContext?.createImageData(mapSize, mapSize);
 	let mapX = Infinity;
 	let mapZ = Infinity;
-	function drawMap() {
+	function drawMap(yaw = camera.rotation.y) {
 		if (!mapContext || !reliefContext || !pixels) return;
 		const scale = missionView ? (missionView.baseRoute ? 30 : 5) : metresPerPixel;
 		const { x, z } = missionView?.baseRoute ? { x: ROVER.x, z: (ROVER.z + BASE.z) / 2 }
@@ -887,7 +900,7 @@ export function mountTerrain(
 			}
 			mapContext.translate(px(camera.position.x), pz(camera.position.z));
 		} else mapContext.translate(mapSize / 2, mapSize / 2);
-		mapContext.rotate(-camera.rotation.y);
+		mapContext.rotate(-yaw);
 		mapContext.fillStyle = '#e0ffeb';
 		mapContext.strokeStyle = '#14231e';
 		mapContext.lineWidth = 1.5;
@@ -942,7 +955,7 @@ export function mountTerrain(
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
 	}
 	const draw = () => {
-		if (renderer.xr.isPresenting) return;
+		if (xrSession) return;
 		const swir = displayMode === 'swir';
 		updateWorld(performance.now() / 1000);
 		worldToEye.copy(camera.quaternion).invert();
@@ -1096,7 +1109,7 @@ export function mountTerrain(
 		draw();
 	}
 	function resize() {
-		if (renderer.xr.isPresenting) return;
+		if (xrSession) return;
 		const { clientWidth, clientHeight } = canvas;
 		if (!clientWidth || !clientHeight) return;
 		camera.aspect = clientWidth / clientHeight;
@@ -1127,7 +1140,7 @@ export function mountTerrain(
 		currentExertion = level;
 		onExertion(level);
 	}
-	const canLook = () => !missionView || !!missionView.player;
+	const canLook = () => !xrSession && (!missionView || !!missionView.player);
 	const canMove = () => !missionView || !!missionView.player?.enabled;
 	const eyeOffset = () => eyeHeight + (missionView?.player?.driving ? 0.8 : 0);
 	const eyeY = () => {
@@ -1229,7 +1242,7 @@ export function mountTerrain(
 		draw();
 	}
 
-	async function enterVR(xr: XRSystem, onEnd: () => void, onTalkStart: () => void, onTalkEnd: () => void, onToggleSwir: () => void) {
+	async function enterVR(xr: XRSystem, controls: XrControls) {
 		const session = await xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] });
 		if (abort.signal.aborted) {
 			await session.end();
@@ -1241,71 +1254,181 @@ export function mountTerrain(
 		cancelAnimationFrame(frame);
 		frame = previous = velocityX = velocityZ = 0;
 		if (document.pointerLockElement === canvas) document.exitPointerLock();
-		const onSelectStart = (event: XRInputSourceEvent) => {
-			if (event.inputSource.handedness === 'right') onTalkStart();
-		};
-		const onSelectEnd = (event: XRInputSourceEvent) => {
-			if (event.inputSource.handedness === 'right') onTalkEnd();
-		};
-		session.addEventListener('selectstart', onSelectStart, options);
-		session.addEventListener('selectend', onSelectEnd, options);
 		const hudCamera = new PerspectiveCamera();
 		xrOrigin.add(hudCamera);
 		const hud = mountHeadLockedHud(hudCamera);
+		const pointer = createXrPointer(xrOrigin, hud.plane);
 		const headPosition = new Vector3();
+		const sessionEvents = new AbortController();
+		const eventOptions = { signal: sessionEvents.signal };
+		const shadowWasEnabled = flashlight.castShadow;
+		flashlight.castShadow = false;
+		hudCamera.add(flashlight, flashlight.target);
 		let lastHud = -Infinity;
-		let yPressed = false;
+		let menuOpen = true;
+		let displayedMenu: XrMenuPage | undefined;
+		let talking = false;
+		let menuPressed = false;
+		let lightPressed = false;
+		let swirPressed = false;
+		let talkPressed = false;
+		const cancelTalk = () => {
+			if (!talking) return;
+			talking = false;
+			controls.onTalkEnd();
+		};
+		const setMenu = (show: boolean) => {
+			menuOpen = show;
+			displayedMenu = undefined;
+			if (show) {
+				controls.onMenuOpen();
+				velocityX = velocityZ = 0;
+			}
+			lastHud = -Infinity;
+		};
+		session.addEventListener('select', (event) => {
+			if (!menuOpen || session.visibilityState !== 'visible') return;
+			const space = renderer.xr.getReferenceSpace();
+			const point = space && pointer(event.frame, event.inputSource, space);
+			if (!point) return;
+			const id = displayedMenu?.items[xrMenuIndex(point.x, point.y)]?.id;
+			const item = controls.getMenu().items.find((control) => control.id === id);
+			if (!item || item.disabled) return;
+			displayedMenu = undefined;
+			item.run();
+			if (item.close) setMenu(false);
+			lastHud = -Infinity;
+		}, eventOptions);
+		session.addEventListener('inputsourceschange', (event) => {
+			if (event.removed.some((source) => source.handedness === 'right')) cancelTalk();
+		}, eventOptions);
+		session.addEventListener('visibilitychange', () => {
+			if (session.visibilityState !== 'visible') {
+				cancelTalk();
+				sprintHeld = false;
+				previous = velocityX = velocityZ = 0;
+				reportExertion('resting');
+			}
+		}, eventOptions);
+
 		const restoreDesktop = () => {
+			if (xrSession !== session) return;
+			sessionEvents.abort();
+			cancelTalk();
 			hud.dispose();
+			camera.add(flashlight, flashlight.target);
+			flashlight.castShadow = shadowWasEnabled;
 			xrOrigin.remove(hudCamera);
 			xrSession = undefined;
 			renderer.setAnimationLoop(null);
 			renderer.xr.enabled = false;
 			scene.background = null;
+			sprintHeld = false;
 			previous = velocityX = velocityZ = 0;
-			onTalkEnd();
+			reportExertion('resting');
 			if (abort.signal.aborted) return;
 			resize();
-			onEnd();
+			controls.onEnd();
 		};
 		renderer.xr.enabled = true;
 		renderer.xr.setReferenceSpaceType('local-floor');
-		// The desktop sky and HUD are screen-space effects. Draw the world directly into both XR eyes.
+		renderer.xr.setFramebufferScaleFactor(0.9);
 		scene.background = fog.color;
 		renderer.setAnimationLoop((now, xrFrame) => {
 			if (!xrFrame) return;
 			const space = renderer.xr.getReferenceSpace();
 			const pose = space && xrFrame.getViewerPose(space);
-			if (!pose) return;
-			const source = Array.from(session.inputSources).find((input) => input.handedness === 'left' && input.gamepad);
-			const yDown = source?.gamepad?.buttons[5]?.pressed ?? false;
-			if (yDown && !yPressed) onToggleSwir();
-			yPressed = yDown;
-			const axes = source?.gamepad?.axes;
-			const side = axes?.[2] ?? 0;
-			const forward = -(axes?.[3] ?? 0);
-			const orientation = pose.transform.orientation;
+			if (!space || !pose) return;
+			let left: Gamepad | undefined;
+			let right: Gamepad | undefined;
+			for (const source of session.inputSources) {
+				if (source.handedness === 'left') left = source.gamepad;
+				if (source.handedness === 'right') right = source.gamepad;
+			}
+			const menuDown = right?.buttons[4]?.pressed ?? false;
+			const lightDown = right?.buttons[5]?.pressed ?? false;
+			const swirDown = left?.buttons[5]?.pressed ?? false;
+			const talkDown = right?.buttons[1]?.pressed ?? false;
+			const active = session.visibilityState === 'visible';
+			if (active) {
+				if (menuDown && !menuPressed) setMenu(!menuOpen);
+				if (lightDown && !lightPressed) controls.onToggleFlashlight();
+				if (swirDown && !swirPressed) controls.onToggleSwir();
+				if (talkDown && !talkPressed) {
+					talking = true;
+					controls.onTalkStart();
+				}
+			}
+			if (!active || !talkDown) cancelTalk();
+			menuPressed = menuDown;
+			lightPressed = lightDown;
+			swirPressed = swirDown;
+			talkPressed = talkDown;
+
+			const { orientation, position } = pose.transform;
 			worldToEye.set(orientation.x, orientation.y, orientation.z, orientation.w);
 			xrHeading.set(0, 0, -1).applyQuaternion(worldToEye);
-			const yaw = camera.rotation.y + Math.atan2(-xrHeading.x, -xrHeading.z);
-			const walking = canMove() && Math.hypot(side, forward) > 0.2;
-			move(now, walking ? forward : 0, walking ? side : 0, yaw, true);
+			const headYaw = Math.atan2(-xrHeading.x, -xrHeading.z);
+			const leftStick = xrStick(left?.axes[2], left?.axes[3]);
+			const rightStick = xrStick(right?.axes[2], right?.axes[3]);
+			const moving = active && !menuOpen && canMove();
+			const driving = !!missionView?.player?.driving;
+			const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
+			if (active && !menuOpen && !driving) {
+				// Pivot around the headset, including when the player steps away from the tracking origin.
+				const oldYaw = camera.rotation.y;
+				camera.rotation.y -= rightStick.x * dt * 1.15;
+				const yaw = camera.rotation.y;
+				camera.position.x += position.x * (Math.cos(oldYaw) - Math.cos(yaw))
+					+ position.z * (Math.sin(oldYaw) - Math.sin(yaw));
+				camera.position.z += position.x * (Math.sin(yaw) - Math.sin(oldYaw))
+					+ position.z * (Math.cos(oldYaw) - Math.cos(yaw));
+			}
+			sprintHeld = moving && !!left?.buttons[1]?.pressed;
+			// The rover follows its own heading, so looking sideways does not steer it.
+			const yaw = camera.rotation.y + (driving ? 0 : headYaw);
+			if (!missionView || missionView.player) {
+				move(now, moving ? -leftStick.y : 0, moving ? leftStick.x : 0, yaw, true);
+			} else previous = now;
 			xrOrigin.position.set(camera.position.x, camera.position.y - eyeHeight, camera.position.z);
 			xrOrigin.rotation.y = camera.rotation.y;
-			const position = pose.transform.position;
 			hudCamera.position.set(position.x, position.y, position.z);
 			hudCamera.quaternion.copy(worldToEye);
-			xrOrigin.updateMatrixWorld();
+			xrOrigin.updateMatrixWorld(true);
+			if (!reducedMotion.matches && (dust > 0 || drillMoving())) gustTime = (now - stormStarted) / 1000;
 			updateWorld(now / 1000);
-			if (now - lastHud >= 100) {
+
+			if (now - lastHud >= (menuOpen ? 40 : 100)) {
 				lastHud = now;
-				const swir = readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection));
-				hud.redraw((context, width, height) => {
-					drawHudTime(context, width, height - 55, getClock(), swir.active);
-					drawSwirHud(context, width, height, swir);
-					const message = getMessage().title || getNotice();
-					if (message) drawHudTime(context, width, height - 90, message, swir.active);
-				});
+				if (menuOpen) {
+					const points: Array<{ x: number; y: number }> = [];
+					for (const source of session.inputSources) {
+						const point = pointer(xrFrame, source, space);
+						if (point) points.push(point);
+					}
+					const page = controls.getMenu();
+					displayedMenu = page;
+					hud.redraw((context) => drawXrMenu(context, page, points));
+				} else {
+					drawMap(camera.rotation.y + headYaw);
+					const swir = readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection));
+					hud.redraw((context, width, height) => {
+						const message = getMessage();
+						const readings = getReadings();
+						context.drawImage(map, 40, height - 195, 146, 146);
+						drawHudTime(context, width, height - 28, getClock(), swir.active);
+						drawHudTime(context, width, height - 54,
+							readings.o2Percent.toFixed(1) + '% O₂  ·  ' + (readings.airTempC == null ? '—' : Math.round(readings.airTempC)) + ' °C', false);
+						drawHudTime(context, width, height - 85, message.title || getNotice(), false);
+						if (message.detail) drawHudTime(context, width, height - 108, message.detail, false);
+						const voiceLabel = controls.getVoiceLabel();
+						if (voiceLabel) drawHudTime(context, width, 64, 'SARA · ' + voiceLabel, false);
+						const action = controls.getAction();
+						if (getNotice() && message.title) drawHudTime(context, width, 92, getNotice(), false);
+						if (action) drawHudTime(context, width, height - 136, 'A opens controls · ' + action, false);
+						drawSwirHud(context, width, height, swir);
+					});
+				}
 			}
 			renderer.render(scene, xrCamera);
 		});
@@ -1316,6 +1439,7 @@ export function mountTerrain(
 			await starting;
 		} catch (error) {
 			await session.end().catch(() => {});
+			restoreDesktop();
 			throw error;
 		}
 	}
