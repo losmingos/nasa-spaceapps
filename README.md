@@ -41,7 +41,7 @@ python scripts/build_terrain.py ruta/al/DTEEC_002387_1985_003798_1985_A01.IMG
 
 ## ARES-01 · The Last Sample
 
-Press **I** to start the interactive mission. Use **WASD** to walk or drive and hold the **arrow keys** to look around. Press **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.
+Open **ARES-01 · The Last Sample** from the free exploration visor or visit `/missions/ares01`. Press **I** there to start the interactive mission. Use **WASD** to walk or drive and hold the **arrow keys** to look around. Press **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.
 
 Hold **Space** to speak to JARVIS and release it to send. Mission announcements and conversational replies are in English. Add `?tts=browser` to the visor URL to use an English voice installed in your browser or operating system.
 
