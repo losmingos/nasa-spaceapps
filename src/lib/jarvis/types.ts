@@ -120,6 +120,14 @@ export interface AssistantOptions {
 	cuePolling?: boolean;
 }
 
+export interface NotifyOptions {
+	/**
+	 * Update telemetry only; play no pre-recorded line (L01–L06). Used during ARES-01, which speaks its own
+	 * scripted lines, so the assistant knows about the storm without talking over the mission.
+	 */
+	silent?: boolean;
+}
+
 export interface Assistant {
 	/** MUST be called inside the «Enter VR» click handler, BEFORE navigator.xr.requestSession() (D20, D21). */
 	unlock(): Promise<void>;
@@ -129,7 +137,7 @@ export interface Assistant {
 	/** Push-to-talk release: stops recording and runs STT → chat → TTS. */
 	pttUp(): void;
 	/** Mission events from the scene. mission_start also resets history + telemetry (D23). */
-	notify(event: MissionEvent): void;
+	notify(event: MissionEvent, options?: NotifyOptions): void;
 	/** Force the current protocol step (operator keys 1–6). */
 	setStep(step: ProtocolStepId): void;
 	/** Clear history, telemetry clock and audio queue. */

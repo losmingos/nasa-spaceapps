@@ -18,6 +18,7 @@ import type {
 	ChatTurn,
 	CueId,
 	MissionEvent,
+	NotifyOptions,
 	ProtocolStepId,
 	Subtitle
 } from './types.js';
@@ -71,6 +72,8 @@ export function createAssistant(options: AssistantOptions): Assistant {
 	/** A press ignored while busy: its release must be ignored too. */
 	let ignoringPress = false;
 	let lastStep: ProtocolStepId | null = null;
+	/** True while ARES-01 drives the storm: telemetry updates, but no pre-recorded lines (see NotifyOptions). */
+	let silentLines = false;
 	const lineBuffers = new Map<LineId, Promise<AudioBuffer | null>>();
 
 	let tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -267,7 +270,9 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		const step = telemetry.get().protocolStep;
 		if (step !== lastStep) {
 			lastStep = step;
-			if (step === 'P5') void playLineInternal('L05');
+			if (silentLines) {
+				// ARES-01 speaks its own lines: track the step but stay quiet.
+			} else if (step === 'P5') void playLineInternal('L05');
 			else if (step === 'P6') void playLineInternal('L06');
 		}
 		emitState();
@@ -284,23 +289,30 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		clearL04();
 		lastStep = null;
 		lastError = null;
+		silentLines = false;
 		emitState();
 	}
 
-	function notify(event: MissionEvent): void {
+	function notify(event: MissionEvent, options?: NotifyOptions): void {
 		if (disposed) return;
+		const silent = options?.silent === true;
 		switch (event) {
 			case 'mission_start':
 				reset();
+				silentLines = silent;
 				telemetry.missionStart();
-				void playLineInternal('L01');
+				if (!silent) void playLineInternal('L01');
 				break;
 			case 'sample_collected':
 				if (!telemetry.missionStarted) telemetry.missionStart();
-				void playLineInternal('L02');
+				if (!silent) void playLineInternal('L02');
 				break;
 			case 'storm_start':
 				if (!telemetry.stormStart()) return; // storm already running: ignore duplicates
+				if (silent) {
+					silentLines = true; // also mutes the automatic L04–L06 of this storm
+					break;
+				}
 				void playLineInternal('L03');
 				clearL04();
 				l04Timer = setTimeout(() => {
