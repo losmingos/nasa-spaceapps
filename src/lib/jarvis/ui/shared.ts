@@ -1,7 +1,7 @@
 // Shared helpers for the Jarvis test/operator pages (/operator, /vr-test).
 import { LINES, buildLineVars, fillLine, type Line, type LineId } from '../lines.js';
 import { PROTOCOL } from '../protocol.js';
-import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../../mission.js';
+import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../../missions/vr-rehearsal/route.js';
 import meda from '../../data/meda-snapshot.json';
 import type { AssistantStatus, CueId, CueState, Speaker, Telemetry } from '../types.js';
 

@@ -4,14 +4,13 @@
 	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
-	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
-	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
+	import { mountTerrain, type TerrainNotice } from '#lib/visor/terrain.js';
+	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
 	import './visor.css';
-	import { BASE, ROVER } from '#lib/missions/ares01/route.js';
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
-	import type { interactiveSnapshot } from '#lib/missions/ares01/interactive.js';
-	import { type Ares01Dialogue, type MissionSnapshot } from '#lib/missions/ares01/ares01.js';
-	import type { VisorMessage } from '#lib/visor-optics.js';
+	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
+	import { missionContext, missionMessage, missionModelUrls, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
+	import type { VisorMessage } from '#lib/visor/optics.js';
 
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
@@ -27,11 +26,7 @@
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
 	let storm = $state(false);
-	let mission = $state.raw<(MissionSnapshot & {
-		time: number;
-		paused: boolean;
-		player?: ReturnType<typeof interactiveSnapshot> & { run: number; enabled: boolean; speedMultiplier: number };
-	})>();
+	let mission = $state.raw<Ares01View>();
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
 	let pendingMissionLine: string | undefined;
 	function flushMissionLine() {
@@ -41,15 +36,7 @@
 		void missionVoice?.speak(text);
 	}
 	$effect(() => {
-		assistant?.setMissionContext(mission ? JSON.stringify({
-			scenario: 'ARES-01', state: mission.cue.state, objective: mission.cue.title,
-			guidance: mission.cue.text, navigation: mission.navigation, pressure: mission.pressure,
-			sample: mission.sample, surveySamplesCarried: mission.samplesCollected ? 3 : 0, logSaved: !!mission.log,
-			target: mission.player?.heading,
-			distanceToTargetM: mission.positionLost ? null : mission.player?.targetDistance,
-			bearingDegrees: mission.positionLost ? null : mission.player?.compass,
-			secondsElapsed: mission.time
-		}) : undefined);
+		assistant?.setMissionContext(mission ? missionContext(mission) : undefined);
 	});
 	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
 	const clock = $derived(formatMarsTime(sceneSol));
@@ -65,31 +52,7 @@
 		: '');
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
-	const missionTitles: Record<string, string> = {
-		sample: 'Extracting core · ~10 min',
-		advisory: 'Dust increasing · return to rover',
-		abort: 'Abort sampling · return to rover',
-		prepare: 'Secure equipment and save log',
-		'early-return': 'Precautionary return',
-		return: 'Follow the route to the rover',
-		hazard: 'Stop · unstable slope',
-		reroute: 'Safe detour · +65 m',
-		trip: 'Caution · loss of balance',
-		impact: 'Suit impact · stop moving',
-		'pressure-check': 'Checking suit pressure',
-		'outer-damage': 'Possible outer-layer damage',
-		'pressure-stable': 'Pressure stable · proceed with caution',
-		'position-lost': 'Stop · position unconfirmed',
-		shelter: 'Rover pressurized · EVA complete',
-		'base-return': 'Return to base · 2.4 km',
-		closed: 'Base reached · crew safe'
-	};
-	const hudMessage: VisorMessage = $derived(mission ? {
-		title: missionTitles[mission.cue.id] ?? mission.cue.title,
-		detail: mission.jump || (mission.player?.move && mission.player.heading ? `${mission.player.heading} · ${mission.player.targetDistance} m · ${mission.player.compass}°` : undefined) || (mission.cue.id === 'closed' ? 'Three survey samples recovered · core not collected'
-			: mission.walking && !mission.positionLost ? `Rover · ${mission.remaining} m` : undefined),
-		kind: mission.critical ? 'danger' : mission.time >= 20 && mission.time < 40 ? 'warning' : undefined
-	} : {
+	const hudMessage: VisorMessage = $derived(mission ? missionMessage(mission) : {
 		title: voiceLabel ? `JARVIS · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
 	});
@@ -116,17 +79,7 @@
 	});
 	$effect(() => terrain?.setTime(sceneSol));
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
-	$effect(() => terrain?.setMissionView(mission && {
-		point: mission.point,
-		ahead: mission.ahead,
-		route: mission.player?.route ?? (mission.time >= 155 ? [ROVER, BASE] : mission.route),
-		baseRoute: mission.player?.baseRoute ?? mission.time >= 155,
-		showHazard: mission.player?.showHazard ?? (mission.time >= 90 && mission.time < 155),
-		showPosition: !mission.positionLost,
-		tilt: mission.player?.tilt ?? (mission.time >= 108 && mission.time < 122 ? 1 : 0),
-		samplesCollected: mission.samplesCollected,
-		player: mission.player
-	}));
+	$effect(() => terrain?.setMissionView(mission && missionTerrainView(mission)));
 
 	function playMissionDialogue(line: Ares01Dialogue, interactive: boolean) {
 		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
@@ -259,7 +212,7 @@
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
 					() => current.text,
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage, { rover: asset('models/missions/ares01/sev.glb'), drill: asset('models/missions/ares01/ares-drill.glb'), tube: asset('models/missions/ares01/ares-tube.glb') });
+					() => hudMessage, missionModelUrls());
 				showNotice('ready');
 			} catch (cause) {
 				if (request.signal.aborted) return;

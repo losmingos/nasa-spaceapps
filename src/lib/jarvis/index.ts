@@ -9,7 +9,7 @@ import { AudioEngine, speechAvailable, type Playable } from './audio.js';
 import { LINE_IDS, buildLineVars, fillLine, getLine, lineUrl, type LineId } from './lines.js';
 import { Recorder, type Clip } from './recorder.js';
 import { MEDA, createTelemetry } from './telemetry.js';
-import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../mission.js';
+import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../missions/vr-rehearsal/route.js';
 import type {
 	Assistant,
 	AssistantOptions,

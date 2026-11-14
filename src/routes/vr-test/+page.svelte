@@ -5,7 +5,7 @@
 	import * as THREE from 'three';
 	import { createAssistant } from '#lib/jarvis/index.js';
 	import type { Assistant, AssistantMode, AssistantStatus, MissionEvent, TtsMode } from '#lib/jarvis/types.js';
-	import { HABITAT, ROUTE, SAMPLE, SPAWN, VISIBILITY_CLEAR_M, type Point } from '#lib/mission.js';
+	import { HABITAT, ROUTE, SAMPLE, SPAWN, VISIBILITY_CLEAR_M, type Point } from '#lib/missions/vr-rehearsal/route.js';
 	import { SPEAKER_COLOR, STATUS_COLOR, STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 
 	// ---- Query parameters --------------------------------------------------------------

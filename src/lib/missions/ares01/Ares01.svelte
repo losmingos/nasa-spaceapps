@@ -1,16 +1,13 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { dialogueAt, DURATION, missionAt, type Ares01Dialogue, type MissionSnapshot } from './ares01.js';
+	import { dialogueAt, DURATION, missionAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
+	import type { Ares01View } from './visor.js';
 	import type { Point } from './route.js';
 
 	let { ready, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
 		ready: boolean;
-		onview: (view?: MissionSnapshot & {
-			time: number;
-			paused: boolean;
-			player?: ReturnType<typeof interactiveSnapshot> & { run: number; enabled: boolean; speedMultiplier: number };
-		}) => void;
+		onview: (view?: Ares01View) => void;
 		ondialogue: (line: Ares01Dialogue, interactive: boolean) => void;
 		onstart: () => void;
 		onpause: () => void;

@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LINES, buildLineVars, fillLine } from '../src/lib/jarvis/lines.ts';
-import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../src/lib/mission.ts';
+import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../src/lib/missions/vr-rehearsal/route.ts';
 import { DEFAULT_ELEVENLABS_MODEL_ID, elevenLabsTts } from '../src/lib/server/jarvis/elevenlabs.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

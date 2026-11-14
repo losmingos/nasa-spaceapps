@@ -44,3 +44,10 @@ Press **I** to start the interactive mission. Use **WASD** to walk or drive and 
 Hold **Space** to speak to JARVIS and release it to send. Mission announcements and conversational replies are in English. Add `?tts=browser` to the visor URL to use an English voice installed in your browser or operating system.
 
 **Watch demo** plays the guided sequence in 3:30. The interactive mission follows your position and actions over the full route, including the 2.4 km rover drive. Dust advisories trigger 20 and 40 seconds after drilling starts. Dust, slope hazards and suit pressure are simulated. Route coordinates are in `src/lib/missions/ares01/route.ts` and the mission emits `ares01:dialogue` events.
+
+## Project layout
+
+- `src/lib/missions/ares01/` contains the mission timeline, interactive logic, controls, scene and JARVIS instructions. Its models are in `static/models/missions/ares01/`.
+- `src/lib/missions/vr-rehearsal/` contains the route and telemetry constants for the VR rehearsal.
+- `src/lib/visor/` contains the terrain renderer, visor optics and Mars clock.
+- `src/lib/jarvis/` and `src/lib/server/jarvis/` contain the assistant client and server services.

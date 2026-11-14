@@ -1,16 +1,13 @@
 import {
-	Box3, BoxGeometry, BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, Group, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFSoftShadowMap,
+	BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
+	IcosahedronGeometry, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, PCFSoftShadowMap,
 	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
-	Texture, TextureLoader, Vector3, WebGLRenderer, type Material
+	TextureLoader, Vector3, WebGLRenderer
 } from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { buildOutcrop } from './missions/ares01/outcrop.js';
-import { buildSamplingKit } from './missions/ares01/sampling-kit.js';
-import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
+import { buildVisorOptics, dustColor, type VisorMessage } from './optics.js';
+import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
-import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, SAMPLING_KIT, type Point } from './missions/ares01/route.js';
+import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE, type Point } from '../missions/ares01/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -106,6 +103,8 @@ export type TerrainNotice = 'ready' | 'edge';
 
 interface MissionView {
 	samplesCollected: boolean;
+	drilling: boolean;
+	drillPaused: boolean;
 	point: Point;
 	ahead: Point;
 	route: readonly Point[];
@@ -145,7 +144,7 @@ export function mountTerrain(
 	getNotice: () => string,
 	getClock: () => string,
 	getMessage: () => VisorMessage,
-	modelUrls: { rover: string; drill: string; tube: string }
+	modelUrls: Ares01ModelUrls
 ) {
 	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -434,83 +433,8 @@ export function mountTerrain(
 		rockColliders = colliders;
 	}
 
-	const landmarks = new Group();
-	landmarks.visible = false;
-	scene.add(landmarks);
-	const hardware = new BoxGeometry(1, 1, 1);
-	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
-	const shale = new MeshLambertMaterial({ color: '#6e4736' });
-	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
-		const block = new Mesh(hardware, paint);
-		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
-		block.scale.set(w, h, d);
-		landmarks.add(block);
-	}
-	const roverAnchor = new Group();
-	roverAnchor.position.set(ROVER.x, surfaceHeight(ROVER.x, ROVER.z), ROVER.z);
-	landmarks.add(roverAnchor);
-	let assetsRequested = false;
-	const missionAssets: Object3D[] = [];
-
-	function disposeModel(model: Object3D) {
-		const geometries = new Set<BufferGeometry>();
-		const materials = new Set<Material>();
-		const textures = new Set<Texture>();
-		model.traverse((object) => {
-			if (!(object instanceof Mesh)) return;
-			geometries.add(object.geometry);
-			for (const material of [object.material].flat()) {
-				materials.add(material);
-				for (const value of Object.values(material)) {
-					if (value instanceof Texture) textures.add(value);
-				}
-			}
-		});
-		for (const geometry of geometries) geometry.dispose();
-		for (const material of materials) material.dispose();
-		for (const texture of textures) texture.dispose();
-	}
-
-	function loadMissionAssets() {
-		if (assetsRequested) return;
-		assetsRequested = true;
-		const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-		function load(url: string, place: (model: Object3D) => void) {
-			loader.load(url, ({ scene: model }) => {
-				if (abort.signal.aborted) {
-					disposeModel(model);
-					return;
-				}
-				model.traverse((object) => { if (object instanceof Mesh) object.castShadow = true; });
-				missionAssets.push(model);
-				place(model);
-				draw();
-			}, undefined, (error) => {
-				if (!abort.signal.aborted) console.warn('Could not load a mission model.', url, error);
-			});
-		}
-
-		load(modelUrls.rover, (model) => {
-			const bounds = new Box3().setFromObject(model);
-			const center = bounds.getCenter(new Vector3());
-			model.position.set(-center.x, -bounds.min.y, -center.z);
-			roverAnchor.add(model);
-		});
-		load(modelUrls.drill, samplingKit.addDrill);
-		load(modelUrls.tube, samplingKit.addTubes);
-	}
-
-	part(BASE, 0, 1.9, 8, 7, 3.8, 8, cabin);
-	const outcrop = buildOutcrop();
-	const rockX = SAMPLING_KIT.x - 0.13;
-	const rockZ = SAMPLING_KIT.z - 0.76;
-	outcrop.group.position.set(rockX, surfaceHeight(rockX, rockZ), rockZ);
-	landmarks.add(outcrop.group);
-	const samplingKit = buildSamplingKit();
-	const { x: kitX, z: kitZ } = SAMPLING_KIT;
-	samplingKit.group.position.set(kitX, surfaceHeight(kitX, kitZ), kitZ);
-	landmarks.add(samplingKit.group);
-	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
+	const missionScene = buildAres01Scene(surfaceHeight, modelUrls, () => draw());
+	scene.add(missionScene.group);
 	let missionView: MissionView | undefined;
 
 	const mapContext = map.getContext('2d');
@@ -621,8 +545,10 @@ export function mountTerrain(
 	let stormFrame = 0;
 	let stormStarted = 0;
 	let gustTime = 0;
+	const drillMoving = () => !!missionView?.drilling && !missionView.drillPaused;
 	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
+		missionScene.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
@@ -662,7 +588,7 @@ export function mountTerrain(
 	function updateStormMotion() {
 		cancelAnimationFrame(stormFrame);
 		gustTime = 0;
-		if (dust > 0 && !reducedMotion.matches) {
+		if ((dust > 0 || drillMoving()) && !reducedMotion.matches) {
 			stormStarted = performance.now();
 			stormFrame = requestAnimationFrame(animateStorm);
 		}
@@ -682,10 +608,10 @@ export function mountTerrain(
 		const wasActive = !!previousView;
 		if (!wasActive && !view) return;
 		missionView = view;
-		landmarks.visible = !!view;
-		if (view) loadMissionAssets();
-		samplingKit.samples.visible = !view?.samplesCollected;
-		roverAnchor.visible = !view?.baseRoute;
+		const drillMotionChanged = (previousView?.drilling && !previousView.drillPaused) !==
+			(view?.drilling && !view.drillPaused);
+		if (drillMotionChanged) updateStormMotion();
+		missionScene.setView(!!view, !!view?.samplesCollected, !!view?.baseRoute);
 		if (wasActive !== !!view || view?.baseRoute !== previousView?.baseRoute) mapX = Infinity;
 		const player = view?.player;
 		const previousPlayer = previousView?.player;
@@ -701,7 +627,8 @@ export function mountTerrain(
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
 				&& previousPlayer.target === player.target && previousView.showHazard === view.showHazard
 				&& previousView.showPosition === view.showPosition && previousView.baseRoute === view.baseRoute
-				&& previousView.samplesCollected === view.samplesCollected && previousView.tilt === view.tilt) return;
+				&& previousView.samplesCollected === view.samplesCollected && previousView.drilling === view.drilling
+				&& previousView.tilt === view.tilt) return;
 			const tilt = reducedMotion.matches ? 0 : view.tilt;
 			camera.rotation.z = 0.32 * tilt;
 			camera.position.y = eyeY() - 0.64 * tilt;
@@ -898,12 +825,7 @@ export function mountTerrain(
 				material.dispose();
 			}
 			texture.dispose();
-			hardware.dispose();
-			cabin.dispose();
-			samplingKit.dispose();
-			outcrop.dispose();
-			for (const model of missionAssets) disposeModel(model);
-			shale.dispose();
+			missionScene.dispose();
 			optics.dispose();
 			renderer.dispose();
 		}
