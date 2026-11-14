@@ -371,6 +371,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			emitState();
 			return;
 		}
+		lastError = null;
 		emitState();
 	}
 
@@ -409,7 +410,12 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		for (const id of LINE_IDS) void lineBuffer(id); // preload + decode all line mp3s in the background
 		const micReady =
 			mode === 'live'
-				? recorder.open().catch((err) => setError(`Microphone unavailable: ${errorMessage(err)}`))
+				? recorder.open().then(() => {
+					if (disposed) recorder.close();
+					else if (lastError?.startsWith('Microphone unavailable')) lastError = null;
+				}).catch((err) => {
+					if (!disposed) setError(`Microphone unavailable: ${errorMessage(err)}`);
+				})
 				: Promise.resolve();
 
 		unlocking = Promise.all([audioReady, micReady])
