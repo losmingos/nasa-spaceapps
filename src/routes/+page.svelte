@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { asset } from '$app/paths';
-	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { BASE, ROVER, SAMPLE } from '#lib/missions/ares01/route.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
@@ -258,6 +259,11 @@
 			cuePolling: params.get('remote') === '1'
 		});
 		assistant = jarvis;
+		// Sara gets live distances from the astronaut to the rover, sample site and base at question time.
+		jarvis.setPlacesProvider(() => {
+			const position = terrain?.getPosition();
+			return position ? placesFrom(position, { rover: ROVER, sample: SAMPLE, base: BASE }) : null;
+		});
 		voice = jarvis.getState();
 		const unsubscribeVoice = jarvis.onState((state) => { voice = state; flushMissionLine(); });
 		now = Date.now();
