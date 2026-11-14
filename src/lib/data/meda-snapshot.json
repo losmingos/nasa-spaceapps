@@ -1,0 +1,12 @@
+{
+  "source": "PLACEHOLDER — to be replaced with a real Mars 2020 MEDA sol (NASA PDS)",
+  "sol": null,
+  "utc_date": null,
+  "local_time": null,
+  "air_temp_c": { "value": null, "min_sol": null, "max_sol": null },
+  "pressure_pa": null,
+  "relative_humidity_pct": null,
+  "wind_ms": null,
+  "dust_opacity": null,
+  "notes": "placeholder"
+}
