@@ -2,20 +2,9 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { ChatRequest, ChatResponse, ChatTurn, MedaCurve, Telemetry } from '#lib/jarvis/types.js';
+import type { Places } from '#lib/jarvis/places.js';
 import { isRecord } from '../http.js';
-import { NIGHTFALL_PROMPT } from '#lib/missions/ares02/jarvis-prompt.js';
 import { SYSTEM_PROMPT } from './prompt.js';
-
-function missionPrompt(context?: string) {
-	if (!context) return SYSTEM_PROMPT;
-	try {
-		const data: unknown = JSON.parse(context);
-		if (isRecord(data) && data.scenario === 'ARES-02') return NIGHTFALL_PROMPT;
-	} catch {
-		// Earlier clients may pass a plain-text mission context.
-	}
-	return SYSTEM_PROMPT;
-}
 
 export const CHAT_MODEL = 'claude-haiku-5-5';
 const MAX_TURNS = 6;
@@ -99,7 +88,7 @@ function cleanHistory(raw: unknown[]): ChatTurn[] {
 
 export function validateChatRequest(body: unknown): Validated {
 	if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object { history, text, telemetry }.' };
-	const { history, text, telemetry, missionContext } = body;
+	const { history, text, telemetry, missionContext, places } = body;
 	if (missionContext !== undefined && (typeof missionContext !== 'string' || missionContext.length > 4000)) {
 		return { ok: false, error: 'Invalid mission context.' };
 	}
@@ -110,8 +99,29 @@ export function validateChatRequest(body: unknown): Validated {
 	if (!isRecord(telemetry)) return { ok: false, error: '`telemetry` object is required.' };
 	return {
 		ok: true,
-		value: { text: text.trim(), history: cleanHistory(history ?? []), telemetry: cleanTelemetry(telemetry), missionContext: missionContext as string | undefined }
+		value: {
+			text: text.trim(),
+			history: cleanHistory(history ?? []),
+			telemetry: cleanTelemetry(telemetry),
+			missionContext: missionContext as string | undefined,
+			places: cleanPlaces(places)
+		}
 	};
+}
+
+/** Keep at most 8 well-formed place fixes ({ distance_m, bearing_deg, direction }); drop anything else. */
+function cleanPlaces(raw: unknown): Places | undefined {
+	if (!isRecord(raw)) return undefined;
+	const out: Places = {};
+	for (const [name, fix] of Object.entries(raw).slice(0, 8)) {
+		if (!/^[a-z_]{1,20}$/.test(name) || !isRecord(fix)) continue;
+		const { distance_m, bearing_deg, direction } = fix;
+		if (typeof distance_m !== 'number' || !Number.isFinite(distance_m) || distance_m < 0 || distance_m > 1e6) continue;
+		if (typeof bearing_deg !== 'number' || !Number.isFinite(bearing_deg)) continue;
+		if (typeof direction !== 'string' || direction.length > 20) continue;
+		out[name] = { distance_m: Math.round(distance_m), bearing_deg: Math.round(bearing_deg) % 360, direction };
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 /**
@@ -120,14 +130,17 @@ export function validateChatRequest(body: unknown): Validated {
  * `mission` inside the telemetry — never as instructions and never as a different prompt.
  */
 function telemetryWithMission(req: ChatRequest): Record<string, unknown> {
-	if (!req.missionContext) return { ...req.telemetry };
+	const out: Record<string, unknown> = { ...req.telemetry };
+	if (req.places) out.places = req.places;
+	if (!req.missionContext) return out;
 	let mission: unknown = req.missionContext;
 	try {
 		mission = JSON.parse(req.missionContext);
 	} catch {
 		// Not JSON: keep it as an opaque string.
 	}
-	return { ...req.telemetry, mission };
+	out.mission = mission;
+	return out;
 }
 
 export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatResponse> {
@@ -141,7 +154,7 @@ export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatRes
 			model: CHAT_MODEL,
 			max_tokens: 2000,
 			output_config: { effort: 'low' },
-			system: [{ type: 'text', text: missionPrompt(req.missionContext), cache_control: { type: 'ephemeral' } }],
+			system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
 			messages
 		});
 

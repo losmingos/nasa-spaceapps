@@ -2,6 +2,7 @@
 // Client module, server endpoints and pages all code against these types. Change only by agreement.
 
 import type { LineId } from './lines.js';
+import type { Places } from './places.js';
 
 export type MissionEvent = 'mission_start' | 'sample_collected' | 'storm_start';
 export type Phase = 'idle' | 'sampling' | 'storm' | 'safe';
@@ -72,6 +73,8 @@ export interface ChatRequest {
 	text: string;
 	telemetry: Telemetry;
 	missionContext?: string;
+	/** Live straight-line distance and bearing from the astronaut to named places (see places.ts). */
+	places?: Places;
 }
 export interface ChatResponse {
 	reply: string;
@@ -133,6 +136,8 @@ export interface Assistant {
 	/** MUST be called inside the «Enter VR» click handler, BEFORE navigator.xr.requestSession() (D20, D21). */
 	unlock(): Promise<void>;
 	setMissionContext(context?: string): void;
+	/** Called at question time to get live distances to named places; return null when the position is unknown. */
+	setPlacesProvider(provider: (() => Places | null) | null): void;
 	/** Push-to-talk: A button rising edge (or spacebar on the laptop). Interrupts current playback (D26). */
 	pttDown(): void;
 	/** Push-to-talk release: stops recording and runs STT → chat → TTS. */

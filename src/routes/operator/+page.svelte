@@ -298,7 +298,7 @@
 				<span class="chip" style:--chip="#ed9d71"><span class="dot"></span>Remote control</span>
 				<p>
 					Each button sends <code>POST /api/cue</code>. The headset polls every 500 ms. Select mode and voice in the
-					headset URL, for example <code>/vr-test?mode=scripted&amp;tts=elevenlabs</code>.
+					headset URL, for example <code>/?remote=1&amp;mode=scripted&amp;tts=elevenlabs</code>.
 				</p>
 			</div>
 			<div class="hero-side sent" aria-live="polite">

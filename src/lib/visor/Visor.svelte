@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { asset, resolve } from '$app/paths';
-	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
@@ -11,6 +11,8 @@
 	import Ares02 from '#lib/missions/ares02/Ares02.svelte';
 	import type { NightfallView } from '#lib/missions/ares02/visor.js';
 	import { createNightfallScene } from '#lib/missions/ares02/scene.js';
+	import { BASE, ROVER, SAMPLE } from '#lib/missions/ares01/route.js';
+	import { bravo } from '#lib/missions/ares02/route.js';
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
 	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
 	import { createMissionScene, missionContext, missionMessage, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
@@ -20,6 +22,10 @@
 	let map: HTMLCanvasElement;
 	let messageText: HTMLSpanElement;
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
+	let vrSupported = $state(false);
+	let vrBusy = $state(false);
+	let inVR = $state(false);
+	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
 	let noticeTimer: ReturnType<typeof setTimeout>;
 	let exited = $state(false);
@@ -54,7 +60,7 @@
 	let voice = $state<AssistantState>();
 	let unlocking = $state(false);
 	let unlockFailed = $state(false);
-	let voiceInput: 'pointer' | 'Space' | 'Enter' | undefined;
+	let voiceInput: 'pointer' | 'Space' | 'Enter' | 'vr' | undefined;
 	const voiceStatus = $derived(voice?.status ?? 'locked');
 	const micUnavailable = $derived(voice?.lastError?.startsWith('Microphone unavailable') ?? false);
 	const voiceProblem = $derived(voiceStatus === 'locked' || voiceStatus === 'idle'
@@ -63,7 +69,7 @@
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
 	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : {
-		title: voiceLabel ? `JARVIS · ${voiceLabel}` : '',
+		title: voiceLabel ? `SARA · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
 	}));
 	const activeTime = $derived(nightfall?.time ?? mission?.time ?? 0);
@@ -162,6 +168,36 @@
 		assistant?.pttUp();
 	}
 
+	async function toggleVR() {
+		const xr = navigator.xr;
+		const scene = terrain;
+		if (!xr || !scene || vrBusy) return;
+		vrBusy = true;
+		vrError = '';
+		try {
+			if (inVR) {
+				await scene.exitVR();
+			} else {
+				const entering = scene.enterVR(xr, () => { inVR = false; },
+					() => { void voiceDown('vr'); },
+					() => { if (voiceInput === 'vr') voiceUp(); },
+					() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir'));
+				missionVoice?.unlock();
+				void assistant?.unlock().catch((cause) => {
+					console.error('[jarvis] Audio unavailable', cause);
+					unlockFailed = true;
+				});
+				await entering;
+				inVR = scene.isInVR();
+			}
+		} catch (cause) {
+			console.error('[WebXR]', cause);
+			vrError = 'Could not switch VR mode. Try again.';
+		} finally {
+			vrBusy = false;
+		}
+	}
+
 	function onKeyDown(event: KeyboardEvent) {
 		void clockShortcut(event);
 		const target = event.target instanceof Element ? event.target : null;
@@ -241,16 +277,26 @@
 		sceneQuery = location.search;
 		const request = new AbortController();
 		const useBrowserVoice = new URLSearchParams(location.search).get('tts') === 'browser';
-		if (ares01 || ares02) missionVoice = createMissionVoice(useBrowserVoice || ares02);
-		const jarvis = createAssistant({
+		void navigator.xr?.isSessionSupported('immersive-vr').then((supported) => {
+			if (!request.signal.aborted) vrSupported = supported;
+		}).catch(() => {});
+		if (ares01 || ares02) missionVoice = createMissionVoice(useBrowserVoice);
+		const sara = createAssistant({
 			mode: 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
 			cuePolling: false,
 			language: ares02 ? 'es' : undefined
 		});
-		assistant = jarvis;
-		voice = jarvis.getState();
-		const unsubscribeVoice = jarvis.onState((state) => { voice = state; flushMissionLine(); });
+		assistant = sara;
+		sara.setPlacesProvider(() => {
+			const position = terrain?.getPosition();
+			if (!position) return null;
+			if (!ares02) return placesFrom(position, { rover: ROVER, sample: SAMPLE, base: BASE });
+			const parked = nightfall?.terrain.parkedRover;
+			return placesFrom(position, parked ? { bravo, rover: parked } : { bravo });
+		});
+		voice = sara.getState();
+		const unsubscribeVoice = sara.onState((state) => { voice = state; flushMissionLine(); });
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -290,7 +336,7 @@
 			request.abort();
 			assistant = undefined;
 			unsubscribeVoice();
-			jarvis.dispose();
+			sara.dispose();
 			missionVoice?.dispose();
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
@@ -314,7 +360,7 @@
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
 		Use WASD to walk, the arrow keys to look, and Escape to release the pointer.
 		Press H to show the Mars clock controls.
-		Hold Space to talk to JARVIS and release to send.</p>
+		Hold Space to talk to SARA and release to send.</p>
 
 	<div class="projected">
 		<div class="sr-only" role="status" aria-atomic="true">
@@ -359,6 +405,7 @@
 		</div>
 
 		<div class="visor-controls">
+			{#if vrError}<p class="vr-error" role="alert">{vrError}</p>{/if}
 			{#if ares02}
 				<Ares02 ready={!!terrain} onview={(view) => { nightfall = view; }}
 					ondialogue={playNightfallDialogue} onstart={startMission} onpause={pauseMission}
@@ -378,8 +425,13 @@
 				<a class="hud-action" href={resolve('/missions/ares01') + sceneQuery}>ARES-01 · The Last Sample</a>
 				<a class="hud-action" href={resolve('/missions/ares02') + sceneQuery}>ARES-02 · Nightfall Protocol</a>
 			{/if}
+			{#if vrSupported}
+				<button type="button" class="hud-action" disabled={!terrain || vrBusy} onclick={toggleVR}>
+					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
+				</button>
+			{/if}
 			<button type="button" class="hud-action voice-control"
-					aria-label="JARVIS. Hold to talk and release to send"
+					aria-label="SARA. Hold to talk and release to send"
 					aria-keyshortcuts="Space"
 					data-recording={voiceStatus === 'recording'}
 					onpointerdown={(event) => {
@@ -394,7 +446,7 @@
 						<rect x="9" y="3" width="6" height="12" rx="3" />
 						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
 					</svg>
-					<span>JARVIS</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
+					<span>SARA</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
 				</button>
 		</div>
 	</div>
