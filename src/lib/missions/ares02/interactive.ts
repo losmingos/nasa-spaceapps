@@ -2,10 +2,10 @@ import { distanceBetween, type Point } from '../ares01/route.js';
 import { forecast, routes, routeForecast, usableEnergy } from './ares02.js';
 import { alternative, alternativeLength, approachLength, directLength, approachNavigation, bravo, fault, handoff, startPoint } from './route.js';
 
-export type Stage = 'preflight' | 'outbound' | 'fault' | 'assessment' | 'comms' | 'diagnostic' | 'verified' | 'options'
+export type Stage = 'preflight' | 'outbound' | 'fault' | 'assessment' | 'diagnostic' | 'verified' | 'options'
 	| 'eva-prep' | 'service-walk' | 'panel-closed' | 'panel-open' | 'link-seated' | 'return-airlock' | 'airlock' | 'bus-check' | 'bus-verified'
 	| 'configured' | 'drive' | 'park' | 'cargo' | 'egress' | 'walk' | 'handoff' | 'delivered';
-export type Action = 'lights' | 'depart' | 'assess' | 'contact' | 'diagnose' | 'compare' | 'configure' | 'drive'
+export type Action = 'lights' | 'depart' | 'assess' | 'diagnose' | 'compare' | 'configure' | 'drive'
 	| 'suit-check' | 'service-exit' | 'open-panel' | 'reseat-link' | 'close-panel' | 'reboard' | 'test-bus'
 	| 'park' | 'collect' | 'exit' | 'deliver';
 
@@ -13,6 +13,7 @@ const routeLength = alternativeLength;
 const firstLeg = distanceBetween(alternative[0], alternative[1]);
 const markers = [alternative[1], bravo];
 const plannedKwhPerMetre = routeForecast(routes[1]).total / routeLength;
+const actionDelaySeconds = 1;
 const checkRadius = 4;
 const arrivalRadius = 4;
 
@@ -31,7 +32,7 @@ export interface Run {
 }
 
 export function startRun(): Run {
-	return { stage: 'preflight', position: startPoint, seconds: 0, stageAt: 0, leg: 0, driven: 0, degraded: false, lights: false, cargoSecured: false };
+	return { stage: 'preflight', position: startPoint, seconds: 0, stageAt: -actionDelaySeconds, leg: 0, driven: 0, degraded: false, lights: false, cargoSecured: false };
 }
 
 function enter(run: Run, stage: Stage): Run {
@@ -40,8 +41,8 @@ function enter(run: Run, stage: Stage): Run {
 
 export function servicePoints(stop: Point) {
 	return {
-		airlock: { x: stop.x + 3.5, z: stop.z },
-		panel: { x: stop.x + 3.5, z: stop.z + 4 }
+		airlock: { x: stop.x + 3.5, z: stop.z - 1.6 },
+		panel: { x: stop.x + 3.5, z: stop.z + 1.35 }
 	};
 }
 
@@ -98,7 +99,7 @@ export function stepRun(run: Run, delta: number, position: Point): Run {
 		case 'service-walk':
 		case 'return-airlock': {
 			const target = goal(run);
-			if (!target || distanceBetween(position, target) > 1.2) return next;
+			if (!target || distanceBetween(position, target) > (run.stage === 'service-walk' ? 0.65 : 1.2)) return next;
 			return enter(next, run.stage === 'service-walk' ? 'panel-closed' : 'airlock');
 		}
 		case 'walk': return distanceBetween(position, handoff) <= 3 ? enter(next, 'handoff') : next;
@@ -107,11 +108,11 @@ export function stepRun(run: Run, delta: number, position: Point): Run {
 }
 
 export function actions(run: Run): readonly Action[] {
+	if (run.seconds < run.stageAt + actionDelaySeconds) return [];
 	switch (run.stage) {
 		case 'preflight': return run.lights ? ['depart'] : ['lights'];
 		case 'fault': return ['assess'];
-		case 'assessment': return ['contact'];
-		case 'comms': return ['diagnose'];
+		case 'assessment': return ['diagnose'];
 		case 'eva-prep': return ['suit-check'];
 		case 'verified': return ['service-exit'];
 		case 'panel-closed': return ['open-panel'];
@@ -133,10 +134,9 @@ export function actions(run: Run): readonly Action[] {
 export function act(run: Run, action: Action): Run {
 	if (!actions(run).includes(action)) return run;
 	switch (action) {
-		case 'lights': return { ...run, lights: true };
+		case 'lights': return enter({ ...run, lights: true }, 'preflight');
 		case 'depart': return enter(run, 'outbound');
 		case 'assess': return enter(run, 'assessment');
-		case 'contact': return enter(run, 'comms');
 		case 'diagnose': return enter(run, 'diagnostic');
 		case 'suit-check': return enter(run, 'verified');
 		case 'service-exit': {

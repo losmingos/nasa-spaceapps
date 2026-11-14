@@ -28,7 +28,6 @@ export const phases = [
 	{ id: 'NIGHT_TRANSIT', time: '20:40', title: 'Night traverse', text: 'Route to Bravo authorized. The spare module is aboard for the six o’clock drilling operation. All systems nominal.' },
 	{ id: 'POWER_FAULT', time: '21:05', title: 'Drive disabled', text: 'Converter B failed and was isolated automatically. Battery A is powering the essential bus. Life support is operational.' },
 	{ id: 'ENERGY_ASSESSMENT', time: '21:07', title: 'Stationary endurance', text: 'At normal load, battery A can last six hours and twenty minutes. At the time of failure, there were eight hours and fifty-five minutes until six.' },
-	{ id: 'BRAVO_CONTACT', time: '21:12', title: 'Bravo contact', text: 'ARES-02, this is Bravo. Confirm your plan once you have a safe margin. We need the module for drilling.' },
 	{ id: 'ISOLATION_TEST', time: '21:14', title: 'Electrical checks', text: 'Checking converter isolation and battery A current and temperature limits. Drive can only be reconfigured with protections active.' },
 	{ id: 'DEGRADED_DRIVE_READY', time: '21:16', title: 'Degraded drive available', text: 'Isolation, temperature and current verified. Battery A can power limited drive. Activation requires your confirmation.' },
 	{ id: 'ROUTE_OPTIMIZATION', time: '21:18', title: 'Route decision', text: 'The direct route would leave too little energy for the emergency reserve. The detour meets the reserve requirement.' },

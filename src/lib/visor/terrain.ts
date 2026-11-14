@@ -359,12 +359,18 @@ export interface MissionScene {
 	group: Object3D;
 	setView(active: boolean, samplesCollected: boolean, baseRoute: boolean): void;
 	updateDrill(engaged: boolean, seconds: number): void;
-	setParkedRover?(position?: Point, serviceMarker?: Point): void;
+	updateService?(now: number): void;
+	setParkedRover?(position?: Point, service?: RoverService): void;
 	reground(): void;
 	dispose(): void;
 }
 
 export type MissionSceneFactory = (surfaceHeight: (x: number, z: number) => number, refresh: () => void, registerSwir: (root: Object3D, albedo: number, surface: string) => void) => MissionScene;
+
+export interface RoverService {
+	open: boolean;
+	seated: boolean;
+}
 
 export interface MissionView {
 	map: { center: Point; scale: number; objective: Point; vehicle: Point };
@@ -378,7 +384,8 @@ export interface MissionView {
 	secondaryRoute?: readonly Point[];
 	groundRoute?: readonly Point[];
 	parkedRover?: Point;
-	serviceMarker?: Point;
+	roverService?: RoverService;
+	inspectionPoint?: Point;
 	cabinTransition?: Point;
 	baseRoute: boolean;
 	showPosition: boolean;
@@ -1035,6 +1042,7 @@ export function mountTerrain(
 		const swir = displayMode === 'swir';
 		for (const setSwir of swirMaterialSetters) setSwir(swir, frameTime);
 		saltationGrains.update(camera.position, gustTime, windSpeed, swir && dust > 0.02);
+		missionScene?.updateService?.(performance.now());
 		missionScene?.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
@@ -1145,7 +1153,7 @@ export function mountTerrain(
 		if (!wasActive && !view) return;
 		missionView = view;
 		drawGroundRoute(view?.groundRoute);
-		missionScene?.setParkedRover?.(view?.parkedRover, view?.serviceMarker);
+		missionScene?.setParkedRover?.(view?.parkedRover, view?.roverService);
 		const drillMotionChanged = (previousView?.drilling && !previousView.drillPaused) !==
 			(view?.drilling && !view.drillPaused);
 		if (drillMotionChanged) updateStormMotion();
@@ -1167,6 +1175,10 @@ export function mountTerrain(
 			reportExertion('resting');
 		}
 		if (sameRun && previousView) {
+			if (view.inspectionPoint && !previousView.inspectionPoint && !renderer.xr.isPresenting) {
+				const target = view.inspectionPoint;
+				camera.rotation.set(-0.12, Math.atan2(camera.position.x - target.x, camera.position.z - target.z), 0);
+			}
 			if (view.inCabin !== previousView.inCabin) {
 				keys.clear();
 				velocityX = velocityZ = 0;

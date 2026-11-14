@@ -194,7 +194,7 @@ La caída **no la provoca una piedra lanzada por el viento**. La causa es una **
 
 ## Exterior battery service
 
-After verifying isolation, the player secures the rover, checks the suit and cycles the airlock. SARA guides each step in English. The player walks to the amber service marker, opens the exterior low-voltage panel, reseats the marked battery A control link, and latches the panel. They walk back, board, confirm cabin pressure and test the battery A bus. Comparing routes and authorizing degraded drive follow the bus test. Battery B remains isolated throughout. The service link, panel and procedure are fictional gameplay elements.
+After verifying isolation, the player secures the rover, checks the suit and cycles the airlock. SARA guides each step in English. The player walks to the amber service marker, opens the hinged hatch in the rover body, slides the marked battery A module into its socket, and latches the panel. They walk back, board, confirm cabin pressure and test the battery A bus. Comparing routes and authorizing degraded drive follow the bus test. Battery B remains isolated throughout. The battery tray, panel and procedure are fictional gameplay elements.
 
 ## Playable route
 
@@ -227,7 +227,7 @@ The simulation starts on the final approach, roughly 70 metres before the fault.
 5. **Consecuencia térmica:** el módulo B aislado se enfría; SARA no debe intentar reconectarlo sin verificar temperaturas y estado eléctrico. El frío incrementa las exigencias de operación.
 6. **Salida posible, no milagro:** si el aislamiento ha sido verificado y el controlador admite una configuración **diseñada previamente** de operación degradada, A puede alimentar la tracción con límites de par, corriente y velocidad. SARA no puentea ni desactiva sistemas de seguridad.
 
-**Por qué esta historia tiene drama sin sensacionalismo:** inicialmente hay luz y presión en el habitáculo, pero no se puede mover el vehículo. El astronauta pregunta si puede esperar hasta la mañana; SARA revela el desfase entre la energía útil y el consumo normal. El compañero pregunta si llegará el equipo. El rover podría salir del problema, pero **solo si la ruta y el margen energético lo permiten**.
+**Por qué esta historia tiene drama sin sensacionalismo:** inicialmente hay luz y presión en el habitáculo, pero no se puede mover el vehículo. El astronauta pregunta si puede esperar hasta la mañana; SARA revela el desfase entre la energía útil y el consumo normal. El rover podría salir del problema, pero **solo si la ruta y el margen energético lo permiten**.
 
 ## 3.4. Modelo energético consolidado para la demo
 
@@ -253,7 +253,7 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 | Etapa | Acción del jugador | Respuesta del sistema |
 |---|---|---|
 | Salida | Enciende los faros, inicia la marcha y sigue la línea curva sobre el terreno. | La guía muestra el rumbo hacia Bravo. Al completar la curva, el convertidor B falla sin aviso previo y la protección corta la tracción. |
-| Avería | Consulta la autonomía, informa a Bravo y comprueba el aislamiento y los límites de A. | A mantiene el bus esencial. Un diagnóstico favorable habilita la intervención exterior en el enlace de control de A. La prueba del bus al volver al rover habilita la comparación de rutas. |
+| Avería | Consulta la autonomía y comprueba el aislamiento y los límites de A. | A mantiene el bus esencial. Un diagnóstico favorable habilita la intervención exterior en el módulo de servicio de A. La prueba del bus al volver al rover habilita la comparación de rutas. |
 | Recuperación | Compara los presupuestos, autoriza el modo degradado y carga la ruta alternativa. | La ruta directa supera la energía disponible. La alternativa conserva la reserva mínima proyectada. |
 | Trayecto | Conduce por el desvío y continúa hasta Bravo. | El modelo recalcula la proyección con la distancia recorrida. La proyección se muestra como información durante el trayecto. |
 | Entrega | Estaciona, recoge el módulo, sale por la esclusa, camina hasta Bravo y confirma la entrega. | El SEV queda visible en el punto de estacionamiento. B permanece aislada. |
@@ -278,14 +278,9 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 > **Astronauta:** «Encuentra la opción más segura».  
 > **SARA:** «Ruta alternativa de 8,1 kilómetros. Consumo previsto de 6,7 kWh. Reserva estimada de 2,8 kWh. Recomiendo continuar bajo supervisión continua; si las previsiones caen por debajo del mínimo, detendremos el trayecto en un punto seguro».
 
-**Contacto de Bravo:**
-
-> **Bravo:** «ARES-02, aquí Bravo. Hemos recibido vuestra alerta. ¿Puedes confirmar si vas a llegar? Necesitamos el módulo para comenzar la perforación al amanecer».  
-> **Astronauta:** «Hemos perdido un módulo de batería. SARA está comprobando una configuración de emergencia. Confirmaré la llegada cuando tengamos un margen seguro».
-
 ## 3.7. Decisiones y modos de seguridad ARES-02
 
-**Estados:** `NIGHT_TRANSIT → POWER_FAULT → ENERGY_ASSESSMENT → BRAVO_CONTACT → ISOLATION_TEST → DEGRADED_DRIVE_READY → ROUTE_OPTIMIZATION → DEGRADED_TRANSIT → MISSION_CLOSED`.
+**Estados:** `NIGHT_TRANSIT → POWER_FAULT → ENERGY_ASSESSMENT → ISOLATION_TEST → DEGRADED_DRIVE_READY → ROUTE_OPTIMIZATION → DEGRADED_TRANSIT → MISSION_CLOSED`.
 
 **Reglas:**
 

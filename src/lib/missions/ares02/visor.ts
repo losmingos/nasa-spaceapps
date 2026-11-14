@@ -7,8 +7,8 @@ import { alternative, approach, bravo, direct, handoff, startPoint } from './rou
 
 export const labels: Record<Action, string> = {
 	lights: 'Switch on headlights', depart: 'Start driving', assess: 'Check battery endurance',
-	contact: 'Reply to Bravo', diagnose: 'Verify isolation', 'suit-check': 'Check suit and secure rover', 'service-exit': 'Cycle airlock and exit',
-	'open-panel': 'Open service panel', 'reseat-link': 'Reseat battery A control link', 'close-panel': 'Latch service panel',
+	diagnose: 'Verify isolation', 'suit-check': 'Check suit and secure rover', 'service-exit': 'Cycle airlock and exit',
+	'open-panel': 'Open service panel', 'reseat-link': 'Reseat battery A module', 'close-panel': 'Latch service panel',
 	reboard: 'Board and repressurize', 'test-bus': 'Test battery A bus', compare: 'Compare routes',
 	configure: 'Authorize degraded drive', drive: 'Load route and drive',
 	park: 'Park at Bravo',
@@ -20,7 +20,7 @@ const deliveryRoute = [bravo, handoff];
 
 const phasesByStage: Record<Stage, Phase['id']> = {
 	preflight: 'NIGHT_TRANSIT', outbound: 'NIGHT_TRANSIT', fault: 'POWER_FAULT', assessment: 'ENERGY_ASSESSMENT',
-	comms: 'BRAVO_CONTACT', diagnostic: 'ISOLATION_TEST', verified: 'ISOLATION_TEST', 'eva-prep': 'ISOLATION_TEST', 'service-walk': 'ISOLATION_TEST',
+	diagnostic: 'ISOLATION_TEST', verified: 'ISOLATION_TEST', 'eva-prep': 'ISOLATION_TEST', 'service-walk': 'ISOLATION_TEST',
 	'panel-closed': 'ISOLATION_TEST', 'panel-open': 'ISOLATION_TEST', 'link-seated': 'ISOLATION_TEST',
 	'return-airlock': 'ISOLATION_TEST', airlock: 'ISOLATION_TEST', 'bus-check': 'DEGRADED_DRIVE_READY', 'bus-verified': 'DEGRADED_DRIVE_READY', options: 'ROUTE_OPTIMIZATION',
 	configured: 'DEGRADED_DRIVE_READY', drive: 'DEGRADED_TRANSIT',
@@ -35,14 +35,13 @@ const instructions: Partial<Record<Stage, [string, string]>> = {
 	preflight: ['Prepare the rover', 'The module is aboard. Switch on the headlights to begin the authorized night traverse.'],
 	outbound: ['Drive to Bravo', 'Follow the marked route to Bravo. All systems are nominal.'],
 	fault: ['Battery B fault · drive disabled', 'Converter B failed and was isolated automatically. Life support is operational. Check battery A endurance.'],
-	assessment: ['Normal endurance · 6 h 20 min', 'Waiting until morning at normal load would require 13.38 kilowatt-hours. Shelter mode reduces power draw. Tell Bravo about the delay.'],
-	comms: ['Bravo acknowledges', 'Copy, ARES-02. Confirm your plan once you have a safe margin.'],
-	'eva-prep': ['Exterior service required', 'Battery B is isolated. The diagnostic found a loose control link on the exterior battery A service panel. Check your suit and secure the rover before exiting.'],
+	assessment: ['Normal endurance · 6 h 20 min', 'Waiting until morning at normal load would require 13.38 kilowatt-hours. Shelter mode reduces power draw. Verify battery isolation before the exterior repair.'],
+	'eva-prep': ['Exterior service required', 'Battery B is isolated. The diagnostic found a battery A module loose in its service tray. Check your suit and secure the rover before exiting.'],
 	verified: ['Suit checked · rover secured', 'Suit pressure is stable and drive is locked. Cycle the airlock to exit.'],
 	'service-walk': ['Walk to the illuminated service panel', 'Follow the marker alongside the rover to the amber service light.'],
-	'panel-closed': ['Battery A service panel', 'Open the low-voltage service panel. Leave battery B isolated.'],
-	'panel-open': ['Control link accessible', 'Reseat the marked battery A control link, then secure the panel.'],
-	'link-seated': ['Control link seated', 'Latch the service panel before returning to the airlock.'],
+	'panel-closed': ['Battery A service panel', 'Open the service hatch. Battery B remains isolated.'],
+	'panel-open': ['Battery A module accessible', 'Slide the marked battery A module back into its socket.'],
+	'link-seated': ['Battery A module seated', 'Latch the service panel before returning to the airlock.'],
 	'return-airlock': ['Return to the airlock', 'Walk back to the airlock marker and board the rover.'],
 	airlock: ['Airlock reached', 'Board and confirm cabin pressure before testing the battery bus.'],
 	'bus-check': ['Cabin pressurized · bus test pending', 'Run the battery A bus test from the console. Battery B remains isolated.'],
@@ -98,7 +97,12 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 		samplesCollected: false, drilling: false, drillPaused: false,
 		groundRoute: run.stage === 'outbound' ? outboundRoute : run.stage === 'drive' ? alternative : undefined,
 		parkedRover: servicing || (onFoot ? run.parkedAt : undefined),
-		serviceMarker: service ? service.panel : undefined,
+		roverService: service ? {
+			open: run.stage === 'panel-open' || run.stage === 'link-seated',
+			seated: ['link-seated', 'return-airlock', 'airlock'].includes(run.stage)
+		} : undefined,
+		inspectionPoint: service && run.stage === 'panel-closed'
+			? { x: service.panel.x - 1.7, z: service.panel.z } : undefined,
 		cabinTransition: service && run.stage === 'service-walk' ? service.airlock : run.stage === 'bus-check' ? run.serviceStop : undefined,
 		headlamps: run.lights && !onFoot ? (faulted && !moving(run) ? 0.62 : 1) : 0,
 		inCabin: !onFoot,
@@ -118,7 +122,7 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 	return {
 		time: run.seconds, localTime, paused, message, terrain, title, text,
 		key: `${run.stage}:${run.lights}:${run.leg}`,
-		speaker: script.id === 'BRAVO_CONTACT' ? 'bravo' as const : 'jarvis' as const,
+		speaker: 'jarvis' as const,
 		state: script.id,
 		context: JSON.stringify({
 			scenario: 'ARES-02', state: run?.stage ?? script.id, objective: title, guidance: text,
