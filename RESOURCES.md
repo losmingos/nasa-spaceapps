@@ -25,7 +25,13 @@ El generador reproyecta el GeoTIFF ortográfico a la proyección equirectangular
 
 ## Hora e iluminación
 
-El reloj calcula la hora solar media local (LMST) y el número de sol de la escala Mars Sol Date ajustado a Jezero. La hora solar verdadera determina la dirección de la luz, con la estación calculada para el sol seleccionado. Los colores del cielo y la intensidad ambiental se aproximan según la altura del Sol. [Algoritmo Mars24 de NASA GISS](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html)
+El reloj calcula la hora solar media local (LMST) y el número de sol de la escala Mars Sol Date ajustado a Jezero. La posición solar determina la dirección de la luz y el disco del Sol; la luz y el color del crepúsculo siguen siendo una aproximación visual. El horizonte del DTM puede ocultar el disco cuando el rayo atraviesa el terreno. [Algoritmo Mars24 de NASA GISS](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [Secuencia calibrada del ocaso marciano de Curiosity](https://science.nasa.gov/resource/sunset-at-mars-gale-crater-curiosity/)
+
+Los colores del cielo cerca del Sol toman como referencia las observaciones de NASA: el polvo fino dispersa luz azul hacia la zona del Sol durante el amanecer y el ocaso, mientras que el resto del cielo conserva tonos rojizos y anaranjados. La persistencia del crepúsculo se aproxima con una transición prolongada; no es un cálculo radiativo de la cantidad de polvo a cada altura. [NASA: colores del amanecer y atardecer en Marte](https://science.nasa.gov/solar-system/planets/mars/what-does-a-sunrise-sunset-look-like-on-mars/)
+
+### Fobos y Deimos
+
+El visor calcula posiciones topocéntricas aproximadas a partir de los elementos orbitales medios de JPL SSD, referidos a la época J2000, y de la rotación y ubicación de Jezero. Se usan sus radios para aproximar el tamaño angular y la dirección solar para sombrear la fase. Deimos tiene un tamaño mínimo de representación para que no desaparezca al ocupar menos de un píxel. **No son efemérides de precisión:** JPL advierte que los elementos medios sirven para describir la forma y orientación general de las órbitas, y recomienda Horizons para posiciones precisas. [Elementos orbitales medios de JPL SSD](https://ssd.jpl.nasa.gov/sats/elem/sep.html) · [API de efemérides JPL Horizons](https://ssd-api.jpl.nasa.gov/doc/horizons.html) · [Parámetros físicos de Marte y sus satélites (NASA/NSSDC)](https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html)
 
 El modo tormenta recrea la pérdida de luz directa y la caída de visibilidad observadas por Opportunity. Las ráfagas de polvo fino se generan en el visor, con las imágenes de Perseverance como referencia visual. [Cielo oscurecido de Opportunity](https://science.nasa.gov/resource/a-darkened-mars-sky/) · [Ráfaga captada por Perseverance](https://science.nasa.gov/blog/everything-is-dust-in-the-wind/)
 

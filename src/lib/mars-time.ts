@@ -11,6 +11,11 @@ export function jezeroTime(now: number) {
 		+ msdAtJ2000 + longitude / 360;
 }
 
+/** UT-like elapsed Earth days from J2000, derived from the Mars Sol Date. */
+export function daysSinceJ2000(localSol: number) {
+	return (localSol - longitude / 360 - msdAtJ2000) * solLength;
+}
+
 const perturbations = [
 	[0.0071, 2.2353, 49.409], [0.0057, 2.7543, 168.173], [0.0039, 1.1177, 191.837],
 	[0.0037, 15.7866, 21.736], [0.0021, 2.1354, 15.704], [0.0020, 2.4694, 95.528],
@@ -19,7 +24,7 @@ const perturbations = [
 const sin = (degrees: number) => Math.sin(degrees * radians);
 
 export function solarPosition(localSol: number) {
-	const days = (localSol - longitude / 360 - msdAtJ2000) * solLength;
+	const days = daysSinceJ2000(localSol);
 	const anomaly = 19.3871 + 0.52402073 * days;
 	const perturbation = perturbations.reduce((sum, [amplitude, period, phase]) =>
 		sum + amplitude * Math.cos((0.985626 * days / period + phase) * radians), 0);

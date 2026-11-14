@@ -6,6 +6,7 @@ import {
 } from 'three';
 import { buildVisorOptics, dustColor } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
+import { martianMoons } from './mars-moons.js';
 import { BASE, HAZARD, ROVER, SAMPLE, type Point } from './ares/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
@@ -538,6 +539,10 @@ export function mountTerrain(
 	}
 
 	const lightInView = new Vector3();
+	const phobosInView = new Vector3();
+	const deimosInView = new Vector3();
+	const phobosWorld = new Vector3();
+	const deimosWorld = new Vector3();
 	const worldToEye = new Quaternion();
 	const nightFog = new Color('#161b29');
 	const duskFog = new Color('#9c624a');
@@ -548,6 +553,8 @@ export function mountTerrain(
 	let daylight = 1;
 	let twilight = 1;
 	let dust = 0;
+	let sceneSol = 0;
+	let moonPositions = martianMoons(sceneSol);
 	let stormFrame = 0;
 	let stormStarted = 0;
 	let gustTime = 0;
@@ -558,13 +565,21 @@ export function mountTerrain(
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
 		worldToEye.copy(camera.quaternion).invert();
 		lightInView.copy(sunDirectionWorld).applyQuaternion(worldToEye);
+		phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);
+		deimosWorld.set(moonPositions.deimos.east, moonPositions.deimos.up, -moonPositions.deimos.north);
+		phobosInView.copy(phobosWorld).applyQuaternion(worldToEye).normalize();
+		deimosInView.copy(deimosWorld).applyQuaternion(worldToEye).normalize();
 		drawMap();
-		optics.render(scene, camera, lightInView, twilight, daylight, dust, gustTime, !!missionView);
+		optics.render(scene, camera, lightInView, Math.asin(MathUtils.clamp(sunDirectionWorld.y, -1, 1)),
+			phobosInView, moonPositions.phobos.up, moonPositions.phobos.angularRadius,
+			deimosInView, moonPositions.deimos.up, moonPositions.deimos.angularRadius,
+			twilight, daylight, dust, gustTime, !!missionView);
 	};
 	function updateLighting() {
 		const up = sunDirectionWorld.y;
 		daylight = MathUtils.smoothstep(up, 0, 0.38);
-		twilight = MathUtils.smoothstep(up, -0.21, 0.08);
+		// High-altitude Martian dust can keep the sky faintly lit well after sunset.
+		twilight = MathUtils.smoothstep(up, Math.sin(-29 * Math.PI / 180), Math.sin(5 * Math.PI / 180));
 		sun.intensity = 2.05 * MathUtils.smoothstep(up, 0, 0.48);
 		sun.color.copy(lowSun).lerp(highSun, daylight);
 		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
@@ -577,6 +592,8 @@ export function mountTerrain(
 		}
 	}
 	function setTime(localSol: number) {
+		sceneSol = localSol;
+		moonPositions = martianMoons(localSol);
 		const { east, up, north } = solarPosition(localSol);
 		sunDirectionWorld.set(east, up, -north).normalize();
 		updateLighting();
