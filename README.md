@@ -6,6 +6,10 @@ Al cargar apareces a pie en el delta. Haz clic en la escena (o pulsa **Intro** c
 
 El casco muestra la hora solar media local de Jezero. Pulsa **H** y abre **Cambiar hora** para explorar otro sol u otra hora. **Volver a la hora actual** reanuda el reloj en directo.
 
+## Despliegue en Cloudflare Workers
+
+En **Settings → Build**, usa la raíz del repositorio, `npm run build` como comando de compilación y `npx wrangler deploy` como comando de despliegue. La compilación genera el sitio estático en `dist`, el directorio de recursos de Wrangler.
+
 ## Datos del terreno
 
 [DTM HiRISE del delta de Jezero](https://www.uahirise.org/dtm/PSP_002387_1985), producto `DTEEC_002387_1985_003798_1985_A01`. Crédito NASA/JPL-Caltech/Universidad de Arizona.
