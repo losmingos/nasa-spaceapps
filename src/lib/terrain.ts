@@ -196,15 +196,18 @@ export function mountTerrain(
 				return mix(mix(dustHash(cell).x, dustHash(cell + vec2(1, 0)).x, f.x),
 					mix(dustHash(cell + vec2(0, 1)).x, dustHash(cell + vec2(1, 1)).x, f.x), f.y);
 			}
-			float gravelHeight(vec2 p, float scale) {
+			float gravelHeight(vec2 p, float scale, float density) {
 				vec2 st = p * scale;
-				vec2 jitter = dustHash(floor(st));
-				vec2 q = fract(st) - mix(vec2(0.24), vec2(0.76), jitter);
-				q.x += q.y * (jitter.x - 0.5);
-				float radius = mix(0.07, 0.21, jitter.x);
+				vec2 cell = floor(st);
+				vec2 jitter = dustHash(cell);
+				vec2 shape = dustHash(cell + vec2(71.3, -43.7));
+				vec2 q = fract(st) - mix(vec2(0.21), vec2(0.79), jitter);
+				q.x += q.y * (shape.x - 0.5);
+				q.y *= mix(0.85, 1.65, shape.y);
+				float radius = mix(0.035, 0.20, shape.x * shape.x);
 				float edge = max(abs(q.x), abs(q.x * 0.45) + abs(q.y) * 0.82);
 				return (1.0 - smoothstep(radius * 0.25, radius, edge))
-					* smoothstep(0.27, 0.82, jitter.y);
+					* smoothstep(1.0 - density, 1.08 - density, shape.y) * mix(0.35, 1.0, jitter.x);
 			}
 			vec3 groundNormal(vec3 point, vec3 n, float height) {
 				vec3 dx = dFdx(point);
@@ -226,14 +229,18 @@ export function mountTerrain(
 				diffuseColor.rgb = mix(diffuseColor.rgb, ortho.rgb * orthoTint, ortho.a * 0.72);
 			#endif
 			float footprint = max(length(dFdx(p)), length(dFdy(p)));
-			float gravelBed = smoothstep(0.30, 0.66, dustNoise(p * 0.32));
-			float coarse = gravelHeight(p, 2.6) * (1.0 - smoothstep(0.025, 0.15, footprint));
-			float fine = gravelHeight(vec2(p.x + p.y, p.y - p.x) * 0.7071, 11.0)
+			float gravelBed = smoothstep(0.29, 0.72, dustNoise(p * 0.38) * 0.68 + dustNoise(p * 1.4) * 0.32);
+			vec2 scattered = p + 0.7 * vec2(dustNoise(p * 0.8), dustNoise(p * 0.8 + vec2(29.7, 12.8)));
+			float coarse = gravelHeight(scattered, 2.6, mix(0.10, 0.78, gravelBed))
+				* (1.0 - smoothstep(0.025, 0.15, footprint));
+			float fine = gravelHeight(vec2(scattered.x + scattered.y, scattered.y - scattered.x) * 0.7071,
+				11.0, mix(0.03, 0.85, gravelBed))
 				* (1.0 - smoothstep(0.006, 0.04, footprint));
 			float closeDetail = 1.0 - smoothstep(12.0, 55.0, length(vViewPosition));
 			float gravel = (coarse * mix(0.45, 1.0, gravelBed) + fine * 0.42) * closeDetail;
 			float windDust = dustNoise(p * vec2(0.18, 0.72)) - 0.5;
-			float grain = (dustNoise(p * 21.0) - 0.5) * (1.0 - smoothstep(0.009, 0.045, footprint));
+			float grain = (dustNoise(p * 21.0) - 0.5) * mix(0.15, 1.0, gravelBed)
+				* (1.0 - smoothstep(0.009, 0.045, footprint));
 			diffuseColor.rgb *= 1.0 + windDust * 0.16 + grain * 0.13 * closeDetail - gravel * 0.26;
 			float microHeight = gravel * 0.018 + grain * 0.0015 * closeDetail;`
 		).replace(
@@ -885,7 +892,7 @@ export function mountTerrain(
 		if (abort.signal.aborted) return;
 		texture.colorSpace = SRGBColorSpace;
 		texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-		if (!usingHighQuality) {
+		if (!highTexture) {
 			terrainMaterial.map = texture;
 			terrainMaterial.needsUpdate = true;
 			draw();
@@ -894,49 +901,48 @@ export function mountTerrain(
 		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
 	});
 	let highTexture: Texture | undefined;
-	let usingHighQuality = false;
 
-	async function prepareHighQuality(gridUrl: string, imageUrl: string) {
-		const response = await fetch(gridUrl, options);
-		if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE de alta resolución.');
-		const grid = await response.arrayBuffer();
-		if (abort.signal.aborted) return;
-		const image = await new TextureLoader().loadAsync(imageUrl);
+	async function loadHighQuality(gridUrl: string, imageUrl: string) {
+		if (renderer.capabilities.maxTextureSize < 7765) return;
 		try {
-			if (abort.signal.aborted) return;
-			const { width: imageWidth, height: imageHeight } = image.image;
-			if (Math.max(imageWidth, imageHeight) > renderer.capabilities.maxTextureSize) {
-				throw new Error('La ortoimagen supera el tamaño máximo de textura.');
+			const response = await fetch(gridUrl, options);
+			if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE de alta resolución.');
+			const grid = await response.arrayBuffer();
+			if (abort.signal.aborted || explored) return;
+			const image = await new TextureLoader().loadAsync(imageUrl);
+			try {
+				if (abort.signal.aborted || explored) return;
+				const { width: imageWidth, height: imageHeight } = image.image;
+				if (Math.max(imageWidth, imageHeight) > renderer.capabilities.maxTextureSize) {
+					throw new Error('La ortoimagen supera el tamaño máximo de textura.');
+				}
+				const candidate = buildTerrain(grid);
+				if (candidate.width !== width || candidate.length !== length ||
+					!Number.isFinite(candidate.surfaceHeight(spawnX, spawnZ))) {
+					candidate.geometry.dispose();
+					throw new Error('La cuadrícula de alta resolución no coincide con el terreno.');
+				}
+				image.colorSpace = SRGBColorSpace;
+				image.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+				highTexture = image;
+				highTerrain = candidate;
+				applyHighQuality(candidate, image);
+			} finally {
+				if (highTexture !== image) image.dispose();
 			}
-			const candidate = buildTerrain(grid);
-			if (candidate.width !== width || candidate.length !== length ||
-				!Number.isFinite(candidate.surfaceHeight(spawnX, spawnZ))) {
-				candidate.geometry.dispose();
-				throw new Error('La cuadrícula de alta resolución no coincide con el terreno.');
-			}
-			image.colorSpace = SRGBColorSpace;
-			image.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
-			highTexture?.dispose();
-			highTerrain?.geometry.dispose();
-			highTexture = image;
-			highTerrain = candidate;
-		} finally {
-			if (highTexture !== image) image.dispose();
+		} catch (error) {
+			if (!abort.signal.aborted) console.warn('No se pudo cargar el terreno de alta resolución.', error);
 		}
 	}
 
-	function setQuality(high: boolean, restart = false) {
-		if (missionView || (!restart && explored) || (high && !highTerrain)) return false;
-		if (high === usingHighQuality) return true;
-		const active = high ? highTerrain! : lightTerrain;
-		usingHighQuality = high;
+	function applyHighQuality(active: ReturnType<typeof buildTerrain>, image: Texture) {
 		surfaceHeight = active.surfaceHeight;
 		mesh.geometry = active.geometry;
-		terrainMaterial.map = high ? highTexture! : texture.image ? texture : null;
+		terrainMaterial.map = image;
 		terrainMaterial.needsUpdate = true;
 		sun.shadow.dispose();
 		sun.shadow.map = null;
-		sun.shadow.mapSize.setScalar(high ? 4096 : 2048);
+		sun.shadow.mapSize.setScalar(4096);
 		for (const tile of rockTiles.values()) {
 			for (const rocks of tile.meshes) {
 				scene.remove(rocks);
@@ -949,27 +955,15 @@ export function mountTerrain(
 		for (const { block, anchor, offset } of landmarkGrounding) {
 			block.position.y = surfaceHeight(anchor.x, anchor.z) + offset;
 		}
-		if (explored) {
-			keys.clear();
-			cancelAnimationFrame(frame);
-			frame = previous = velocityX = velocityZ = stride = 0;
-			camera.position.x = spawnX;
-			camera.position.z = spawnZ;
-			camera.rotation.set(-0.085, 0.58, 0);
-			explored = false;
-		}
 		updateRockTiles();
 		camera.position.y = eyeY();
 		atEdge = false;
 		notify('ready');
 		draw();
-		return true;
 	}
 
 	return {
-		supportsHighQuality: renderer.capabilities.maxTextureSize >= 8192,
-		prepareHighQuality,
-		setQuality,
+		loadHighQuality,
 		refresh: draw,
 		setTime,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
