@@ -216,24 +216,66 @@ export function mountTerrain(
 	camera.position.set(spawnX, surfaceHeight(spawnX, spawnZ) + eyeHeight, spawnZ);
 
 	const rockGeometries = [0, 1, 2].map((variant) => {
-		const geometry = new IcosahedronGeometry(1, variant === 0 ? 0 : 1);
+		const geometry = new IcosahedronGeometry(1, variant === 0 ? 1 : 2);
 		const positions = geometry.getAttribute('position');
-		const roughness = [0.10, 0.22, 0.16][variant];
+		const roughness = [0.16, 0.22, 0.18][variant];
 		for (let i = 0; i < positions.count; i++) {
 			const x = positions.getX(i);
 			const y = positions.getY(i);
 			const z = positions.getZ(i);
-			const noise = Math.sin(x * 7.1 + y * 3.7 + variant * 2.3)
+			const broad = Math.sin(x * 7.1 + y * 3.7 + variant * 2.3)
 				* Math.cos(z * 6.3 - x * 4.1 + variant) * 0.65
 				+ Math.sin(y * 11.2 + z * 5.4 + variant * 4.7) * 0.35;
-			const radius = 0.88 + noise * roughness;
+			const chips = Math.sin(x * 23.0 + z * 17.0 + variant * 5.0)
+				* Math.cos(y * 19.0 - x * 13.0 + variant * 3.0);
+			const radius = 0.86 + broad * roughness + chips * 0.035;
 			const flattening = variant === 2 ? 0.62 : 1;
 			positions.setXYZ(i, x * radius, y * radius * flattening, z * radius);
 		}
 		geometry.computeVertexNormals();
 		return geometry;
 	});
-	const rockMaterial = new MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0 });
+	const rockMaterials = [0, 1, 2].map((variant) => {
+		const material = new MeshStandardMaterial({
+			color: '#ffffff',
+			roughness: [0.98, 0.94, 0.99][variant],
+			metalness: 0,
+			flatShading: variant === 0
+		});
+		material.onBeforeCompile = (shader) => {
+			shader.vertexShader = 'varying vec3 rockPoint;\n' + shader.vertexShader.replace(
+				'#include <begin_vertex>', '#include <begin_vertex>\nrockPoint = position;'
+			);
+			const pattern = variant === 0
+				? `float grain = rockNoise(rockPoint * 22.0);
+				float fractures = smoothstep(0.69, 0.83, rockNoise(rockPoint * 8.0));
+				diffuseColor.rgb *= 0.85 + grain * 0.18 - fractures * 0.12;`
+				: variant === 1
+					? `float mottling = rockNoise(rockPoint * 5.5);
+				float grit = rockNoise(rockPoint * 24.0);
+				diffuseColor.rgb *= 0.88 + mottling * 0.12 + grit * 0.06;`
+					: `float strata = sin((rockPoint.y + rockNoise(rockPoint * 5.0) * 0.08) * 23.0);
+				float grain = rockNoise(rockPoint * 19.0);
+				diffuseColor.rgb *= 0.84 + smoothstep(-0.25, 0.25, strata) * 0.14 + grain * 0.05;`;
+			shader.fragmentShader = `varying vec3 rockPoint;
+				float rockHash(vec3 p) {
+					return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+				}
+				float rockNoise(vec3 p) {
+					vec3 cell = floor(p);
+					vec3 f = fract(p);
+					f = f * f * (3.0 - 2.0 * f);
+					float x00 = mix(rockHash(cell), rockHash(cell + vec3(1, 0, 0)), f.x);
+					float x10 = mix(rockHash(cell + vec3(0, 1, 0)), rockHash(cell + vec3(1, 1, 0)), f.x);
+					float x01 = mix(rockHash(cell + vec3(0, 0, 1)), rockHash(cell + vec3(1, 0, 1)), f.x);
+					float x11 = mix(rockHash(cell + vec3(0, 1, 1)), rockHash(cell + vec3(1, 1, 1)), f.x);
+					return mix(mix(x00, x10, f.y), mix(x01, x11, f.y), f.z);
+				}
+			` + shader.fragmentShader.replace('#include <color_fragment>',
+				`#include <color_fragment>\n${pattern}`);
+		};
+		return material;
+	});
 	const rockTiles = new Map<string, { meshes: InstancedMesh[]; colliders: RockCollider[] }>();
 	let rockColliders: RockCollider[] = [];
 	let lastRockTileX = Number.NaN;
@@ -241,6 +283,7 @@ export function mountTerrain(
 	const placement = new Object3D();
 	const up = new Vector3(0, 1, 0);
 	const normal = new Vector3();
+	const supportPoint = new Vector3();
 	const yaw = new Quaternion();
 	const rockColor = new Color();
 
@@ -287,20 +330,25 @@ export function mountTerrain(
 			const sx = radius * (0.78 + random() * 0.48);
 			const sy = radius * (0.52 + random() * 0.42);
 			const sz = radius * (0.78 + random() * 0.48);
-			rockColor.setHSL(0.055 + random() * 0.035, 0.16 + random() * 0.16, 0.29 + random() * 0.16);
 			const variant = Math.floor(random() * rockGeometries.length);
-			variants[variant].push({ x, z, y: y + sy * 0.84, sx, sy, sz, yaw: random() * Math.PI * 2, color: rockColor.clone() });
-			if (radius > 0.48) colliders.push({ x, z, radius: Math.max(sx, sz) * 0.78 });
+			const palette = ['#765947', '#b4815c', '#916a51'];
+			rockColor.set(palette[variant]);
+			rockColor.multiplyScalar(0.9 + random() * 0.2);
+
+			variants[variant].push({
+				x, z, y, sx, sy, sz,
+				yaw: random() * Math.PI * 2,
+				color: rockColor.clone()
+			});
 		}
 
 		const meshes: InstancedMesh[] = [];
 		variants.forEach((instances, variant) => {
 			if (instances.length === 0) return;
-			const rocks = new InstancedMesh(rockGeometries[variant], rockMaterial, instances.length);
+			const rocks = new InstancedMesh(rockGeometries[variant], rockMaterials[variant], instances.length);
 			rocks.castShadow = true;
 			rocks.receiveShadow = true;
 			instances.forEach((rock, index) => {
-				placement.position.set(rock.x, rock.y, rock.z);
 				placement.quaternion.setFromUnitVectors(up, normal.set(
 					(surfaceHeight(rock.x - spacing, rock.z) - surfaceHeight(rock.x + spacing, rock.z)) / (2 * spacing),
 					1,
@@ -309,6 +357,17 @@ export function mountTerrain(
 				yaw.setFromAxisAngle(up, rock.yaw);
 				placement.quaternion.multiply(yaw);
 				placement.scale.set(rock.sx, rock.sy, rock.sz);
+				const vertices = rockGeometries[variant].getAttribute('position');
+				let supportY = -Infinity;
+				for (let vertex = 0; vertex < vertices.count; vertex++) {
+					supportPoint.fromBufferAttribute(vertices, vertex)
+						.multiply(placement.scale)
+						.applyQuaternion(placement.quaternion);
+					const groundY = surfaceHeight(rock.x + supportPoint.x, rock.z + supportPoint.z);
+					if (Number.isFinite(groundY)) supportY = Math.max(supportY, groundY - supportPoint.y);
+				}
+				const sink = Math.max(0.035, rock.sy * 0.045);
+				placement.position.set(rock.x, Number.isFinite(supportY) ? supportY - sink : rock.y + rock.sy * 0.5, rock.z);
 				placement.updateMatrix();
 				rocks.setMatrixAt(index, placement.matrix);
 				rocks.setColorAt(index, rock.color);
@@ -623,7 +682,9 @@ export function mountTerrain(
 			geometry.dispose();
 			terrainMaterial.dispose();
 			for (const rockGeometry of rockGeometries) rockGeometry.dispose();
-			rockMaterial.dispose();
+			for (const material of rockMaterials) {
+				material.dispose();
+			}
 			texture.dispose();
 			optics.dispose();
 			renderer.dispose();
