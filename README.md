@@ -41,11 +41,15 @@ python scripts/build_terrain.py ruta/al/DTEEC_002387_1985_003798_1985_A01.IMG
 
 ## ARES-01 · The Last Sample
 
-Abre el visor y elige **Modo interactivo**. Usa **WASD** para caminar o conducir, y el ratón o las flechas para mirar. Acércate al instrumental y activa la perforación. JARVIS anuncia las incidencias y la misión avanza al ejecutar las acciones y alcanzar los puntos de paso. El regreso recorre las distancias del escenario, incluidos los 2,4 km al volante. **Iniciar demo** conserva la secuencia guiada de 3:30 con saltos temporales.
+Press **I** to start the interactive mission. Use **WASD** to walk or drive and hold the **arrow keys** to look around. Press **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.
 
-JARVIS lee en español los avisos del modo interactivo. Usa el servicio de voz del proyecto y la síntesis del navegador si el servicio falla. Para probar directamente la síntesis del navegador, abre el visor con `?tts=browser`. Hace falta una voz española disponible en el sistema. Los diálogos también se muestran en pantalla.
+Hold **Space** to speak to JARVIS and release it to send. Mission announcements and conversational replies are in English. Add `?tts=browser` to the visor URL to use an English voice installed in your browser or operating system.
 
-Los avisos de polvo se activan 20 y 40 segundos después de comenzar la perforación. La intensidad del polvo, el riesgo de la ladera y la presión del traje son simulados. Los puntos de paso y las distancias están en `src/lib/ares/route.ts`. El modo interactivo conserva el evento `ares01:dialogue` para otras integraciones.
+**Watch demo** plays the guided sequence in 3:30. The interactive mission follows your position and actions over the full route, including the 2.4 km rover drive. Dust advisories trigger 20 and 40 seconds after drilling starts. Dust, slope hazards and suit pressure are simulated. Route coordinates are in `src/lib/missions/ares01/route.ts` and the mission emits `ares01:dialogue` events.
 
+## Project layout
 
-En misión, mantén las flechas para mirar de forma continua. Pulsa E o 1 para la primera acción disponible y 2 para la segunda. Espacio activa la conversación con JARVIS mientras lo mantienes pulsado. I inicia el modo interactivo desde el menú. P pausa o reanuda. Durante la pausa o al terminar, R reinicia y Q sale.
+- `src/lib/missions/ares01/` contains the mission timeline, interactive logic, controls, scene and JARVIS instructions. Its models are in `static/models/missions/ares01/`.
+- `src/lib/missions/vr-rehearsal/` contains the route and telemetry constants for the VR rehearsal.
+- `src/lib/visor/` contains the terrain renderer, visor optics and Mars clock.
+- `src/lib/jarvis/` and `src/lib/server/jarvis/` contain the assistant client and server services.

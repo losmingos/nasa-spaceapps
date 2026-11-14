@@ -3,7 +3,7 @@
 // (telemetry, the astronaut's words) goes in the user message instead.
 
 import { PROTOCOL, P5_VISIBILITY_M, P6_DISTANCE_M, STEP_TIMES_S } from '#lib/jarvis/protocol.js';
-import { HABITAT_BEARING, ROUTE_LENGTH_M, WALK_SPEED_MS, O2_START_MIN, SUIT_POWER_START_PCT } from '#lib/mission.js';
+import { HABITAT_BEARING, ROUTE_LENGTH_M, WALK_SPEED_MS, O2_START_MIN, SUIT_POWER_START_PCT } from '#lib/missions/vr-rehearsal/route.js';
 import meda from '#lib/data/meda-snapshot.json';
 
 function fmt(v: unknown, unit: string): string {

@@ -19,7 +19,7 @@ export function createMissionVoice(useBrowserVoice: boolean) {
 		const id = ++turnId;
 		const controller = new AbortController();
 		request = controller;
-		let playable: Playable = { type: 'speech', text, lang: 'es-ES' };
+		let playable: Playable = { type: 'speech', text };
 		await unlocked;
 		if (controller.signal.aborted) return;
 		if (!useBrowserVoice && audio.unlocked) {

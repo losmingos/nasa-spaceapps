@@ -4,14 +4,13 @@
 	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
-	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
-	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
+	import { mountTerrain, type TerrainNotice } from '#lib/visor/terrain.js';
+	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
 	import './visor.css';
-	import { BASE, ROVER } from '#lib/ares/route.js';
-	import Ares01 from '#lib/ares/Ares01.svelte';
-	import type { interactiveSnapshot } from '#lib/ares/interactive.js';
-	import { type Ares01Dialogue, type MissionSnapshot } from '#lib/ares/ares01.js';
-	import type { VisorMessage } from '#lib/visor-optics.js';
+	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
+	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
+	import { missionContext, missionMessage, missionModelUrls, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
+	import type { VisorMessage } from '#lib/visor/optics.js';
 
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
@@ -27,11 +26,7 @@
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
 	let storm = $state(false);
-	let mission = $state.raw<(MissionSnapshot & {
-		time: number;
-		paused: boolean;
-		player?: ReturnType<typeof interactiveSnapshot> & { run: number; enabled: boolean };
-	})>();
+	let mission = $state.raw<Ares01View>();
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
 	let pendingMissionLine: string | undefined;
 	function flushMissionLine() {
@@ -41,15 +36,7 @@
 		void missionVoice?.speak(text);
 	}
 	$effect(() => {
-		assistant?.setMissionContext(mission ? JSON.stringify({
-			scenario: 'ARES-01', state: mission.cue.state, objective: mission.cue.title,
-			guidance: mission.cue.text, navigation: mission.navigation, pressure: mission.pressure,
-			sample: mission.sample, logSaved: !!mission.log,
-			target: mission.player?.heading,
-			distanceToTargetM: mission.positionLost ? null : mission.player?.targetDistance,
-			bearingDegrees: mission.positionLost ? null : mission.player?.compass,
-			secondsElapsed: mission.time
-		}) : undefined);
+		assistant?.setMissionContext(mission ? missionContext(mission) : undefined);
 	});
 	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
 	const clock = $derived(formatMarsTime(sceneSol));
@@ -61,35 +48,11 @@
 	const voiceStatus = $derived(voice?.status ?? 'locked');
 	const micUnavailable = $derived(voice?.lastError?.startsWith('Microphone unavailable') ?? false);
 	const voiceProblem = $derived(voiceStatus === 'locked' || voiceStatus === 'idle'
-		? unlockFailed ? 'Audio no disponible' : micUnavailable ? 'Micrófono no disponible' : ''
+		? unlockFailed ? 'Audio unavailable' : micUnavailable ? 'Microphone unavailable' : ''
 		: '');
-	const voiceLabel = $derived(unlocking ? 'Activando audio…' : voiceProblem ||
+	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
-	const missionTitles: Record<string, string> = {
-		sample: 'Extrayendo testigo · ~10 min',
-		advisory: 'Aumenta el polvo · vuelve al rover',
-		abort: 'Aborta el muestreo · vuelve al rover',
-		prepare: 'Asegura el equipo y guarda la bitácora',
-		'early-return': 'Retorno preventivo',
-		return: 'Sigue la ruta al rover',
-		hazard: 'Detente · ladera inestable',
-		reroute: 'Desvío seguro · +65 m',
-		trip: 'Cuidado · pérdida de equilibrio',
-		impact: 'Impacto en el traje · detente',
-		'pressure-check': 'Comprobando presión del traje',
-		'outer-damage': 'Posible daño exterior',
-		'pressure-stable': 'Presión estable · continúa con cuidado',
-		'position-lost': 'Detente · posición sin confirmar',
-		shelter: 'Rover presurizado · EVA finalizada',
-		'base-return': 'Regreso a la base · 2,4 km',
-		closed: 'Base alcanzada · tripulación a salvo'
-	};
-	const hudMessage: VisorMessage = $derived(mission ? {
-		title: missionTitles[mission.cue.id] ?? mission.cue.title,
-		detail: mission.jump || (mission.player?.move && mission.player.heading ? `${mission.player.heading} · ${mission.player.targetDistance} m · ${mission.player.compass}°` : undefined) || (mission.cue.id === 'closed' ? 'Testigo pendiente · bitácora guardada'
-			: mission.walking && !mission.positionLost ? `Rover · ${mission.remaining} m` : undefined),
-		kind: mission.critical ? 'danger' : mission.time >= 20 && mission.time < 40 ? 'warning' : undefined
-	} : {
+	const hudMessage: VisorMessage = $derived(mission ? missionMessage(mission) : {
 		title: voiceLabel ? `JARVIS · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
 	});
@@ -103,10 +66,10 @@
 	let clockButton = $state<HTMLButtonElement>();
 	let solInput = $state<HTMLInputElement>();
 	const notices = {
-		loading: { text: 'Cargando terreno', kind: 'info', label: 'Información' },
-		ready: { text: '', kind: 'info', label: 'Información' },
-		edge: { text: 'Paso bloqueado', kind: 'warning', label: 'Advertencia' },
-		error: { text: 'Terreno no disponible', kind: 'danger', label: 'Peligro' }
+		loading: { text: 'Loading terrain', kind: 'info', label: 'Information' },
+		ready: { text: '', kind: 'info', label: 'Information' },
+		edge: { text: 'Path blocked', kind: 'warning', label: 'Warning' },
+		error: { text: 'Terrain unavailable', kind: 'danger', label: 'Danger' }
 	};
 	const current = $derived(notices[notice]);
 	$effect(() => {
@@ -116,16 +79,7 @@
 	});
 	$effect(() => terrain?.setTime(sceneSol));
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
-	$effect(() => terrain?.setMissionView(mission && {
-		point: mission.point,
-		ahead: mission.ahead,
-		route: mission.player?.route ?? (mission.time >= 155 ? [ROVER, BASE] : mission.route),
-		baseRoute: mission.player?.baseRoute ?? mission.time >= 155,
-		showHazard: mission.player?.showHazard ?? (mission.time >= 90 && mission.time < 155),
-		showPosition: mission.navigation !== 'Sin referencias',
-		tilt: mission.player?.tilt ?? (mission.time >= 108 && mission.time < 122 ? 1 : 0),
-		player: mission.player
-	}));
+	$effect(() => terrain?.setMissionView(mission && missionTerrainView(mission)));
 
 	function playMissionDialogue(line: Ares01Dialogue, interactive: boolean) {
 		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
@@ -252,13 +206,13 @@
 		async function load() {
 			try {
 				const response = await fetch(asset('terrain/jezero.bin'), { signal: request.signal });
-				if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE.');
+				if (!response.ok) throw new Error('Could not download the HiRISE elevation grid.');
 				const data = await response.arrayBuffer();
 				if (request.signal.aborted) return;
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
 					() => current.text,
-					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSA' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage);
+					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
+					() => hudMessage, missionModelUrls());
 				showNotice('ready');
 				if (matchMedia('(pointer: fine) and (min-width: 900px)').matches) {
 					void terrain.loadHighQuality(asset('terrain/jezero-high.bin'), asset('terrain/jezero-ortho-high.webp'));
@@ -285,27 +239,27 @@
 </script>
 
 <svelte:head>
-	<title>Jezero | Visor de astronauta</title>
-	<meta name="description" content="Recorre a pie el delta occidental de Jezero desde el visor de un astronauta." />
+	<title>Jezero | Astronaut visor</title>
+	<meta name="description" content="Explore Jezero's western delta on foot through an astronaut visor." />
 </svelte:head>
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
 <main class="visor">
 	<canvas class="terrain" bind:this={canvas} tabindex="0"
-		aria-label="Vista en primera persona del delta occidental de Jezero"
+		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
-	<p class="sr-only" id="scene-input">Haz clic en la escena o pulsa Intro para capturar el ratón.
-		Usa WASD para caminar, las flechas para mirar y Escape para liberar el cursor.
-		Pulsa H para mostrar el control del reloj marciano.
-		Mantén Espacio para hablar con Jarvis y suelta para enviar.</p>
+	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
+		Use WASD to walk, the arrow keys to look, and Escape to release the pointer.
+		Press H to show the Mars clock controls.
+		Hold Space to talk to JARVIS and release to send.</p>
 
 	<div class="projected">
 		<div class="sr-only" role="status" aria-atomic="true">
 			{hudMessage.title}{#if mission?.jump} · {mission.jump}{/if}
 		</div>
 		{#if mission?.walking && !mission.positionLost}
-			<p class="sr-only">Distancia al rover {mission.remaining} m</p>
+			<p class="sr-only">Distance to rover {mission.remaining} m</p>
 		{/if}
 		<div class="notice" class:sr-only={!current.text || !!terrain} data-kind={current.kind}>
 			<span class="notice-mark" aria-hidden="true"></span>
@@ -317,23 +271,23 @@
 		</div>
 
 		{#if notice === 'error'}
-			<p class="error-help">Comprueba que tu navegador admite WebGL 2 y recarga.</p>
+			<p class="error-help">Check that your browser supports WebGL 2, then reload.</p>
 		{/if}
 
 		<div class="instruments sr-only" hidden={!terrain}>
 			<figure class="radar">
-				<div class="map-face" role="img" aria-label="Relieve local con la posición al centro y una flecha que indica el rumbo">
+				<div class="map-face" role="img" aria-label="Local terrain map with your position in the centre and an arrow showing your heading">
 					<canvas bind:this={map} width="192" height="192" aria-hidden="true"></canvas>
 				</div>
 			</figure>
 
-			<dl class="readouts" aria-label="Telemetría simulada">
-				<dt class="sr-only">Oxígeno</dt>
+			<dl class="readouts" aria-label="Simulated telemetry">
+				<dt class="sr-only">Oxygen</dt>
 				<dd>96<span>% O₂</span></dd>
-				<dt class="sr-only">Temperatura</dt>
+				<dt class="sr-only">Temperature</dt>
 				<dd>−63<span>°C</span></dd>
 			</dl>
-			<p>Sol {sol}, {clock} hora solar media local de Jezero</p>
+			<p>Sol {sol}, {clock} Jezero local mean solar time</p>
 		</div>
 
 		<div class="visor-controls">
@@ -345,7 +299,7 @@
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
 			<button type="button" class="hud-action voice-control"
-					aria-label="JARVIS. Mantén pulsado para hablar y suelta para enviar"
+					aria-label="JARVIS. Hold to talk and release to send"
 					aria-keyshortcuts="Space"
 					data-recording={voiceStatus === 'recording'}
 					onpointerdown={(event) => {
@@ -360,7 +314,7 @@
 						<rect x="9" y="3" width="6" height="12" rx="3" />
 						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
 					</svg>
-					<span>JARVIS</span><kbd>Espacio</kbd><span class="touch-hint" aria-hidden="true">Mantén</span>
+					<span>JARVIS</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
 				</button>
 		</div>
 	</div>
@@ -369,9 +323,9 @@
 		<div class="clock-controls">
 			<button type="button" bind:this={clockButton} onclick={toggleEditor}
 				aria-expanded={editingClock} aria-controls={editingClock ? 'clock-editor' : undefined}
-				aria-keyshortcuts="H">Cambiar hora</button>
+				aria-keyshortcuts="H">Set time</button>
 			<button type="button" aria-pressed={storm} onclick={() => { storm = !storm; }}>
-				Modo tormenta
+				Storm mode
 			</button>
 			{#if editingClock}
 				<div id="clock-editor" class="clock-editor">
@@ -379,12 +333,12 @@
 						<input type="number" min="0" max="99999" step="1" value={sol} bind:this={solInput}
 							onchange={(event) => setClock(event.currentTarget.valueAsNumber, clock)} />
 					</label>
-					<label>Hora local (LMST)
+					<label>Local time (LMST)
 						<input type="time" value={clock}
 							onchange={(event) => setClock(sol, event.currentTarget.value)} />
 					</label>
 					<button type="button" onclick={() => { now = Date.now(); selectedSol = undefined; }}>
-						Volver a la hora actual
+						Return to current time
 					</button>
 				</div>
 			{/if}

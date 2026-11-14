@@ -1,7 +1,7 @@
-// Shared helpers for the Jarvis test/operator pages (/operator, /vr-test). UI text is Spanish (team-facing).
+// Shared helpers for the Jarvis test/operator pages (/operator, /vr-test).
 import { LINES, buildLineVars, fillLine, type Line, type LineId } from '../lines.js';
 import { PROTOCOL } from '../protocol.js';
-import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../../mission.js';
+import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../../missions/vr-rehearsal/route.js';
 import meda from '../../data/meda-snapshot.json';
 import type { AssistantStatus, CueId, CueState, Speaker, Telemetry } from '../types.js';
 
@@ -30,11 +30,11 @@ export const SCRIPTED_LINES = LINES.filter((l) => l.kind === 'scripted-answer');
 export { PROTOCOL };
 
 export const STATUS_LABEL: Record<AssistantStatus, string> = {
-	locked: 'Audio bloqueado',
-	idle: 'En espera',
-	recording: 'Grabando',
-	thinking: 'Pensando',
-	speaking: 'Hablando'
+	locked: 'Audio locked',
+	idle: 'Idle',
+	recording: 'Recording',
+	thinking: 'Thinking',
+	speaking: 'Speaking'
 };
 
 export const STATUS_COLOR: Record<AssistantStatus, string> = {
@@ -45,7 +45,7 @@ export const STATUS_COLOR: Record<AssistantStatus, string> = {
 	speaking: '#7fc3e8'
 };
 
-export const SPEAKER_LABEL: Record<Speaker, string> = { astronaut: 'Astronauta', jarvis: 'Jarvis' };
+export const SPEAKER_LABEL: Record<Speaker, string> = { astronaut: 'Astronaut', jarvis: 'Jarvis' };
 export const SPEAKER_COLOR: Record<Speaker, string> = { astronaut: '#f3ab82', jarvis: '#a9d4ec' };
 
 /** `?k=<token>` from the page URL (tunnel mode, D15). */
@@ -64,31 +64,31 @@ export async function sendCue(id: CueId): Promise<CueState> {
 	return (await response.json()) as CueState;
 }
 
-const number = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
+const number = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 });
 const fmt = (value: number | null, unit = '') =>
 	value === null || !Number.isFinite(value) ? '—' : `${number.format(value).replace('-', '−')}${unit ? ` ${unit}` : ''}`;
 
 const PHASE_LABEL: Record<Telemetry['phase'], string> = {
-	idle: 'inactiva',
-	sampling: 'muestreo',
-	storm: 'tormenta',
-	safe: 'a salvo'
+	idle: 'idle',
+	sampling: 'sampling',
+	storm: 'storm',
+	safe: 'safe'
 };
 
 /** Telemetry as [label, value] rows for display. */
 export function telemetryRows(t: Telemetry): [string, string][] {
 	return [
-		['Tiempo de misión', fmt(t.t_s, 's')],
-		['Tiempo de tormenta', fmt(t.storm_t_s, 's')],
-		['Fase', PHASE_LABEL[t.phase] ?? t.phase],
-		['Paso del protocolo', t.protocolStep ?? '—'],
-		['O₂ restante', fmt(t.o2_remaining_min, 'min')],
-		['Energía del traje', fmt(t.suit_power_pct, '%')],
-		['Visibilidad', fmt(t.visibility_m, 'm')],
-		['Distancia al hábitat', fmt(t.distance_to_habitat_m, 'm')],
-		['Temperatura del aire', fmt(t.air_temp_c, '°C')],
-		['Presión', fmt(t.pressure_pa, 'Pa')],
-		['Viento', fmt(t.wind_ms, 'm/s')],
-		['Opacidad del polvo', fmt(t.dust_opacity)]
+		['Mission time', fmt(t.t_s, 's')],
+		['Storm elapsed time', fmt(t.storm_t_s, 's')],
+		['Phase', PHASE_LABEL[t.phase] ?? t.phase],
+		['Protocol step', t.protocolStep ?? '—'],
+		['O₂ remaining', fmt(t.o2_remaining_min, 'min')],
+		['Suit power', fmt(t.suit_power_pct, '%')],
+		['Visibility', fmt(t.visibility_m, 'm')],
+		['Distance to habitat', fmt(t.distance_to_habitat_m, 'm')],
+		['Air temperature', fmt(t.air_temp_c, '°C')],
+		['Pressure', fmt(t.pressure_pa, 'Pa')],
+		['Wind', fmt(t.wind_ms, 'm/s')],
+		['Dust opacity', fmt(t.dust_opacity)]
 	];
 }
