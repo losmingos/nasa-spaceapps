@@ -6,6 +6,9 @@
 	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
 	import './visor.css';
+	import { BASE, ROVER } from '#lib/ares/route.js';
+	import Ares01 from '#lib/ares/Ares01.svelte';
+	import type { Ares01Dialogue, MissionSnapshot } from '#lib/ares/ares01.js';
 
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
@@ -17,11 +20,13 @@
 	let now = $state(Date.now());
 	let selectedSol = $state<number>();
 	const localSol = $derived(selectedSol ?? jezeroTime(now));
-	const clock = $derived(formatMarsTime(localSol));
 	const sol = $derived(Math.floor(localSol));
 	let clockVisible = $state(false);
 	let editingClock = $state(false);
 	let storm = $state(false);
+	let mission = $state.raw<(MissionSnapshot & { time: number }) | undefined>();
+	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
+	const clock = $derived(formatMarsTime(sceneSol));
 	let assistant: Assistant | undefined;
 	let voice = $state<AssistantState>();
 	let unlocking = $state(false);
@@ -49,11 +54,24 @@
 		void current.text;
 		terrain?.refresh();
 	});
-	$effect(() => terrain?.setTime(localSol));
-	$effect(() => terrain?.setStorm(storm));
+	$effect(() => terrain?.setTime(sceneSol));
+	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
+	$effect(() => terrain?.setMissionView(mission && {
+		point: mission.point,
+		ahead: mission.ahead,
+		route: mission.time >= 155 ? [ROVER, BASE] : mission.route,
+		baseRoute: mission.time >= 155,
+		showHazard: mission.time >= 90 && mission.time < 155,
+		showPosition: mission.navigation !== 'Sin referencias',
+		tilt: mission.time >= 108 && mission.time < 122 ? 1 : 0
+	}));
+
+	function playMissionDialogue(line: Ares01Dialogue) {
+		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
+	}
 
 	async function voiceDown(event: KeyboardEvent) {
-		if (event.code !== 'Space' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey ||
+		if (mission || event.code !== 'Space' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof Element &&
 				event.target.closest('button, input, select, textarea, a, [contenteditable]'))) return;
 		event.preventDefault();
@@ -73,7 +91,7 @@
 				unlocking = false;
 			}
 		}
-		if (spaceHeld && assistant === currentAssistant) currentAssistant.pttDown();
+		if (!mission && spaceHeld && assistant === currentAssistant) currentAssistant.pttDown();
 	}
 
 	function voiceUp() {
@@ -94,6 +112,7 @@
 	}
 
 	async function clockShortcut(event: KeyboardEvent) {
+		if (mission) return;
 		if (event.code === 'Escape' && clockVisible) {
 			clockVisible = editingClock = false;
 			canvas.focus();
@@ -203,25 +222,27 @@
 		Mantén Espacio para hablar con Jarvis y suelta para enviar.</p>
 
 	<div class="projected">
-		<div class="jarvis-status" data-status={voiceProblem && !unlocking ? 'error' : voiceStatus}>
-			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-				stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				{#if unlocking || voiceStatus === 'thinking'}
-					<path d="M4 12h1m6.5 0h1m6.5 0h1" stroke-width="3" />
-				{:else if voiceProblem}
-					<path d="M12 4v10m0 5h.01" />
-				{:else if voiceStatus === 'speaking'}
-					<path d="M3 10v4m4-7v10m5-14v18m5-14v10m4-7v4" />
-				{:else}
-					<rect x="9" y="3" width="6" height="12" rx="3" />
-					<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
+		{#if !mission}
+			<div class="jarvis-status" data-status={voiceProblem && !unlocking ? 'error' : voiceStatus}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+					stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					{#if unlocking || voiceStatus === 'thinking'}
+						<path d="M4 12h1m6.5 0h1m6.5 0h1" stroke-width="3" />
+					{:else if voiceProblem}
+						<path d="M12 4v10m0 5h.01" />
+					{:else if voiceStatus === 'speaking'}
+						<path d="M3 10v4m4-7v10m5-14v18m5-14v10m4-7v4" />
+					{:else}
+						<rect x="9" y="3" width="6" height="12" rx="3" />
+						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
+					{/if}
+				</svg>
+				<span role="status"><strong>Jarvis</strong> · {voiceLabel}</span>
+				{#if !unlocking && (voiceStatus === 'locked' || voiceStatus === 'idle')}
+					<kbd>Espacio</kbd>
 				{/if}
-			</svg>
-			<span role="status"><strong>Jarvis</strong> · {voiceLabel}</span>
-			{#if !unlocking && (voiceStatus === 'locked' || voiceStatus === 'idle')}
-				<kbd>Espacio</kbd>
-			{/if}
-		</div>
+			</div>
+		{/if}
 		<div class="notice" class:sr-only={!current.text || !!terrain} data-kind={current.kind}>
 			<span class="notice-mark" aria-hidden="true"></span>
 			<span class="notice-words" role="status" aria-live="polite">
@@ -252,7 +273,9 @@
 		</div>
 	</div>
 
-	{#if clockVisible}
+	<Ares01 ready={!!terrain} onview={(view) => { mission = view; }} ondialogue={playMissionDialogue} />
+
+	{#if clockVisible && !mission}
 		<div class="clock-controls">
 			<button type="button" bind:this={clockButton} onclick={toggleEditor}
 				aria-expanded={editingClock} aria-controls={editingClock ? 'clock-editor' : undefined}
