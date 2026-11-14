@@ -18,6 +18,7 @@ export interface VisorMessage {
 	title: string;
 	detail?: string;
 	kind?: 'warning' | 'danger';
+	readouts?: readonly { value: string; unit: string }[];
 }
 
 export interface SwirHudData {
@@ -25,6 +26,11 @@ export interface SwirHudData {
 	distanceM?: number | null;
 	albedo?: number | null;
 	surface?: string;
+}
+
+export interface VisorReadings {
+	o2Percent: number;
+	airTempC: number | null;
 }
 
 export const SWIR_DUST_TRANSMISSION = 0.15;
@@ -94,7 +100,8 @@ export function mountHeadLockedHud(camera: Camera) {
 	const context = canvas.getContext('2d')!;
 	const texture = new CanvasTexture(canvas);
 	texture.colorSpace = SRGBColorSpace;
-	texture.anisotropy = 4;
+	texture.minFilter = LinearFilter;
+	texture.generateMipmaps = false;
 	const geometry = new PlaneGeometry(1.7, 0.85);
 	const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
 		fog: false, toneMapped: false });
@@ -103,8 +110,7 @@ export function mountHeadLockedHud(camera: Camera) {
 	plane.renderOrder = 999;
 	camera.add(plane);
 	return {
-		canvas,
-		context,
+		plane,
 		redraw(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void) {
 			context.clearRect(0, 0, canvas.width, canvas.height);
 			paint(context, canvas.width, canvas.height);
@@ -120,7 +126,8 @@ export function mountHeadLockedHud(camera: Camera) {
 }
 
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData) {
+	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData,
+	getReadings: () => VisorReadings) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -134,35 +141,49 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.clearRect(0, 0, w, h);
 		const edge = Math.max(40, Math.min(180, w * 0.12));
 		const bottom = Math.max(30, Math.min(160, h * 0.18));
-		const mapSize = Math.max(80, Math.min(128, w * 0.095));
+		const mapSize = Math.max(96, Math.min(154, w * 0.115));
+		const mapWidth = mapSize * 1.52;
+		const mapHeight = mapSize;
 		const mapLeft = edge;
-		const y = h - bottom - mapSize;
+		const y = h - bottom - mapHeight;
+		context.save();
+		context.beginPath();
+		context.ellipse(mapLeft + mapWidth / 2, y + mapHeight / 2, mapWidth / 2, mapHeight / 2, 0, 0, Math.PI * 2);
+		context.fillStyle = '#07130f88';
+		context.fill();
+		context.clip();
 		context.globalAlpha = 0.7;
-		context.drawImage(map, mapLeft, y, mapSize, mapSize);
+		context.drawImage(map, mapLeft, y, mapWidth, mapHeight);
 		context.globalAlpha = 1;
+		context.restore();
 		context.strokeStyle = '#a4dfc8';
-		context.lineWidth = 0.8;
-		// Open registration corners keep the map on the glass without a panel backing.
-		for (const [x, yy, dx, dy] of [[mapLeft, y, 1, 1], [mapLeft + mapSize, y, -1, 1],
-			[mapLeft, y + mapSize, 1, -1], [mapLeft + mapSize, y + mapSize, -1, -1]]) {
-			context.beginPath(); context.moveTo(x, yy + dy * 9);
-			context.lineTo(x, yy); context.lineTo(x + dx * 9, yy); context.stroke();
-		}
+		context.lineWidth = 1.2;
+		context.beginPath();
+		context.ellipse(mapLeft + mapWidth / 2, y + mapHeight / 2, mapWidth / 2, mapHeight / 2, 0, 0, Math.PI * 2);
+		context.stroke();
 		const fontSize = Math.max(22, Math.min(31, w * 0.025));
 		context.fillStyle = '#c6ffe5';
 		context.textAlign = 'right';
 		context.font = `400 ${fontSize}px monospace`;
 		const right = w - edge;
-		context.fillText('96', right - 52, h - bottom - 40);
-		context.fillText('−63', right - 52, h - bottom - 5);
-		context.font = '13px monospace';
-		context.fillText('% O₂', right, h - bottom - 40);
-		context.fillText('°C', right, h - bottom - 5);
+		const message = getMessage();
+		const readings = getReadings();
+		const readouts = message.readouts ?? [
+			{ value: readings.o2Percent.toFixed(1), unit: '% O₂' },
+			{ value: readings.airTempC === null ? '—' : String(Math.round(readings.airTempC)), unit: '°C' }
+		];
+		for (const [index, readout] of readouts.entries()) {
+			const y = h - bottom - 40 + index * 35;
+			context.font = '13px monospace';
+			context.fillText(readout.unit, right, y);
+			const offset = Math.max(52, context.measureText(readout.unit).width + 10);
+			context.font = `400 ${fontSize}px monospace`;
+			context.fillText(readout.value, right - offset, y);
+		}
 		context.font = '12px system-ui, sans-serif';
 		context.textAlign = 'center';
 		context.fillStyle = '#ffe0a6';
 		const notice = getNotice();
-		const message = getMessage();
 		const textWidth = Math.min(w * 0.84, 640);
 		const top = Math.max(96, h * 0.11);
 		if (notice) context.fillText(notice, w / 2, top, textWidth);
@@ -216,6 +237,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			eyeRotation: { value: new Matrix4() },
 			eyePosition: { value: new Vector3() },
 			reflection: { value: 0 },
+			cabinView: { value: false },
 			swirMode: { value: 0 },
 			swirTime: { value: 0 }
 		},
@@ -253,6 +275,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform mat4 eyeRotation;
 			uniform vec3 eyePosition;
 			uniform float reflection;
+			uniform bool cabinView;
 			uniform float swirMode;
 			uniform float swirTime;
 			varying vec2 imageUV;
@@ -412,6 +435,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				transmitted *= solarTransmission;
 				transmitted *= 1.0 - 0.10 * smoothstep(0.35, 1.0, r2);
 
+				if (!cabinView) {
 				// A broad reflection catches the upper shoulder of the glass as the head turns.
 				vec2 glass = (p - sunInView) * vec2(clamp(aspect, 0.85, 1.9), 1.0);
 				float flare = exp(-dot(glass, glass) * 2.1) * reflection;
@@ -458,6 +482,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					+ vec3(0.029, 0.025, 0.019) * rubber);
 				lining *= 1.0 - 0.48 * groove;
 				transmitted = mix(transmitted, lining, padding);
+				}
 				gl_FragColor = vec4(transmitted, 1.0);
 				#include <colorspace_fragment>
 			}
@@ -481,8 +506,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
 		phobos: Vector3, phobosElevation: number, phobosRadius: number,
 		deimos: Vector3, deimosElevation: number, deimosRadius: number,
-		twilight: number, daylight: number, storm: number, gustTime: number, swir = false, windMps = 7.4) {
-			drawDisplay();
+		twilight: number, daylight: number, storm: number, gustTime: number, swir = false, windMps = 7.4, cabinView = false) {
+			material.uniforms.cabinView.value = cabinView;
+			if (!cabinView) drawDisplay();
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
 			material.uniforms.sunDirection.value.copy(sun);

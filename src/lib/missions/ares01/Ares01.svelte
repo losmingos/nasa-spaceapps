@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { dialogueAt, DURATION, missionAt, type Ares01Dialogue } from './ares01.js';
+	import MissionControls from '../MissionControls.svelte';
+	import { dialogueAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
-	import type { Point } from './route.js';
+	import type { XrMenuItem } from '../../visor/xr-controls.js';
+	import { DETOUR_EXTRA, type Point } from './route.js';
 
-	let { ready, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
+	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
 		ready: boolean;
+		immersive: boolean;
 		onview: (view?: Ares01View) => void;
 		ondialogue: (line: Ares01Dialogue, interactive: boolean) => void;
 		onstart: () => void;
@@ -15,10 +18,9 @@
 		getPosition: () => Point | undefined;
 	} = $props();
 
-	let mode = $state<'demo' | 'interactive'>();
+	let mode = $state<'interactive'>();
 	let menuOpen = $state(false);
-	let menuButton: HTMLButtonElement;
-	let time = $state(0);
+	let menuButton = $state<HTMLButtonElement>();
 	let paused = $state(false);
 	let testing = $state(false);
 	let fastTravel = $state(false);
@@ -26,8 +28,8 @@
 	let runId = $state(0);
 	let lastCue = '';
 	const player = $derived(mode === 'interactive' ? interactiveSnapshot(run) : undefined);
-	const snapshot = $derived(player ?? missionAt(time, time >= 25 ? 'continue' : undefined));
-	const elapsed = $derived(player ? run.elapsed : time);
+	const snapshot = $derived(interactiveSnapshot(run));
+	const elapsed = $derived(run.elapsed);
 	const finished = $derived(snapshot.cue.id === 'closed');
 	const actions = $derived(player ? availableActions(run) : []);
 	const actionLabels: Record<MissionAction, string> = {
@@ -36,7 +38,7 @@
 		abort: 'Stop drilling',
 		secure: 'Secure equipment and save log',
 		collect: 'Collect the three survey samples',
-		detour: 'Accept detour (+65 m)',
+		detour: `Accept detour (+${DETOUR_EXTRA} m)`,
 		check: 'Check suit pressure',
 		resume: 'Resume walking',
 		locate: 'Confirm position using beacon',
@@ -47,7 +49,6 @@
 
 	function start(next: typeof mode) {
 		menuOpen = false;
-		time = 0;
 		mode = next;
 		paused = false;
 		fastTravel = false;
@@ -77,10 +78,34 @@
 		}
 	}
 
+	export function getVrControls(): XrMenuItem[] {
+		if (!ready) return [];
+		if (!mode) return [
+			{ id: 'start', label: 'Start mission', run: () => start('interactive') }
+		];
+
+		const items: XrMenuItem[] = paused ? [] : actions.map((action) => ({
+			id: action, label: actionLabels[action], run: () => perform(action), close: true
+		}));
+		if (!finished) items.push({
+			id: 'pause', label: paused ? 'Resume mission' : 'Pause mission',
+			run: togglePause, close: paused
+		});
+		if (testing && mode === 'interactive' && !finished) items.push({
+			id: 'speed', label: fastTravel ? 'Test speed · 4×' : 'Test speed · 1×',
+			run: () => { fastTravel = !fastTravel; }
+		});
+		items.push(
+			{ id: 'restart', label: 'Restart mission', run: () => start(mode) },
+			{ id: 'leave', label: 'Exit mission', run: () => start(undefined) }
+		);
+		return items;
+	}
+
 	function keyboard(event: KeyboardEvent) {
 		if (event.code === 'Escape' && menuOpen) {
 			menuOpen = false;
-			menuButton.focus();
+			menuButton?.focus();
 			return;
 		}
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
@@ -122,9 +147,8 @@
 			const now = performance.now();
 			const delta = Math.min((now - previous) / 1000, 0.25);
 			previous = now;
-			if (!mode || paused || finished || document.hidden) return;
-			if (mode === 'demo') time = Math.min(DURATION, time + delta);
-			else run = stepInteractive(run, delta, getPosition() ?? run.position);
+			if (!mode || paused || finished || (document.hidden && !immersive)) return;
+			run = stepInteractive(run, delta, getPosition() ?? run.position);
 		}, 100);
 		return () => clearInterval(timer);
 	});
@@ -145,29 +169,16 @@
 
 <svelte:window onkeydown={keyboard} />
 
-<section class="mission-controls" aria-label="ARES-01 · Simulation">
-	{#if testing && mode === 'interactive' && !finished}
-		<button class="hud-action" aria-pressed={fastTravel} aria-keyshortcuts="T" onclick={() => {
-			fastTravel = !fastTravel;
-			focusScene();
-		}}>Test speed {fastTravel ? '4×' : '1×'} [T]</button>
-	{/if}
-	{#each actions as action, index (action)}
-		<button class="hud-action" disabled={paused} onclick={() => perform(action)}>
-			{actionLabels[action]} [{index === 0 ? 'E / 1' : '2'}]
-		</button>
-	{/each}
-	<button class="hud-action" bind:this={menuButton} aria-expanded={menuOpen} aria-controls="mission-options"
-		onclick={() => { menuOpen = !menuOpen; }}>{mode ? 'Mission' : 'ARES-01'}</button>
-
-	<div id="mission-options" class="mission-options t-panel-slide" data-open={menuOpen}
-		inert={!menuOpen} aria-hidden={!menuOpen}>
+<MissionControls id="mission-options" menuLabel="ARES-01" running={!!mode} open={menuOpen}
+	onmenu={() => { menuOpen = !menuOpen; }} bind:menubutton={menuButton}
+	{actions} {actionLabels} {paused} onact={perform}
+	testing={testing && mode === 'interactive' && !finished} fast={fastTravel}
+	ontest={() => { fastTravel = !fastTravel; focusScene(); }}>
 		{#if !mode}
 			<span>The Last Sample · Simulation</span>
 			<p>WASD move · Arrow keys look · E / 1 / 2 act · Space talk</p>
 			<div class="hud-actions">
 				<button class="hud-action" disabled={!ready} onclick={() => start('interactive')}>Start mission [I]</button>
-				<button class="hud-action" disabled={!ready} onclick={() => start('demo')}>Watch demo · 3:30</button>
 			</div>
 		{:else if finished}
 			<p>Return to base complete. Three survey samples recovered. Main core not collected.</p>
@@ -183,5 +194,4 @@
 				<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
 			</div>
 		{/if}
-	</div>
-</section>
+</MissionControls>

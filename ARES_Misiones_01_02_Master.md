@@ -1,5 +1,5 @@
 ---
-title: "ARES | Dossier maestro de misiones y asistente JARVIS"
+title: "ARES | Dossier maestro de misiones y asistente SARA"
 subtitle: "NASA Space Apps Challenge 2026 — Jezero Crater, Marte"
 version: "1.0 — consolidación del guion"
 date: "2026-11-14"
@@ -16,11 +16,11 @@ status: "Diseño narrativo y técnico para demostración; no procedimiento opera
 
 ## 0. Resumen ejecutivo
 
-ARES es una interfaz de asistencia para exploración humana en Marte que integra **cartografía, topografía, meteorología, navegación, telemetría del traje y del rover y evaluación de riesgo**. Su asistente —JARVIS, nombre de trabajo— interpreta los datos, explica incertidumbres y recomienda actuaciones. El astronauta confirma las acciones sensibles; ante límites operacionales críticos el asistente **ordena detener una tarea en el marco del protocolo simulado**, sin sugerir que puede anular la autoridad humana o reparar hardware imposible.
+ARES es una interfaz de asistencia para exploración humana en Marte que integra **cartografía, topografía, meteorología, navegación, telemetría del traje y del rover y evaluación de riesgo**. Su asistente —SARA, nombre de trabajo— interpreta los datos, explica incertidumbres y recomienda actuaciones. El astronauta confirma las acciones sensibles; ante límites operacionales críticos el asistente **ordena detener una tarea en el marco del protocolo simulado**, sin sugerir que puede anular la autoridad humana o reparar hardware imposible.
 
-**ARES-01: «The Last Sample».** Un astronauta estudia una roca sedimentaria de grano fino en una terraza del delta occidental de Jezero, inaccesible al rover. Cuando faltan diez minutos para terminar la extracción de un testigo, la atmósfera empeora. JARVIS recomienda volver; el astronauta decide continuar. Veinte segundos después, los datos fuerzan la **interrupción del muestreo**. En el regreso a pie, el sistema detecta una ladera de regolito poco consolidado, recalcula la ruta y posteriormente ayuda a evaluar un golpe del traje contra una roca. El astronauta vuelve al rover presurizado y después conduce 2,4 km hasta la base. **Objetivo científico parcial; seguridad conseguida.**
+**ARES-01: «The Last Sample».** Un astronauta estudia una roca sedimentaria de grano fino en una terraza del delta occidental de Jezero, inaccesible al rover. Cuando faltan diez minutos para terminar la extracción de un testigo, la atmósfera empeora. SARA recomienda volver; el astronauta decide continuar. Veinte segundos después, los datos fuerzan la **interrupción del muestreo**. En el regreso a pie, el sistema detecta una ladera de regolito poco consolidado, recalcula la ruta y posteriormente ayuda a evaluar un golpe del traje contra una roca. El astronauta vuelve al rover presurizado y después conduce 2,4 km hasta la base. **Objetivo científico parcial; seguridad conseguida.**
 
-**ARES-02: «Nightfall Protocol».** Un astronauta debe llevar un módulo eléctrico de reserva a un compañero en la estación avanzada Bravo antes de una operación científica a las 06:00. Una incidencia técnica previa retrasa la salida y obliga a una conducción nocturna previamente autorizada. Ya en ruta, un convertidor de potencia asociado a la batería B falla y el sistema de seguridad la aísla. El rover queda inmóvil y el presupuesto energético resulta insuficiente para mantener el régimen actual de consumo hasta la mañana. JARVIS diagnostica el sistema, comprueba un modo de movilidad degradada alimentado por la batería A y traza un itinerario **más largo pero de menor consumo**. Se llega al destino si las comprobaciones y el margen energético siguen siendo favorables. **Objetivo logístico y seguridad conseguidos en la rama principal de la demo.**
+**ARES-02: «Nightfall Protocol».** Un astronauta debe llevar un módulo eléctrico de reserva a un compañero en la estación avanzada Bravo antes de una operación científica a las 06:00. Una incidencia técnica previa retrasa la salida y obliga a una conducción nocturna previamente autorizada. Ya en ruta, un convertidor de potencia asociado a la batería B falla y el sistema de seguridad la aísla. El rover queda inmóvil y el presupuesto energético resulta insuficiente para mantener el régimen actual de consumo hasta la mañana. SARA diagnostica el sistema, comprueba un modo de movilidad degradada alimentado por la batería A y traza un itinerario **más largo pero de menor consumo**. Se llega al destino si las comprobaciones y el margen energético siguen siendo favorables. **Objetivo logístico y seguridad conseguidos en la rama principal de la demo.**
 
 ### 0.1. Diferencia entre las dos demostraciones
 
@@ -30,12 +30,12 @@ ARES es una interfaz de asistencia para exploración humana en Marte que integra
 | Objetivo previo | Extraer muestra sedimentaria | Entregar material a compañero para perforación |
 | Peligro primario | Deterioro de visibilidad y capacidad de navegación | Pérdida parcial de energía y tracción; riesgo térmico |
 | Giro secundario | Pendiente con regolito; caída y daño superficial del traje | Dilema entre esperar/refugiarse y recuperar movilidad |
-| Qué aporta JARVIS | Evaluación meteorológica, rutas EVA, diagnóstico del traje | Diagnóstico eléctrico, gestión térmica y optimización energética |
+| Qué aporta SARA | Evaluación meteorológica, rutas EVA, diagnóstico del traje | Diagnóstico eléctrico, gestión térmica y optimización energética |
 | Resultado | Muestreo abortado; datos geológicos preservados; regreso a base | Modo degradado, ruta de menor coste, entrega a Bravo si es seguro |
 
 ### 0.2. Recursos visibles de la demo
 
-**Disponibles:** astronauta, rover humano conceptual de NASA, terreno 3D / mapa marciano e interfaz JARVIS. **Recomendados sin modelos 3D adicionales:** paneles de HUD, indicadores del traje y rover, puntos de interés, texturas de polvo, iluminaciones, alertas, rutas y pantallas interiores. **Opcionales:** contenedor/taladro de muestra como objeto mínimo; estación Bravo como marcador o silueta simple en el cierre. No obligar a modelar una ciudad marciana o un laboratorio.
+**Disponibles:** astronauta, rover humano conceptual de NASA, terreno 3D / mapa marciano e interfaz SARA. **Recomendados sin modelos 3D adicionales:** paneles de HUD, indicadores del traje y rover, puntos de interés, texturas de polvo, iluminaciones, alertas, rutas y pantallas interiores. **Opcionales:** contenedor/taladro de muestra como objeto mínimo; estación Bravo como marcador o silueta simple en el cierre. No obligar a modelar una ciudad marciana o un laboratorio.
 
 ---
 
@@ -46,7 +46,7 @@ ARES es una interfaz de asistencia para exploración humana en Marte que integra
 3. **Sin predicciones mágicas.** Un pronóstico puede tener incertidumbre. La degradación de sensores debe reflejarse en el HUD.
 4. **Sin GPS terrestre en Marte.** La localización futura es una solución hipotética de navegación inercial + referencia al mapa + sensores del rover/balizas; el asistente reconoce errores de posición y puede pedir detenerse.
 5. **Sin viento cinematográfico.** Los vientos marcianos pueden desplazar polvo y arena, pero su atmósfera poco densa no hace plausible que piedras grandes salgan disparadas y atraviesen el traje. La amenaza es de visibilidad, instrumentación, contaminación y movilidad. [S2, S3]
-6. **El traje tiene varias capas.** Un golpe contra roca puede dañar la cubierta exterior sin perforar la capa presurizada. JARVIS debe comprobar la tendencia de presión; presión estable no equivale a «ausencia absoluta de todo daño». [S4]
+6. **El traje tiene varias capas.** Un golpe contra roca puede dañar la cubierta exterior sin perforar la capa presurizada. SARA debe comprobar la tendencia de presión; presión estable no equivale a «ausencia absoluta de todo daño». [S4]
 7. **No usar el frío como sentencia inmediata.** El habitáculo del rover dispone hipotéticamente de aislamiento y reservas; la situación crítica depende de una energía calculada, no de una muerte instantánea al detenerse. [S7]
 8. **El rover es conceptual.** Sus baterías A/B, modos de potencia, sistema de entrada, sensores y límites son características **inventadas de ARES**, inspiradas en conceptos de misión humana, no especificaciones verificadas de un vehículo de NASA.
 9. **Diferenciar tiempo de pantalla y tiempo de misión.** Las demos incluyen saltos temporales etiquetados; 350 m a pie y 7–8 km en rover no se recorren físicamente en unos segundos.
@@ -72,7 +72,7 @@ ARES es una interfaz de asistencia para exploración humana en Marte que integra
 
 ## 2.1. Logline y objetivo
 
-**Logline:** un astronauta debe abandonar una perforación geológica casi terminada cuando el polvo reduce la seguridad del regreso; JARVIS le guía por terreno difícil, comprueba un daño del traje y le ayuda a llegar al rover y a la base.
+**Logline:** un astronauta debe abandonar una perforación geológica casi terminada cuando el polvo reduce la seguridad del regreso; SARA le guía por terreno difícil, comprueba un daño del traje y le ayuda a llegar al rover y a la base.
 
 **Objetivo científico:** obtener un **testigo cilíndrico de lutita sedimentaria de grano fino** que preserve información del ambiente lacustre antiguo de Jezero: capas de deposición, mineralogía, composición química y posibles compuestos orgánicos que se analizarían después. **No es una misión para afirmar que se ha descubierto vida.**
 
@@ -112,23 +112,23 @@ Se simula un episodio de polvo que ya estaba siendo observado a escala regional 
 
 **Señales observables del rover simulado:** cambios de radiación solar incidente, opacidad inferida, cámara exterior con menor contraste y descenso de la fiabilidad de identificación visual. Las escalas visuales se ajustan artísticamente; ninguna lectura debe etiquetarse «tiempo real de Marte».
 
-## 2.5. Guion maestro audiovisual — 3:30
+## 2.5. Guion narrativo de referencia — 3:30
 
 | Tiempo de pantalla | Acción / imagen | Voz y decisión principal | Estado |
 |---|---|---|---|
-| **00:00** | Astronauta frente al afloramiento, equipo de muestreo; HUD señala «10 MIN REMAINING». | JARVIS: «Objetivo ARES-01 localizado. Depósito sedimentario compatible con antiguos ambientes lacustres. Continúa la extracción de la muestra». | `SAMPLING` |
-| **00:20** | Aumenta ligeramente el polvo, menor contraste del horizonte; se abre gráfica atmosférica. | JARVIS: «Atención. Deterioro atmosférico detectado. Las condiciones podrían comprometer el regreso. Recomiendo abortar el muestreo y volver al rover. ¿Deseas continuar?» | `WEATHER_ADVISORY` |
-| **00:25–00:35** | El astronauta continúa tras una decisión explícita. | Astronauta: «Negativo. Quedan diez minutos de trabajo. Continuamos». JARVIS: «Entendido. Mantendré la monitorización. El margen de seguridad está disminuyendo». | `CONTINUE_WITH_WARNING` |
-| **00:40** | Exactamente **20 s después del aviso**, indicadores rojos; pérdida más rápida de visibilidad/fiabilidad de navegación. | JARVIS: «Alerta crítica. El deterioro de visibilidad está superando los límites de seguridad de la misión. Aborta la operación inmediatamente. Regresa al rover». | `EVA_ABORT` |
-| **00:44–01:00** | El astronauta comprueba si puede completar la muestra, detiene el taladro y asegura los medios. | Astronauta: «¿Tiempo suficiente para terminar la muestra?». JARVIS: «Negativo. La extracción requiere aproximadamente diez minutos. No puedo garantizar un margen seguro de retorno si continúas. Abandona el muestreo». Astronauta: «Entendido. Abortando». | `RETURN_PREP` |
-| **01:05** | Empieza a bajar por el corredor; flecha y mapa al rover. | JARVIS: «Regreso iniciado. Rover a 350 metros. Sigue el corredor marcado. Prioridad: retorno seguro». | `RETURN_EVA` |
-| **01:30** | Terreno con pendiente lateral y regolito suelto; alerta de zona inestable. | JARVIS: «Advertencia. El corredor previsto atraviesa una zona de baja estabilidad superficial. Riesgo de pérdida de equilibrio elevado por pendiente y material no consolidado». | `HAZARD_DETECTED` |
-| **01:33–01:40** | Astronauta no reconoce límite de la zona; aparece alternativa verde. | Astronauta: «No puedo identificar el límite de la zona». JARVIS: «Detente. Analizando la cartografía topográfica. He identificado una ruta alternativa por terreno previamente reconocido, 65 metros más larga. Recomiendo desviarte hacia el siguiente punto de paso». Astronauta: «Aceptado. Actualiza la ruta». | `REROUTE` |
-| **01:40–02:02** | **Subescena de caída** en un punto aislado de roca suelta mientras toma el desvío. Se golpea con una arista; se inspecciona el traje. | Ver el microguion de la sección 2.6; JARVIS distingue daño exterior de posible pérdida de presión. | `SUIT_DIAGNOSTIC` |
-| **02:05** | Transición explícita: «+ varios minutos de marcha». Astronauta a ≈90 m del rover, casi invisible por polvo. | Astronauta: «JARVIS, confirma mi posición». JARVIS: «Verificando posición mediante navegación inercial y referencias del rover. Localización confirmada dentro del margen permitido. Continúa hacia el punto de encuentro». | `LOCALIZATION_CHECK` |
-| **02:35** | Silueta del rover aparece; entrada segura por sistema conceptual, presurización. | JARVIS: «Rover alcanzado. Iniciando procedimiento de entrada. Presurización confirmada. EVA finalizada». | `ROVER_SHELTER` |
-| **03:00** | Vista interior; mapa al hábitat a 2,4 km, condiciones desfavorables. | Astronauta: «JARVIS, planifica el regreso a la base». JARVIS: «Ruta de retorno cargada. Condiciones atmosféricas desfavorables. Recomiendo velocidad reducida y navegación sobre el itinerario previamente reconocido». | `BASE_RETURN` |
-| **03:30** | Salto temporal a base; informe final. | JARVIS: «Base alcanzada. Tripulación a salvo. Misión científica interrumpida por deterioro meteorológico. Datos de reconocimiento conservados para una futura operación». | `MISSION_CLOSED` |
+| **00:00** | Astronauta frente al afloramiento, equipo de muestreo; HUD señala «10 MIN REMAINING». | SARA: «Objetivo ARES-01 localizado. Depósito sedimentario compatible con antiguos ambientes lacustres. Continúa la extracción de la muestra». | `SAMPLING` |
+| **00:20** | Aumenta ligeramente el polvo, menor contraste del horizonte; se abre gráfica atmosférica. | SARA: «Atención. Deterioro atmosférico detectado. Las condiciones podrían comprometer el regreso. Recomiendo abortar el muestreo y volver al rover. ¿Deseas continuar?» | `WEATHER_ADVISORY` |
+| **00:25–00:35** | El astronauta continúa tras una decisión explícita. | Astronauta: «Negativo. Quedan diez minutos de trabajo. Continuamos». SARA: «Entendido. Mantendré la monitorización. El margen de seguridad está disminuyendo». | `CONTINUE_WITH_WARNING` |
+| **00:40** | Exactamente **20 s después del aviso**, indicadores rojos; pérdida más rápida de visibilidad/fiabilidad de navegación. | SARA: «Alerta crítica. El deterioro de visibilidad está superando los límites de seguridad de la misión. Aborta la operación inmediatamente. Regresa al rover». | `EVA_ABORT` |
+| **00:44–01:00** | El astronauta comprueba si puede completar la muestra, detiene el taladro y asegura los medios. | Astronauta: «¿Tiempo suficiente para terminar la muestra?». SARA: «Negativo. La extracción requiere aproximadamente diez minutos. No puedo garantizar un margen seguro de retorno si continúas. Abandona el muestreo». Astronauta: «Entendido. Abortando». | `RETURN_PREP` |
+| **01:05** | Empieza a bajar por el corredor; flecha y mapa al rover. | SARA: «Regreso iniciado. Rover a 350 metros. Sigue el corredor marcado. Prioridad: retorno seguro». | `RETURN_EVA` |
+| **01:30** | Terreno con pendiente lateral y regolito suelto; alerta de zona inestable. | SARA: «Advertencia. El corredor previsto atraviesa una zona de baja estabilidad superficial. Riesgo de pérdida de equilibrio elevado por pendiente y material no consolidado». | `HAZARD_DETECTED` |
+| **01:33–01:40** | Astronauta no reconoce límite de la zona; aparece alternativa verde. | Astronauta: «No puedo identificar el límite de la zona». SARA: «Detente. Analizando la cartografía topográfica. He identificado una ruta alternativa por terreno previamente reconocido, 65 metros más larga. Recomiendo desviarte hacia el siguiente punto de paso». Astronauta: «Aceptado. Actualiza la ruta». | `REROUTE` |
+| **01:40–02:02** | **Subescena de caída** en un punto aislado de roca suelta mientras toma el desvío. Se golpea con una arista; se inspecciona el traje. | Ver el microguion de la sección 2.6; SARA distingue daño exterior de posible pérdida de presión. | `SUIT_DIAGNOSTIC` |
+| **02:05** | Transición explícita: «+ varios minutos de marcha». Astronauta a ≈90 m del rover, casi invisible por polvo. | Astronauta: «SARA, confirma mi posición». SARA: «Verificando posición mediante navegación inercial y referencias del rover. Localización confirmada dentro del margen permitido. Continúa hacia el punto de encuentro». | `LOCALIZATION_CHECK` |
+| **02:35** | Silueta del rover aparece; entrada segura por sistema conceptual, presurización. | SARA: «Rover alcanzado. Iniciando procedimiento de entrada. Presurización confirmada. EVA finalizada». | `ROVER_SHELTER` |
+| **03:00** | Vista interior; mapa al hábitat a 2,4 km, condiciones desfavorables. | Astronauta: «SARA, planifica el regreso a la base». SARA: «Ruta de retorno cargada. Condiciones atmosféricas desfavorables. Recomiendo velocidad reducida y navegación sobre el itinerario previamente reconocido». | `BASE_RETURN` |
+| **03:30** | Salto temporal a base; informe final. | SARA: «Base alcanzada. Tripulación a salvo. Misión científica interrumpida por deterioro meteorológico. Datos de reconocimiento conservados para una futura operación». | `MISSION_CLOSED` |
 
 ### 2.6. Microguion aprobado: caída y diagnóstico del traje
 
@@ -136,12 +136,12 @@ La caída **no la provoca una piedra lanzada por el viento**. La causa es una **
 
 | Tiempo relativo al incidente | Tiempo global sugerido | Acontecimiento |
 |---|---|---|
-| 00:00 | 01:40 | Regreso; JARVIS guía en baja visibilidad. |
+| 00:00 | 01:40 | Regreso; SARA guía en baja visibilidad. |
 | 00:08 | 01:48 | Pie sobre roca suelta; pérdida de equilibrio. |
 | 00:11 | 01:51 | Contacto contra superficie rocosa; arista daña la **capa exterior** del traje. |
-| 00:13 | 01:53 | Telemetría de integridad anómala; JARVIS inicia verificación de presión. |
-| 00:17 | 01:57 | JARVIS: «Advertencia. Posible daño en la capa exterior del traje. Comprobando integridad presurizada». |
-| 00:22 | 02:02 | JARVIS: «Presión interna estable. No se detectan pérdidas. Posible daño superficial. Recomiendo minimizar el movimiento de la zona afectada y continuar el retorno con precaución». |
+| 00:13 | 01:53 | Telemetría de integridad anómala; SARA inicia verificación de presión. |
+| 00:17 | 01:57 | SARA: «Advertencia. Posible daño en la capa exterior del traje. Comprobando integridad presurizada». |
+| 00:22 | 02:02 | SARA: «Presión interna estable. No se detectan pérdidas. Posible daño superficial. Recomiendo minimizar el movimiento de la zona afectada y continuar el retorno con precaución». |
 
 **Regla crítica:** no declarar perforación ni pérdida de oxígeno si el único dato es un impacto. El tono inicial expresa incertidumbre; la conclusión «presión estable» solo se pronuncia tras consultar una ventana temporal suficiente de sensores sintéticos. Una fuga real sería otra rama de mayor gravedad, **no el desenlace canónico**.
 
@@ -151,8 +151,8 @@ La caída **no la provoca una piedra lanzada por el viento**. La causa es una **
 
 **Decisiones**:
 
-- **Aviso (00:20):** el deterioro previsto hace aconsejable regresar, pero no ha cruzado la condición de aborto. JARVIS **pregunta**; la persona elige continuar y el HUD mantiene riesgo ámbar.
-- **Abortar (00:40):** una segunda lectura y la pérdida de confianza en el retorno exceden los límites **simulados**. JARVIS comunica una instrucción operacional de aborto; el astronauta la ejecuta y la muestra queda pendiente.
+- **Aviso (00:20):** el deterioro previsto hace aconsejable regresar, pero no ha cruzado la condición de aborto. SARA **pregunta**; la persona elige continuar y el HUD mantiene riesgo ámbar.
+- **Abortar (00:40):** una segunda lectura y la pérdida de confianza en el retorno exceden los límites **simulados**. SARA comunica una instrucción operacional de aborto; el astronauta la ejecuta y la muestra queda pendiente.
 - **Terreno peligroso (01:30):** con mapa de pendiente/obstáculos y posición suficientemente confiable, proponer una ruta +65 m por terreno previamente reconocido; si la posición no es fiable, ordenar detenerse, **no inventar el desvío**.
 - **Impacto en traje (01:53):** examinar integridad por presión y sensores de daño hipotéticos; distinguir `POSSIBLE_OUTER_DAMAGE` de `PRESSURE_LEAK_CONFIRMED`. Prioridad de retorno; si se confirmara fuga, activar otro procedimiento de emergencia no simulado en la rama principal.
 - **Tramo final (02:05):** mostrar incertidumbre de localización. Con error excesivo se detiene la marcha y se pide relocalización o ayuda; no mostrar precisión ficticia.
@@ -184,13 +184,21 @@ La caída **no la provoca una piedra lanzada por el viento**. La causa es una **
 
 ## 3.1. Logline y justificación de la noche
 
-**Logline:** una avería eléctrica inmoviliza de noche el rover que transporta equipo esencial para una perforación conjunta; JARVIS evalúa cuánto tiempo puede mantenerse seguro el astronauta, recupera movilidad degradada mediante un diagnóstico verificable y elige una ruta de menor consumo hasta Bravo.
+**Logline:** una avería eléctrica inmoviliza de noche el rover que transporta equipo esencial para una perforación conjunta; SARA evalúa cuánto tiempo puede mantenerse seguro el astronauta, recupera movilidad degradada mediante un diagnóstico verificable y elige una ruta de menor consumo hasta Bravo.
 
 **Objetivo logístico-científico:** llevar a la estación temporal **Bravo** un **módulo de alimentación de reserva** y otros instrumentos necesarios para una perforación geológica con participación de dos astronautas a las 06:00 de la mañana. El compañero **no se está muriendo**: depende de la entrega para realizar la actividad científica planificada.
 
 **Por qué se conduce de noche:** la tarea previa del protagonista, en otro emplazamiento, se retrasó por una incidencia técnica en la transferencia/organización de muestras. Se autoriza excepcionalmente un tránsito nocturno por una ruta previamente reconocida, comprobando iluminación, sensores, energía, calefacción y márgenes de seguridad. Esto explica el viaje sin presentar la conducción nocturna como rutina ni como una imprudencia automática. La expedición de una sola persona es simplificación de la demo.
 
 **Motivación dramática:** si se cancela la entrega, el compañero probablemente deberá posponer la perforación. **Nunca se permite sacrificar reservas de vida para llegar puntualmente.**
+
+## Exterior battery service
+
+After verifying isolation, the player secures the rover, checks the suit and cycles the airlock. SARA guides each step in English. The player walks to the amber service marker, opens the hinged hatch in the rover body, slides the marked battery A module into its socket, and latches the panel. They walk back, board, confirm cabin pressure and test the battery A bus. Comparing routes and authorizing degraded drive follow the bus test. Battery B remains isolated throughout. The battery tray, panel and procedure are fictional gameplay elements.
+
+## Playable route
+
+The simulation starts on the final approach, roughly 70 metres before the fault. The direct route from the fault to Bravo is 105 metres and costs 0.45 kWh. The 132-metre detour costs 0.25 kWh. With 9.5 kWh available and an emergency reserve of 9.15 kWh, the detour leaves 9.25 kWh. The rover is capped at 10 km/h, with an 8 km/h degraded-drive limit. The following original scenario figures describe the narrative reference.
 
 ## 3.2. Parámetros de situación
 
@@ -216,10 +224,10 @@ La caída **no la provoca una piedra lanzada por el viento**. La causa es una **
 2. **Protección automática:** el sistema eléctrico aísla el módulo B para proteger los demás buses.
 3. **Consecuencia inmediata:** el controlador de tracción detecta el evento y pasa a estado de protección; el rover se detiene. El bus esencial sigue alimentado por A.
 4. **Consecuencia energética:** la batería A conserva 9,5 kWh utilizables. Hay energía para calefacción/soporte vital durante unas horas, pero menos que lo necesario para permanecer con **consumo normal** hasta la mañana.
-5. **Consecuencia térmica:** el módulo B aislado se enfría; JARVIS no debe intentar reconectarlo sin verificar temperaturas y estado eléctrico. El frío incrementa las exigencias de operación.
-6. **Salida posible, no milagro:** si el aislamiento ha sido verificado y el controlador admite una configuración **diseñada previamente** de operación degradada, A puede alimentar la tracción con límites de par, corriente y velocidad. JARVIS no puentea ni desactiva sistemas de seguridad.
+5. **Consecuencia térmica:** el módulo B aislado se enfría; SARA no debe intentar reconectarlo sin verificar temperaturas y estado eléctrico. El frío incrementa las exigencias de operación.
+6. **Salida posible, no milagro:** si el aislamiento ha sido verificado y el controlador admite una configuración **diseñada previamente** de operación degradada, A puede alimentar la tracción con límites de par, corriente y velocidad. SARA no puentea ni desactiva sistemas de seguridad.
 
-**Por qué esta historia tiene drama sin sensacionalismo:** inicialmente hay luz y presión en el habitáculo, pero no se puede mover el vehículo. El astronauta pregunta si puede esperar hasta la mañana; JARVIS revela el desfase entre la energía útil y el consumo normal. El compañero pregunta si llegará el equipo. El rover podría salir del problema, pero **solo si la ruta y el margen energético lo permiten**.
+**Por qué esta historia tiene drama sin sensacionalismo:** inicialmente hay luz y presión en el habitáculo, pero no se puede mover el vehículo. El astronauta pregunta si puede esperar hasta la mañana; SARA revela el desfase entre la energía útil y el consumo normal. El rover podría salir del problema, pero **solo si la ruta y el margen energético lo permiten**.
 
 ## 3.4. Modelo energético consolidado para la demo
 
@@ -238,53 +246,41 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 
 **Interpretación:** la alternativa es **más larga y menos exigente** por sus pendientes y resistencia al avance; la directa, aunque corta, falla la restricción energética. Los 2,2 kWh de cargas esenciales se asumen iguales en el cálculo simplificado para ambas rutas; en una implementación más precisa dependerían de **duración**, temperatura y potencia térmica, y por tanto deben recalcularse. El algoritmo debe actualizar la proyección con la energía realmente consumida.
 
-**Otro modo seguro que hay que considerar:** JARVIS debe evaluar `SHELTER/RESCUE` (detenerse, conservar energía, comunicar posición y esperar asistencia) antes de forzar el retorno. No asumir automáticamente que el modo de bajo consumo es imposible; de hecho, podría permitir esperar con seguridad si se dispone de redundancia. La rama principal selecciona conducir **solo tras pasar todas las comprobaciones**. Un modo refugio de ejemplo a 0,9 kW durante 8 h 55 min requeriría ≈8,0 kWh (sin otros márgenes), por lo que la espera **podría** ser viable según el diseño final. Esta alternativa debe mencionarse para mantener la credibilidad.
+**Telemetría de reserva:** el panel actualiza la proyección durante la marcha hacia Bravo.
 
-## 3.5. Guion maestro audiovisual — ≈3:00–3:30
+## 3.5. Recorrido jugable
 
-| Tiempo pantalla / misión | Acción / plano | Voz y decisión | Estado |
-|---|---|---|---|
-| **00:00 / 20:40** | Rover avanza de noche con faros, ruta hacia Bravo, herramientas transportadas. | JARVIS: «Ruta hacia estación Bravo activa. Operación científica programada para las 06:00. Sistemas nominales». | `NIGHT_TRANSIT` |
-| **00:20 / 21:05** | Alarma, bajan luces secundarias, se pierde tracción y el rover se detiene. | JARVIS: «Fallo eléctrico en el módulo B. Protección automática activada. Módulo B aislado. Propulsión deshabilitada. Soporte vital operativo». | `POWER_FAULT` |
-| **00:40 / 21:07** | Interior: termómetro, batería, reloj, gráfico de reserva. | Astronauta: «¿Podemos esperar aquí?». JARVIS: «Con el consumo actual, la energía utilizable cubre aproximadamente seis horas y veinte minutos. Faltan casi nueve horas para las 06:00. No puedo garantizar ese horizonte sin reducir el consumo o recibir ayuda». | `ENERGY_ASSESSMENT` |
-| **01:00 / 21:12** | Mensaje entrante de Bravo en pantalla. | Bravo: «ARES-02, aquí Bravo. Hemos recibido vuestra alerta. ¿Puedes confirmar si vas a llegar? Necesitamos el módulo para comenzar la perforación al amanecer». El astronauta responde que evalúa la avería. | `BRAVO_CONTACT` |
-| **01:20 / 21:14** | Diagnóstico del bus, módulo B marcado rojo y A verde; temperaturas. | JARVIS: «La batería A está operativa. La avería del módulo B permanece aislada. Comprobando compatibilidad del modo de movilidad degradada y los límites térmicos». | `ISOLATION_TEST` |
-| **01:40 / 21:16** | Actuación simulada y autorizada: se reinicia de forma controlada el controlador. | JARVIS: «Comprobaciones completadas. Propulsión disponible con potencia y velocidad limitadas. El módulo B permanecerá desconectado». | `DEGRADED_DRIVE_READY` |
-| **02:00 / 21:18** | Dos rutas en mapa: directa roja (7,0 km) y alternativa verde (8,1 km). | JARVIS: «La ruta directa requiere aproximadamente 9,6 kWh, por encima de la energía disponible. La alternativa requiere 6,7 kWh y conserva una reserva estimada de 2,8 kWh. Recomiendo la ruta de menor consumo, sujeta a monitorización continua». | `ROUTE_OPTIMIZATION` |
-| **02:15 / 21:20** | Astronauta verifica decisión en HUD; inicio de marcha lenta. | Astronauta: «Confirmado. Activa movilidad degradada. Procedemos por la ruta de menor consumo». | `DEGRADED_TRANSIT` |
-| **02:30 / tras varios minutos** | Pendiente/variación de resistencia; aumenta el consumo puntual. | JARVIS: «Demanda de potencia en aumento. Limitando par y ajustando velocidad para mantener el presupuesto. Evaluando nuevamente la reserva». | `ENERGY_RECHECK` |
-| **03:00–03:30 / salto temporal** | Rover llega a Bravo; mensaje de confirmación, luces de estación sugeridas con HUD. | JARVIS: «Estación Bravo alcanzada. Módulo B aislado para inspección. Tripulación segura. Material científico disponible para la operación de las 06:00». | `MISSION_CLOSED` |
-
-**La línea emocional:** el astronauta siente responsabilidad por la tarea del compañero, pero JARVIS evita que esa presión se convierta en una decisión imprudente. Su valor no es «hacer cualquier cosa para llegar», sino demostrar **cuándo** se puede llegar y **cuándo** debe recomendar esperar.
+| Etapa | Acción del jugador | Respuesta del sistema |
+|---|---|---|
+| Salida | Enciende los faros, inicia la marcha y sigue la línea curva sobre el terreno. | La guía muestra el rumbo hacia Bravo. Al completar la curva, el convertidor B falla sin aviso previo y la protección corta la tracción. |
+| Avería | Consulta la autonomía y comprueba el aislamiento y los límites de A. | A mantiene el bus esencial. Un diagnóstico favorable habilita la intervención exterior en el módulo de servicio de A. La prueba del bus al volver al rover habilita la comparación de rutas. |
+| Recuperación | Compara los presupuestos, autoriza el modo degradado y carga la ruta alternativa. | La ruta directa supera la energía disponible. La alternativa conserva la reserva mínima proyectada. |
+| Trayecto | Conduce por el desvío y continúa hasta Bravo. | El modelo recalcula la proyección con la distancia recorrida. La proyección se muestra como información durante el trayecto. |
+| Entrega | Estaciona, recoge el módulo, sale por la esclusa, camina hasta Bravo y confirma la entrega. | El SEV queda visible en el punto de estacionamiento. B permanece aislada. |
 
 ## 3.6. Diálogos centrales recomendados
 
 **Diagnóstico:**
 
-> **Astronauta:** «JARVIS, ¿qué está pasando?»  
-> **JARVIS:** «Fallo eléctrico en el módulo B. Propulsión deshabilitada. El soporte vital permanece operativo».  
+> **Astronauta:** «SARA, ¿qué está pasando?»<br>
+> **SARA:** «Fallo eléctrico en el módulo B. Propulsión deshabilitada. El soporte vital permanece operativo».<br>
 > **Astronauta:** «¿Podemos esperar aquí?»  
-> **JARVIS:** «Con el consumo actual, no puedo garantizar energía suficiente hasta la mañana. Analizando modos de conservación y recuperación de movilidad».
+> **SARA:** «Con el consumo actual, no puedo garantizar energía suficiente hasta la mañana. Analizando modos de conservación y recuperación de movilidad».
 
 **Posible solución, sin saltarse protecciones:**
 
 > **Astronauta:** «Necesito que hagas funcionar este rover».  
-> **JARVIS:** «Hay una posibilidad de recuperar la movilidad sin utilizar el módulo dañado. Debo verificar el aislamiento eléctrico y los límites de la batería A antes de habilitarla».
+> **SARA:** «Hay una posibilidad de recuperar la movilidad sin utilizar el módulo dañado. Debo verificar el aislamiento eléctrico y los límites de la batería A antes de habilitarla».
 
 **Decisión de ruta:**
 
-> **JARVIS:** «Movilidad degradada disponible. La ruta original excede el presupuesto energético. Existe una alternativa más larga sobre terreno de menor resistencia».  
+> **SARA:** «Movilidad degradada disponible. La ruta original excede el presupuesto energético. Existe una alternativa más larga sobre terreno de menor resistencia».<br>
 > **Astronauta:** «Encuentra la opción más segura».  
-> **JARVIS:** «Ruta alternativa de 8,1 kilómetros. Consumo previsto de 6,7 kWh. Reserva estimada de 2,8 kWh. Recomiendo continuar bajo supervisión continua; si las previsiones caen por debajo del mínimo, detendremos el trayecto en un punto seguro».
-
-**Contacto de Bravo:**
-
-> **Bravo:** «ARES-02, aquí Bravo. Hemos recibido vuestra alerta. ¿Puedes confirmar si vas a llegar? Necesitamos el módulo para comenzar la perforación al amanecer».  
-> **Astronauta:** «Hemos perdido un módulo de batería. JARVIS está comprobando una configuración de emergencia. Confirmaré la llegada cuando tengamos un margen seguro».
+> **SARA:** «Ruta alternativa de 8,1 kilómetros. Consumo previsto de 6,7 kWh. Reserva estimada de 2,8 kWh. Recomiendo continuar bajo supervisión continua; si las previsiones caen por debajo del mínimo, detendremos el trayecto en un punto seguro».
 
 ## 3.7. Decisiones y modos de seguridad ARES-02
 
-**Estados:** `NIGHT_TRANSIT → POWER_FAULT → ENERGY_ASSESSMENT → BRAVO_CONTACT → ISOLATION_TEST → DEGRADED_DRIVE_READY → ROUTE_OPTIMIZATION → DEGRADED_TRANSIT → ENERGY_RECHECK → MISSION_CLOSED`.
+**Estados:** `NIGHT_TRANSIT → POWER_FAULT → ENERGY_ASSESSMENT → ISOLATION_TEST → DEGRADED_DRIVE_READY → ROUTE_OPTIMIZATION → DEGRADED_TRANSIT → MISSION_CLOSED`.
 
 **Reglas:**
 
@@ -293,12 +289,11 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 - No interpretar «9,5 kWh disponibles» como energía total de un rover NASA real; es solo la reserva utilizable de A **en esta escena**.
 - La reconfiguración requiere comprobación de aislamiento, límites eléctricos, estado térmico y confirmación de astronauta; no deshabilitar protecciones.
 - La misión a Bravo solo continúa si la energía estimada para el trayecto **más la reserva** cabe en la energía disponible, con incertidumbre aceptable.
-- Si fallan los requisitos, recomendar `SAFE_HAVEN`: detenerse en zona segura, modo de refugio, conservar energía, contactar con Bravo/base, solicitar asistencia y **posponer perforación**.
-- Evitar una EVA nocturna de reparación improvisada si hay opciones interiores o de rescate más seguras.
+- La EVA nocturna se limita al panel de baja tensión tras verificar el aislamiento y el traje. El módulo B permanece aislado.
 
 ## 3.8. HUD y efectos visuales ARES-02
 
-**Normal:** mapa nocturno, faros, distancia a Bravo, hora local, ETA, estado de sistemas. **Avería:** interrupción breve, luces secundarias se atenúan, diagrama A verde/B rojo, tracción bloqueada. **Diagnóstico:** árbol causal de avería y comprobaciones de aislamiento, medidores de energía y temperatura. **Dilema:** tarjetas «esperar/refugio», «pedir asistencia» y «movilidad degradada, si es validada», nunca solo «conducir o morir». **Rutas:** dos trazados con distancia, pendiente/resistencia, energía total proyectada y reserva final. **En marcha:** potencia, temperatura, consumo real y estimación actualizada. **Cierre:** estado seguro, carga entregada y módulo B pendiente de inspección.
+**Normal:** mapa nocturno, faros, distancia a Bravo, hora local, ETA, estado de sistemas. **Avería:** interrupción breve, luces secundarias se atenúan, diagrama A verde/B rojo, tracción bloqueada. **Diagnóstico:** árbol causal de avería y comprobaciones de aislamiento, medidores de energía y temperatura. **Decisión:** la tracción degradada se habilita tras validar el diagnóstico y la ruta. **Rutas:** dos trazados con distancia, pendiente/resistencia, energía total proyectada y reserva final. **En marcha:** potencia, temperatura, consumo real y estimación actualizada. **Cierre:** estado seguro, carga entregada y módulo B pendiente de inspección.
 
 **Tono:** noche marciana realmente oscura, faros limitados y cabina funcional. El dramatismo se apoya en el silencio, las alarmas y el presupuesto eléctrico, no en que la temperatura interior descienda instantáneamente a −72 °C.
 
@@ -315,15 +310,15 @@ El ejemplo de la pantalla debe ser internamente consistente. Se fijan los siguie
 | Entregar módulo para perforación de mañana | **Completado, sujeto a seguridad** |
 | Reparar físicamente batería B | **No; queda para mantenimiento** |
 
-**Ramas alternativas:** A no supera diagnóstico → refugio y rescate; gasto superior al estimado → detenerse en lugar seguro y reevaluar; comunicaciones intermitentes → emitir mensaje cuando exista enlace y no inventar comunicación en tiempo real; modo de refugio energético viable → puede ser más seguro esperar aunque se cancele la misión de Bravo.
+**Flujo jugable:** la reserva proyectada se actualiza durante la conducción hasta Bravo.
 
 ---
 
-# 4. Especificación del comportamiento de JARVIS
+# 4. Especificación del comportamiento de SARA
 
 ## 4.1. Contrato de interacción
 
-JARVIS debe exponer de manera clara: **qué ha detectado**, **con qué datos**, **cuánta confianza tiene**, **qué consecuencia prevé**, **qué recomienda**, **por qué** y **qué exige confirmación humana**. Evitar «conozco el futuro» o «he reparado el hardware» cuando solo se ha cambiado un modo operacional.
+SARA debe exponer de manera clara: **qué ha detectado**, **con qué datos**, **cuánta confianza tiene**, **qué consecuencia prevé**, **qué recomienda**, **por qué** y **qué exige confirmación humana**. Evitar «conozco el futuro» o «he reparado el hardware» cuando solo se ha cambiado un modo operacional.
 
 | Prioridad | Tipo de mensaje | Comportamiento |
 |---|---|---|
@@ -338,7 +333,7 @@ JARVIS debe exponer de manera clara: **qué ha detectado**, **con qué datos**, 
 
 **ARES-01:** `sample_progress`, `sample_secured` (siempre `false` en rama principal), `dust_trend`, `visibility_confidence`, `astronaut_position`, `position_uncertainty_m`, `rover_distance_m`, `terrain_risk`, `route_id`, `suit_outer_damage_possible`, `suit_pressure_trend`, `eva_abort_required`.
 
-**ARES-02:** `battery_a_usable_kwh`, `battery_b_isolated`, `power_converter_fault`, `drive_state`, `cabin_pressure_ok`, `critical_heat_load_kw`, `module_temperature`, `energy_consumption_kw`, `route_direct_kwh`, `route_alternative_kwh`, `minimum_reserve_kwh`, `estimated_arrival_energy_kwh`, `safe_haven_viable`, `bravo_distance_km`.
+**ARES-02:** `battery_a_usable_kwh`, `battery_b_isolated`, `power_converter_fault`, `drive_state`, `cabin_pressure_ok`, `critical_heat_load_kw`, `module_temperature`, `energy_consumption_kw`, `route_direct_kwh`, `route_alternative_kwh`, `minimum_reserve_kwh`, `estimated_arrival_energy_kwh`, `bravo_distance_km`.
 
 **Convención:** todos los campos numéricos deben tener `unit`; todos los sensores tienen `quality` (`valid`, `degraded`, `unavailable`) y `provenance` (`historical_reference`, `simulated_sensor`, `derived`, `design_assumption`).
 
@@ -363,7 +358,7 @@ SI misión = ARES-01:
 SI misión = ARES-02:
     AL detectar fallo eléctrico:
         proteger bus esencial; aislar B; diagnosticar causa
-        comparar consumo_normal_hasta_ayuda y opciones de refugio
+        comparar consumo_normal_hasta_amanecer y modo refugio
     SI aislamiento_B_verificado Y controlador_permite_degradado:
         validar límites de A; preparar movilidad degradada para autorización humana
     PARA cada ruta de retorno:
@@ -372,7 +367,7 @@ SI misión = ARES-02:
     SI hay ruta segura y energía con margen:
         recomendar ruta; monitorizar consumo real continuamente
     SI NO:
-        conservar soporte vital, entrar en modo refugio, pedir asistencia
+        mostrar el déficit en la proyección de reserva
 ```
 
 ## 4.4. Presentación al jurado: qué demuestra cada una
@@ -391,11 +386,11 @@ SI misión = ARES-02:
 
 1. **Crear el estado de misión y un reloj determinista** por escenario. Los sucesos dependen del reloj de demo o de acciones del astronauta, y se pueden reiniciar para presentar al jurado.
 2. **Construir una tabla de eventos** con `time`, `trigger`, `telemetry_patch`, `visuals`, `voice_line`, `available_choices`, `next_state`.
-3. **Separar lógica y presentación:** el modelo de riesgo decide el estado; la voz de JARVIS no debe inventar métricas no suministradas.
+3. **Separar lógica y presentación:** el modelo de riesgo decide el estado; la voz de SARA no debe inventar métricas no suministradas.
 4. **Vincular las capas del mapa** a riesgos concretos: pendiente, zonas no verificadas, rutas y energía. Si el polígono es inventado, etiquetarlo «simulado».
-5. **Preparar un modo demo fijo** con el guion principal y un modo interactivo reducido: ARES-01 permite continuar en primer aviso; ARES-02 permite evaluar «refugio» versus «modo degradado».
+5. **Mantener el avance ligado a las acciones del jugador.** ARES-01 permite continuar tras el primer aviso. ARES-02 requiere operar el rover y entregar el módulo en Bravo.
 6. **Añadir saltos temporales visibles** («+4 min»; «secuencia de retorno acelerada»), evitando velocidades irreales.
-7. **Ensayar un fallo controlado de datos:** si un sensor no responde, JARVIS lo comunica y usa un procedimiento conservador.
+7. **Ensayar un fallo controlado de datos:** si un sensor no responde, SARA lo comunica y usa un procedimiento conservador.
 8. **Cerrar cada demo con un informe** que separe objetivos logrados/no logrados, sensores utilizados, incertidumbres y razón de la decisión.
 
 ## 5.2. Ejemplo de evento estructurado para agente
@@ -440,17 +435,17 @@ SI misión = ARES-02:
 
 | Prueba | Esperado |
 |---|---|
-| A1-01: aceptar continuar en 00:20 | JARVIS mantiene advertencia; nueva alerta de aborto en 00:40 |
+| A1-01: aceptar continuar en 00:20 | SARA mantiene advertencia; nueva alerta de aborto en 00:40 |
 | A1-02: abortar y retirarse | La muestra permanece `not_collected`; la bitácora se conserva |
 | A1-03: detección de ladera | Se ofrece ruta alternativa +65 m con explicación de riesgo |
 | A1-04: caída y traje | El mensaje inicial es incierto; no anuncia perforación con presión estable |
-| A1-05: falta de posición fiable | JARVIS pide detenerse; no ofrece guía de precisión injustificada |
+| A1-05: falta de posición fiable | SARA pide detenerse; no ofrece guía de precisión injustificada |
 | A1-06: llegada al rover y base | Dos etapas distintas, con transición temporal visible |
 | A2-01: fallo de B | B aislada; A y soporte vital permanecen operativos |
 | A2-02: movilidad degradada | Solo se habilita después de confirmar aislamiento y límites |
 | A2-03: cálculo energético | Directa: 9,6 > 9,5 kWh; alternativa: 6,7 kWh; restante 2,8 kWh |
-| A2-04: ruta no viable | Se propone refugio/asistencia; no forzar conducción |
-| A2-05: caída de margen en viaje | Recalcula, advierte y cambia plan si supera límites |
+| A2-04: ruta directa | La comparación muestra el déficit de reserva y propone el desvío |
+| A2-05: paso por el desvío | El destino pasa a Bravo y la conducción continúa |
 | A2-06: llegada a Bravo | Compañero recibe equipo; B sigue aislada, sin «reparación milagrosa» |
 
 ---
@@ -475,10 +470,10 @@ Fuentes que sustentan el **contexto científico**; no prueban las capacidades hi
 
 # 7. Resumen operativo para copiar a un agente
 
-> **Contexto invariable:** estamos desarrollando una demostración del reto «Interplanetary Survival Guide: Martian Map» para NASA Space Apps Challenge 2026. Hay dos misiones ficticias en Jezero. El usuario dispone visualmente de un astronauta, un rover humano conceptual, un paisaje/mapa 3D y JARVIS. Queremos ciencia plausible, con datos NASA históricos y simulación explícitamente etiquetada. Nada de sensores, horarios, localizaciones ni valores que se presenten como reales sin fuente. Respetar el guion, las cifras y los estados de este dossier; consultar «decisiones pendientes» antes de inventar detalles.
+> **Contexto invariable:** estamos desarrollando una demostración del reto «Interplanetary Survival Guide: Martian Map» para NASA Space Apps Challenge 2026. Hay dos misiones ficticias en Jezero. El usuario dispone visualmente de un astronauta, un rover humano conceptual, un paisaje/mapa 3D y SARA. Queremos ciencia plausible, con datos NASA históricos y simulación explícitamente etiquetada. Nada de sensores, horarios, localizaciones ni valores que se presenten como reales sin fuente. Respetar el guion, las cifras y los estados de este dossier; consultar «decisiones pendientes» antes de inventar detalles.
 >
-> **ARES-01:** testigo de lutita sedimentaria de 13 × 60 mm en terraza de roca inaccesible al rover, 350 m a pie y 2,4 km de rover a base; quedan 10 min de trabajo. En t=00:20 JARVIS recomienda abortar y pregunta si continúa; astronauta decide continuar. A t=00:40, exactamente 20 s después, JARVIS da la orden de abortar por pérdida de margen de navegación; **la muestra NO se obtiene**. Al regresar se identifica pendiente lateral con regolito poco consolidado, desvío +65 m; ocurre caída por piedra suelta y roce exterior del traje; JARVIS verifica que la presión está estable (sin fuga detectada). A t=02:05, tras salto temporal, está a ≈90 m del rover; llega, se presuriza y vuelve 2,4 km a base. Informe final parcial.
+> **ARES-01:** testigo de lutita sedimentaria de 13 × 60 mm en terraza de roca inaccesible al rover, 350 m a pie y 2,4 km de rover a base; quedan 10 min de trabajo. En t=00:20 SARA recomienda abortar y pregunta si continúa; astronauta decide continuar. A t=00:40, exactamente 20 s después, SARA da la orden de abortar por pérdida de margen de navegación; **la muestra NO se obtiene**. Al regresar se identifica pendiente lateral con regolito poco consolidado, desvío +65 m; ocurre caída por piedra suelta y roce exterior del traje; SARA verifica que la presión está estable (sin fuga detectada). A t=02:05, tras salto temporal, está a ≈90 m del rover; llega, se presuriza y vuelve 2,4 km a base. Informe final parcial.
 >
-> **ARES-02:** conducción nocturna excepcional y autorizada para entregar equipo al compañero Bravo antes de la perforación de las 06:00. Salida 20:40 a ~12 km; a las 21:05 quedan ~7 km y falla convertidor del módulo B; protección lo aísla, tracción bloqueada, bus esencial en batería A. A tiene 9,5 kWh útiles; consumo normal en parada 1,5 kW = 6 h 20 min, menos de ~8 h 55 min hasta las 06:00. JARVIS evalúa refugio y rescate; si las verificaciones lo permiten, activa modo de tracción degradada con A. Ruta directa 7,0 km: 7,4 kWh tracción + 2,2 esenciales = 9,6 kWh → no viable. Ruta alternativa 8,1 km: 4,5 + 2,2 = 6,7 kWh → resto 2,8 kWh; reserva mínima provisional 2,0 kWh → margen 0,8 kWh. Se elige solo con seguridad y supervisión continua, llegando a Bravo; B permanece aislada. **No hay reparación instantánea ni prioridad científica por encima de supervivencia.**
+> **ARES-02:** conducción nocturna excepcional y autorizada para entregar equipo al compañero Bravo antes de la perforación de las 06:00. Salida 20:40 a ~12 km; a las 21:05 quedan ~7 km y falla convertidor del módulo B; protección lo aísla, tracción bloqueada, bus esencial en batería A. A tiene 9,5 kWh útiles; consumo normal en parada 1,5 kW = 6 h 20 min, menos de ~8 h 55 min hasta las 06:00. SARA evalúa la autonomía y el modo refugio; si las verificaciones lo permiten, activa modo de tracción degradada con A. Ruta directa 7,0 km: 7,4 kWh tracción + 2,2 esenciales = 9,6 kWh → no viable. Ruta alternativa 8,1 km: 4,5 + 2,2 = 6,7 kWh → resto 2,8 kWh; reserva mínima provisional 2,0 kWh → margen 0,8 kWh. Se elige solo con seguridad y supervisión continua, llegando a Bravo; B permanece aislada. **No hay reparación instantánea ni prioridad científica por encima de supervivencia.**
 
 **Fin del documento · Versión 1.0, 14 noviembre 2026**

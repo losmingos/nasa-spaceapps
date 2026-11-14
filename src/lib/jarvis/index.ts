@@ -17,6 +17,7 @@ import type {
 	AssistantStatus,
 	ChatTurn,
 	CueId,
+	Exertion,
 	MissionEvent,
 	NotifyOptions,
 	ProtocolStepId,
@@ -25,6 +26,9 @@ import type {
 
 export type * from './types.js';
 export type { LineId } from './lines.js';
+export type { PlaceFix, Places, PlanePoint } from './places.js';
+import type { Places } from './places.js';
+export { placesFrom } from './places.js';
 export { getCue, postCue } from './api.js';
 
 /** Presses shorter than this are accidental taps and are discarded (D22). */
@@ -42,6 +46,15 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 export function createAssistant(options: AssistantOptions): Assistant {
 	let missionContext: string | undefined;
+	let placesProvider: (() => Places | null) | null = null;
+	/** Distances measured right now (question time); undefined if the page gave no provider or no position. */
+	function livePlaces(): Places | undefined {
+		try {
+			return placesProvider?.() ?? undefined;
+		} catch {
+			return undefined;
+		}
+	}
 	const mode = options.mode;
 	const ttsMode = options.tts ?? 'elevenlabs';
 	const inBrowser = typeof window !== 'undefined';
@@ -209,7 +222,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			emitSubtitle({ speaker: 'astronaut', text: question, turnId });
 
 			const res = await api.chat(
-				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext },
+				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext, places: livePlaces() },
 				signal
 			);
 			if (!isCurrent(turnId)) return;
@@ -330,6 +343,19 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		if (disposed) return;
 		telemetry.setStep(step);
 		tick();
+	}
+
+	function startMissionClock(): void {
+		if (disposed) return;
+		telemetry.missionStart();
+		silentLines = true;
+		tick();
+	}
+
+	function setExertion(level: Exertion): void {
+		if (disposed) return;
+		telemetry.setExertion(level);
+		emitState();
 	}
 
 	function handleCue(id: CueId): void {
@@ -467,8 +493,11 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		pttUp,
 		notify,
 		setStep,
+		startMissionClock,
+		setExertion,
 		reset,
 		setMissionContext: (context) => { missionContext = context; },
+		setPlacesProvider: (provider) => { placesProvider = provider; },
 		setSceneClock: (localSol) => telemetry.setSceneClock(localSol ?? null),
 		playLine: (id) => void playLineInternal(id),
 		onSubtitle(cb) {

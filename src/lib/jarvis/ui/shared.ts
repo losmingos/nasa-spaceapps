@@ -1,4 +1,4 @@
-// Shared helpers for the Jarvis test/operator pages (/operator, /vr-test).
+// Shared helpers for the visor and Jarvis operator pages.
 import { LINES, buildLineVars, fillLine, type Line, type LineId } from '../lines.js';
 import { PROTOCOL } from '../protocol.js';
 import { HABITAT_BEARING, O2_START_MIN, ROUTE_LENGTH_M } from '../../missions/vr-rehearsal/route.js';

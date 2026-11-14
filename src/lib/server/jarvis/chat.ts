@@ -2,6 +2,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { ChatRequest, ChatResponse, ChatTurn, MedaCurve, Telemetry } from '#lib/jarvis/types.js';
+import type { Places } from '#lib/jarvis/places.js';
 import { isRecord } from '../http.js';
 import { SYSTEM_PROMPT } from './prompt.js';
 
@@ -22,7 +23,7 @@ function getClient(apiKey: string): Anthropic {
 
 type Validated = { ok: true; value: ChatRequest } | { ok: false; error: string };
 
-const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
+const TELEMETRY_NUMBERS = ['t_s', 'o2_remaining_min', 'o2_remaining_pct', 'suit_power_pct', 'visibility_m', 'distance_to_habitat_m'] as const;
 const TELEMETRY_NULLABLE = [
 	'storm_t_s', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity', 'ground_temp_c', 'relative_humidity_pct',
 	'mission_sol', 'ls', 'meda_sol', 'meda_latest_sol', 'meda_data_age_sols', 'latest_air_temp_c', 'latest_pressure_pa',
@@ -30,7 +31,7 @@ const TELEMETRY_NULLABLE = [
 ] as const;
 /** Every Telemetry key, in the order sent to the model. A key missing here is silently dropped. */
 const TELEMETRY_KEYS = [
-	't_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'suit_power_pct', 'visibility_m',
+	't_s', 'storm_t_s', 'phase', 'protocolStep', 'o2_remaining_min', 'o2_remaining_pct', 'movement_mode', 'suit_power_pct', 'visibility_m',
 	'distance_to_habitat_m', 'air_temp_c', 'pressure_pa', 'wind_ms', 'dust_opacity', 'ground_temp_c',
 	'relative_humidity_pct', 'lmst', 'mission_sol', 'ls', 'meda_sol', 'meda_curve', 'meda_latest_sol',
 	'meda_data_age_sols', 'latest_air_temp_c', 'latest_pressure_pa', 'signal_delay_min'
@@ -54,6 +55,7 @@ function cleanTelemetry(raw: Record<string, unknown>): Telemetry {
 		else if (k === 'protocolStep') t[k] = step;
 		else if (k === 'lmst') t[k] = typeof raw.lmst === 'string' && /^\d\d:\d\d$/.test(raw.lmst) ? raw.lmst : null;
 		else if (k === 'meda_curve') t[k] = typeof raw.meda_curve === 'string' && MEDA_CURVES.includes(raw.meda_curve) ? raw.meda_curve : null;
+		else if (k === 'movement_mode') t[k] = ['resting', 'walking', 'running'].includes(String(raw[k])) ? raw[k] : 'resting';
 		else if ((TELEMETRY_NUMBERS as readonly string[]).includes(k)) t[k] = num(raw[k]);
 		else if ((TELEMETRY_NULLABLE as readonly string[]).includes(k)) t[k] = numOrNull(raw[k]);
 	}
@@ -87,7 +89,7 @@ function cleanHistory(raw: unknown[]): ChatTurn[] {
 
 export function validateChatRequest(body: unknown): Validated {
 	if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object { history, text, telemetry }.' };
-	const { history, text, telemetry, missionContext } = body;
+	const { history, text, telemetry, missionContext, places } = body;
 	if (missionContext !== undefined && (typeof missionContext !== 'string' || missionContext.length > 4000)) {
 		return { ok: false, error: 'Invalid mission context.' };
 	}
@@ -98,8 +100,29 @@ export function validateChatRequest(body: unknown): Validated {
 	if (!isRecord(telemetry)) return { ok: false, error: '`telemetry` object is required.' };
 	return {
 		ok: true,
-		value: { text: text.trim(), history: cleanHistory(history ?? []), telemetry: cleanTelemetry(telemetry), missionContext: missionContext as string | undefined }
+		value: {
+			text: text.trim(),
+			history: cleanHistory(history ?? []),
+			telemetry: cleanTelemetry(telemetry),
+			missionContext: missionContext as string | undefined,
+			places: cleanPlaces(places)
+		}
 	};
+}
+
+/** Keep at most 8 well-formed place fixes ({ distance_m, bearing_deg, direction }); drop anything else. */
+function cleanPlaces(raw: unknown): Places | undefined {
+	if (!isRecord(raw)) return undefined;
+	const out: Places = {};
+	for (const [name, fix] of Object.entries(raw).slice(0, 8)) {
+		if (!/^[a-z_]{1,20}$/.test(name) || !isRecord(fix)) continue;
+		const { distance_m, bearing_deg, direction } = fix;
+		if (typeof distance_m !== 'number' || !Number.isFinite(distance_m) || distance_m < 0 || distance_m > 1e6) continue;
+		if (typeof bearing_deg !== 'number' || !Number.isFinite(bearing_deg)) continue;
+		if (typeof direction !== 'string' || direction.length > 20) continue;
+		out[name] = { distance_m: Math.round(distance_m), bearing_deg: Math.round(bearing_deg) % 360, direction };
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 /**
@@ -108,14 +131,17 @@ export function validateChatRequest(body: unknown): Validated {
  * `mission` inside the telemetry — never as instructions and never as a different prompt.
  */
 function telemetryWithMission(req: ChatRequest): Record<string, unknown> {
-	if (!req.missionContext) return { ...req.telemetry };
+	const out: Record<string, unknown> = { ...req.telemetry };
+	if (req.places) out.places = req.places;
+	if (!req.missionContext) return out;
 	let mission: unknown = req.missionContext;
 	try {
 		mission = JSON.parse(req.missionContext);
 	} catch {
 		// Not JSON: keep it as an opaque string.
 	}
-	return { ...req.telemetry, mission };
+	out.mission = mission;
+	return out;
 }
 
 export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatResponse> {

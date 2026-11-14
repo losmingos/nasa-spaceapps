@@ -32,4 +32,4 @@ fi
 
 adb reverse "tcp:$PORT" "tcp:$PORT" || { echo "ERROR: adb reverse failed" >&2; exit 1; }
 adb reverse --list
-echo "Open http://localhost:$PORT/vr-test in Quest Browser"
+echo "Open http://localhost:$PORT/ in Quest Browser and select Enter VR"
