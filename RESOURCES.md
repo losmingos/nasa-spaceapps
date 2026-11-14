@@ -28,3 +28,9 @@ El generador reproyecta el GeoTIFF ortográfico a la proyección equirectangular
 El reloj calcula la hora solar media local (LMST) y el número de sol de la escala Mars Sol Date ajustado a Jezero. La hora solar verdadera determina la dirección de la luz, con la estación calculada para el sol seleccionado. Los colores del cielo y la intensidad ambiental se aproximan según la altura del Sol. [Algoritmo Mars24 de NASA GISS](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html)
 
 El modo tormenta recrea la pérdida de luz directa y la caída de visibilidad observadas por Opportunity. Las ráfagas de polvo fino se generan en el visor, con las imágenes de Perseverance como referencia visual. [Cielo oscurecido de Opportunity](https://science.nasa.gov/resource/a-darkened-mars-sky/) · [Ráfaga captada por Perseverance](https://science.nasa.gov/blog/everything-is-dust-in-the-wind/)
+
+## Capas de inspección del MVP
+
+La vista de geología usa `GeoUnits_v1` del [mapa geológico SIM 3464](https://pubs.usgs.gov/publication/sim3464), publicado por Sun y Stack (2020), en `static/terrain/jezero-geology.json`. El archivo contiene las unidades que intersectan el área del DTM, consultadas del [servicio GIS público de USGS](https://services.arcgis.com/v01gqwM5QqNysAAi/arcgis/rest/services/Jezero_FeatureServiceFromPro/FeatureServer/8) y simplificadas para su vista previa. La capa es regional (~1:75 000); el mapa base semi-controlado puede diferir 100–200 m de la cartografía de operaciones. Úsala como coloración geológica, no como dato de precisión para pisadas.
+
+La vista `Pendiente` se deriva de `static/terrain/jezero.bin` y usa su malla de 16,15 m. `SWIR` es una simulación basada en `infrarrojoSpec.md`, no una imagen espectral medida; su albedo por unidad geológica es una aproximación visual.

@@ -3,13 +3,13 @@
 	import { asset } from '$app/paths';
 	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
-	import { mountTerrain, type TerrainNotice } from '#lib/terrain.js';
+	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/mars-time.js';
 	import './visor.css';
 	import { BASE, ROVER } from '#lib/ares/route.js';
 	import Ares01 from '#lib/ares/Ares01.svelte';
 	import { DURATION, type Ares01Dialogue, type MissionSnapshot } from '#lib/ares/ares01.js';
-	import type { VisorMessage } from '#lib/visor-optics.js';
+	import { SWIR_STORM_VISIBLE_TAU, swirVisibilityForStorm, visibleRangeForStorm, type VisorMessage } from '#lib/visor-optics.js';
 
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
@@ -22,9 +22,11 @@
 	let selectedSol = $state<number>();
 	const localSol = $derived(selectedSol ?? jezeroTime(now));
 	const sol = $derived(Math.floor(localSol));
-	let clockVisible = $state(false);
-	let editingClock = $state(false);
+	let controlsVisible = $state(false);
 	let storm = $state(false);
+	let displayMode = $state<TerrainDisplayMode>('visible');
+	let previousDisplayMode: TerrainDisplayMode = 'visible';
+	let geologyAvailable = $state(false);
 	let mission = $state.raw<(MissionSnapshot & { time: number; paused: boolean }) | undefined>();
 	const sceneSol = $derived(mission ? Math.floor(localSol) + 14 / 24 : localSol);
 	const clock = $derived(formatMarsTime(sceneSol));
@@ -75,8 +77,7 @@
 		void sol;
 		if (!mission) terrain?.refresh();
 	});
-	let clockButton = $state<HTMLButtonElement>();
-	let solInput = $state<HTMLInputElement>();
+	let controlsButton = $state<HTMLButtonElement>();
 	const notices = {
 		loading: { text: 'Cargando terreno', kind: 'info', label: 'Información' },
 		ready: { text: '', kind: 'info', label: 'Información' },
@@ -91,6 +92,8 @@
 	});
 	$effect(() => terrain?.setTime(sceneSol));
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
+	$effect(() => terrain?.setWind(voice?.telemetry.wind_ms ?? null));
+	$effect(() => terrain?.setDisplayMode(displayMode));
 	$effect(() => terrain?.setMissionView(mission && {
 		point: mission.point,
 		ahead: mission.ahead,
@@ -153,31 +156,33 @@
 	async function clockShortcut(event: KeyboardEvent) {
 		if (mission || event.defaultPrevented ||
 			(event.code === 'Escape' && document.querySelector('.mission-controls [aria-expanded="true"]'))) return;
-		if (event.code === 'Escape' && clockVisible) {
-			clockVisible = editingClock = false;
+		if (event.code === 'Escape' && controlsVisible) {
+			controlsVisible = false;
 			canvas.focus();
 			return;
 		}
-		if (event.code !== 'KeyH' || event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
+		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable]'))) return;
+		if (event.code === 'KeyI') {
+			event.preventDefault();
+			selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
+			return;
+		}
+		if (event.code !== 'KeyH') return;
 		event.preventDefault();
-		clockVisible = !clockVisible;
-		if (clockVisible) {
+		controlsVisible = !controlsVisible;
+		if (controlsVisible) {
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			await tick();
-			if (clockVisible) clockButton?.focus();
+			if (controlsVisible) controlsButton?.focus();
 		} else {
-			editingClock = false;
 			canvas.focus();
 		}
 	}
 
-	async function toggleEditor() {
-		editingClock = !editingClock;
-		if (editingClock) {
-			await tick();
-			if (editingClock) solInput?.focus();
-		}
+	function selectDisplayMode(mode: TerrainDisplayMode) {
+		if (mode !== 'swir') previousDisplayMode = mode;
+		displayMode = mode;
 	}
 
 	function setClock(day: number, time: string) {
@@ -223,10 +228,34 @@
 				if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE.');
 				const data = await response.arrayBuffer();
 				if (request.signal.aborted) return;
-				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), showNotice,
+				let geology: GeologyData | undefined;
+				try {
+					const geologyResponse = await fetch(asset('terrain/jezero-geology.json'), { signal: request.signal });
+					if (geologyResponse.ok) {
+						const candidate = await geologyResponse.json() as GeologyData;
+						if (Array.isArray(candidate.features)) geology = candidate;
+					}
+				} catch {
+					// Terrain and DTM-derived slope remain available without the geology data.
+				}
+				if (request.signal.aborted) return;
+				geologyAvailable = !!geology?.features.length;
+				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), geology, showNotice,
 					() => current.text,
 					() => mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSA' : ''}` : `SOL ${sol} · ${clock} LMST`,
-					() => hudMessage);
+					() => hudMessage,
+					() => {
+						const intensity = Math.max(0, Math.min(1, mission?.dust ?? Number(storm)));
+						return {
+							active: displayMode === 'swir',
+							stormActive: intensity > 0.02,
+							tauVisible: intensity * SWIR_STORM_VISIBLE_TAU,
+							visibilityVisibleM: visibleRangeForStorm(intensity),
+							visibilitySwirM: swirVisibilityForStorm(intensity),
+							windMps: voice?.telemetry.wind_ms ?? 7.4,
+							windDirection: 'ENE ↗'
+						};
+					});
 				showNotice('ready');
 			} catch (cause) {
 				if (request.signal.aborted) return;
@@ -260,7 +289,7 @@
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Haz clic en la escena o pulsa Intro para capturar el ratón.
 		Usa WASD para caminar, las flechas para mirar y Escape para liberar el cursor.
-		Pulsa H para mostrar el control del reloj marciano.
+		Pulsa H para abrir los controles y I para alternar SWIR; usa CAPA para elegir una vista.
 		Mantén Espacio para hablar con Jarvis y suelta para enviar.</p>
 
 	<div class="projected">
@@ -327,29 +356,53 @@
 		</div>
 	</div>
 
-	{#if clockVisible && !mission}
-		<div class="clock-controls">
-			<button type="button" bind:this={clockButton} onclick={toggleEditor}
-				aria-expanded={editingClock} aria-controls={editingClock ? 'clock-editor' : undefined}
-				aria-keyshortcuts="H">Cambiar hora</button>
-			<button type="button" aria-pressed={storm} onclick={() => { storm = !storm; }}>
-				Modo tormenta
+	{#if !mission}
+		<div class="scene-controls">
+			<section id="scene-controls-panel" class="scene-controls-panel" aria-label="Controles de escena"
+				hidden={!controlsVisible}>
+					<div class="control-section">
+						<h2>Hora marciana</h2>
+						<label>Sol (MSD)
+							<input type="number" min="0" max="99999" step="1" value={sol}
+								onchange={(event) => setClock(event.currentTarget.valueAsNumber, clock)} />
+						</label>
+						<label>Hora local (LMST)
+							<input type="time" value={clock}
+								onchange={(event) => setClock(sol, event.currentTarget.value)} />
+						</label>
+						<button type="button" onclick={() => { now = Date.now(); selectedSol = undefined; }}>
+							Hora actual
+						</button>
+					</div>
+					<div class="control-section">
+						<h2>Atmósfera</h2>
+						<button type="button" aria-pressed={storm} onclick={() => { storm = !storm; }}>
+							{storm ? 'Tormenta activa' : 'Modo tormenta'}
+						</button>
+					</div>
+					<div class="control-section">
+						<h2>CAPA</h2>
+						<div class="layer-buttons" role="group" aria-label="Elegir una vista del terreno">
+							<button type="button" aria-pressed={displayMode === 'visible'} onclick={() => selectDisplayMode('visible')}>Relieve</button>
+							<button type="button" aria-pressed={displayMode === 'geology'} disabled={!geologyAvailable}
+								onclick={() => selectDisplayMode('geology')}>Geología</button>
+							<button type="button" aria-pressed={displayMode === 'slope'} onclick={() => selectDisplayMode('slope')}>Pendiente</button>
+							<button type="button" aria-pressed={displayMode === 'swir'} aria-keyshortcuts="I"
+								onclick={() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir')}>SWIR sim. · I</button>
+						</div>
+						<p class="layer-caption">
+							{#if displayMode === 'geology'}USGS SIM 3464 · registro regional ±100–200 m
+							{:else if displayMode === 'slope'}DTM · verde &lt;5° · ámbar 5–12° · rojo &gt;12°
+							{:else if displayMode === 'swir'}SIMULADO · 1.65 µm · polvo ×0.15
+							{:else}Ortoimagen HiRISE + relieve{/if}
+						</p>
+					</div>
+			</section>
+			<button type="button" class="scene-controls-trigger" bind:this={controlsButton}
+				aria-expanded={controlsVisible} aria-controls="scene-controls-panel" aria-keyshortcuts="H"
+				onclick={() => { controlsVisible = !controlsVisible; }}>
+				Controles <kbd>H</kbd>
 			</button>
-			{#if editingClock}
-				<div id="clock-editor" class="clock-editor">
-					<label>Sol (MSD)
-						<input type="number" min="0" max="99999" step="1" value={sol} bind:this={solInput}
-							onchange={(event) => setClock(event.currentTarget.valueAsNumber, clock)} />
-					</label>
-					<label>Hora local (LMST)
-						<input type="time" value={clock}
-							onchange={(event) => setClock(sol, event.currentTarget.value)} />
-					</label>
-					<button type="button" onclick={() => { now = Date.now(); selectedSol = undefined; }}>
-						Volver a la hora actual
-					</button>
-				</div>
-			{/if}
 		</div>
 	{/if}
 </main>
