@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { asset } from '$app/paths';
 	import { createAssistant, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
@@ -115,8 +115,13 @@
 		terrain?.refresh();
 	});
 	$effect(() => {
-		terrain?.setTime(sceneSol);
-		assistant?.setLocalSol(sceneSol);
+		const currentTerrain = terrain;
+		const time = sceneSol;
+		// Drawing reads the HUD telemetry, which setLocalSol publishes synchronously.
+		untrack(() => {
+			currentTerrain?.setTime(time);
+			assistant?.setLocalSol(time);
+		});
 	});
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
 	$effect(() => terrain?.setMissionView(mission && {
