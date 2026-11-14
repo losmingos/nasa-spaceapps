@@ -7,15 +7,15 @@ export const SAMPLE_STATUS = 'not_collected';
 // Fixture readings for the scripted check, in kPa. The 9 s window is a demo assumption.
 const pressureReadings = [30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0];
 const pressureCheckStart = 113;
-const pressureWindowEnd = pressureCheckStart + pressureReadings.length - 1;
-const bitacora = {
+
+export const bitacora = {
 	site: 'Terraza ficticia del delta occidental',
 	strata: 'Estratos fotografiados durante el reconocimiento',
 	progress: 'Perforación interrumpida antes de extraer el testigo',
 	position: SAMPLE
 };
 
-interface Cue {
+export interface Cue {
 	at: number;
 	id: string;
 	state: string;
@@ -48,6 +48,18 @@ const hold: Cue = { at: 0, id: 'position-lost', state: 'LOCALIZATION_CHECK', tit
 const earlyReturn: Cue = { at: 20, id: 'early-return', state: 'RETURN_PREP', title: 'Retorno preventivo', text: 'Muestreo interrumpido. Asegura el taladro y registra el avance antes de partir.' };
 const continued: Cue = { at: 25, id: 'continue', state: 'CONTINUE_WITH_WARNING', title: 'Muestreo bajo aviso', text: 'Entendido. Mantendré la monitorización. El margen de seguridad está disminuyendo.' };
 
+export function pressureAt(seconds: number) {
+	if (seconds < 0) return 'Nominal';
+	const window = pressureReadings.slice(0, Math.floor(seconds) + 1);
+	if (window.length < pressureReadings.length) return 'Comprobando tendencia';
+	return window.every((reading) => reading === window[0])
+		? 'Estable · sin fuga detectada' : 'Variación · requiere revisión';
+}
+
+export function dustAt(seconds: number) {
+	return Math.min(1, Math.max(0, (seconds - 17) / 30));
+}
+
 export function missionAt(time: number, choice?: 'continue' | 'return', positionLost = false) {
 	const second = Math.floor(time);
 	let cue = cues.findLast(({ at }) => at <= second) ?? cues[0];
@@ -56,11 +68,7 @@ export function missionAt(time: number, choice?: 'continue' | 'return', position
 	if (positionLost) cue = hold;
 
 	const walking = second >= 65 && second < 155;
-	const pressureWindow = second < pressureCheckStart ? [] : pressureReadings.slice(0, second - pressureCheckStart + 1);
-	const pressure = pressureWindow.length === 0 ? 'Nominal'
-		: second < pressureWindowEnd ? 'Comprobando tendencia'
-		: pressureWindow.every((reading) => reading === pressureWindow[0])
-			? 'Estable · sin fuga detectada' : 'Variación · requiere revisión';
+	const pressure = pressureAt(second - pressureCheckStart);
 	const detour = second >= 100;
 	const remaining = time < 90 ? 350 - Math.max(0, time - 65) * 1.4
 		: time < 100 ? 315
@@ -74,7 +82,7 @@ export function missionAt(time: number, choice?: 'continue' | 'return', position
 		: walking ? pointAlong(route, distance + 2) : second < 65
 		? { x: SAMPLE.x - 3, z: SAMPLE.z - 2 }
 		: BASE;
-	const dust = Math.min(1, Math.max(0, (time - 17) / 30));
+	const dust = dustAt(time);
 	const navigation = positionLost ? 'Sin referencias' : second < 20 ? 'Nominal' : second < 125 ? 'Degradada' : 'Confirmada';
 	const jump = second >= 125 && second < 131 ? '+ varios minutos de marcha'
 		: second >= 149 && second < 153 ? '+ tramo final de marcha'
@@ -121,7 +129,7 @@ export function dialogueAt(time: number, snapshot: MissionSnapshot): Ares01Dialo
 			navigation: snapshot.navigation,
 			pressure: snapshot.pressure,
 			sample: snapshot.sample,
-			distanceToRoverM: snapshot.positionLost || snapshot.sheltered || time >= DURATION ? null : snapshot.remaining
+			distanceToRoverM: snapshot.positionLost || snapshot.sheltered || snapshot.cue.id === 'closed' ? null : snapshot.remaining
 		}
 	};
 }
