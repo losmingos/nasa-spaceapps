@@ -1,5 +1,5 @@
 import {
-	BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, DirectionalLight, FogExp2, Group, HemisphereLight, MathUtils,
+	BufferAttribute, BufferGeometry, CanvasTexture, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
 	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap,
 	PerspectiveCamera, Quaternion, Raycaster, Scene, SRGBColorSpace,
 	Texture, TextureLoader, Vector3, WebGLRenderer
@@ -7,13 +7,15 @@ import {
 import {
 	buildVisorOptics, dustColor, SWIR_DEPTH_RESPONSE_GLSL, SWIR_DUST_TRANSMISSION, SWIR_NOISE_GLSL,
 	type SwirHudData, type VisorMessage
-} from './visor-optics.js';
+} from './optics.js';
+import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
 import { createRockContact, footingOnRocks, type RockContact } from './rock-contact.js';
-import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, type Point } from './ares/route.js';
+import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, ROVER, SAMPLE, type Point } from '../missions/ares01/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
+const clearDustDensity = 0.00048;
 
 export type TerrainDisplayMode = 'visible' | 'geology' | 'slope' | 'swir';
 
@@ -249,7 +251,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const spacing = header.getFloat32(8, true);
 	const count = columns * rows;
 	if (columns < 2 || rows < 2 || data.byteLength !== 12 + count * 4 || !Number.isFinite(spacing) || !(spacing > 0)) {
-		throw new Error('La cuadrícula de elevación no es válida.');
+		throw new Error('Invalid elevation grid.');
 	}
 
 	const elevations = new Float32Array(data, 12);
@@ -260,7 +262,7 @@ function buildTerrain(data: ArrayBuffer) {
 		low = Math.min(low, height);
 		high = Math.max(high, height);
 	}
-	if (!(high > low)) throw new Error('No hay elevaciones válidas.');
+	if (!(high > low)) throw new Error('No valid elevations found.');
 
 	const width = (columns - 1) * spacing;
 	const length = (rows - 1) * spacing;
@@ -337,6 +339,9 @@ function buildTerrain(data: ArrayBuffer) {
 export type TerrainNotice = 'ready' | 'edge';
 
 interface MissionView {
+	samplesCollected: boolean;
+	drilling: boolean;
+	drillPaused: boolean;
 	point: Point;
 	ahead: Point;
 	route: readonly Point[];
@@ -344,7 +349,7 @@ interface MissionView {
 	baseRoute: boolean;
 	showPosition: boolean;
 	tilt: number;
-	player?: { run: number; enabled: boolean; driving: boolean; target?: Point };
+	player?: { run: number; enabled: boolean; speedMultiplier: number; driving: boolean; target?: Point };
 }
 
 const mapSize = 96;
@@ -389,7 +394,8 @@ export function mountTerrain(
 	getNotice: () => string,
 	getClock: () => string,
 	getMessage: () => VisorMessage,
-	getSwir: () => SwirHudData
+	getSwir: () => SwirHudData,
+	modelUrls: Ares01ModelUrls
 ) {
 	const lightTerrain = buildTerrain(data);
 	const { width, length } = lightTerrain;
@@ -414,7 +420,13 @@ export function mountTerrain(
 		if (displayMode !== 'swir') return { ...data, active: false };
 		swirRaycaster.set(camera.position, camera.getWorldDirection(swirDirection));
 		const target = swirRaycaster.intersectObjects(scene.children, true)
-			.find((hit) => typeof hit.object.userData.swirAlbedo === 'number');
+			.find(({ object }) => {
+				if (typeof object.userData.swirAlbedo !== 'number') return false;
+				for (let ancestor: Object3D | null = object; ancestor; ancestor = ancestor.parent) {
+					if (!ancestor.visible) return false;
+				}
+				return true;
+			});
 		return target ? {
 			...data,
 			distanceM: target.distance,
@@ -423,7 +435,8 @@ export function mountTerrain(
 		} : { ...data, distanceM: null, albedo: null, surface: undefined };
 	});
 	const scene = new Scene();
-	const fog = new FogExp2('#bb8867', 0.00042);
+	const dayFog = new Color('#cca88a');
+	const fog = new FogExp2(dayFog, clearDustDensity);
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
 	const orthoTint = new Color('#bfa38e');
@@ -757,37 +770,21 @@ export function mountTerrain(
 		rockColliders = colliders;
 	}
 
-	const landmarks = new Group();
-	landmarks.visible = false;
-	scene.add(landmarks);
-	const hardware = new BoxGeometry(1, 1, 1);
-	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
-	const frameMaterial = new MeshLambertMaterial({ color: '#332b25' });
-	const shale = new MeshLambertMaterial({ color: '#6e4736' });
-	swirMaterialSetters.push(installSwirMaterialResponse(cabin, 0.92));
-	swirMaterialSetters.push(installSwirMaterialResponse(frameMaterial, 0.9));
-	swirMaterialSetters.push(installSwirMaterialResponse(shale, 0.72));
-	const landmarkGrounding: { block: Mesh; anchor: Point; offset: number }[] = [];
-	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
-		const block = new Mesh(hardware, paint);
-		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
-		block.scale.set(w, h, d);
-		block.userData.swirAlbedo = paint === shale ? 0.22 : 0.92;
-		block.userData.swirSurface = paint === shale ? 'EXPOSED ROCK' : 'HARDWARE';
-		landmarks.add(block);
-		landmarkGrounding.push({ block, anchor, offset: y });
-	}
-	part(ROVER, 0, 1.5, 0, 3, 1.9, 5, cabin);
-	part(ROVER, 0, 1.9, -2.51, 2.2, 0.7, 0.04, frameMaterial);
-	for (const side of [-1, 1]) {
-		for (const axle of [-1.6, 0, 1.6]) part(ROVER, side * 1.6, 0.53, axle, 0.65, 1.05, 1.05, frameMaterial);
-	}
-	part(BASE, 0, 1.9, 8, 7, 3.8, 8, cabin);
-	const outcrop = { x: SAMPLE.x - 3, z: SAMPLE.z - 2 };
-	part(outcrop, 0, 0.45, 0, 2.8, 0.85, 2, shale);
-	part(outcrop, 0.24, 0.99, 0, 2.2, 0.26, 1.6, shale);
-	part(outcrop, 0.25, 1.26, 0, 1.5, 0.32, 0.78, cabin);
-	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
+	const swirMissionMaterials = new Set<SwirMaterial>();
+	const missionScene = buildAres01Scene(surfaceHeight, modelUrls, () => draw(), (root, albedo, surface) => {
+		root.traverse((object) => {
+			if (!(object instanceof Mesh)) return;
+			object.userData.swirAlbedo = albedo;
+			object.userData.swirSurface = surface;
+			for (const material of [object.material].flat()) {
+				if (!(material instanceof MeshStandardMaterial || material instanceof MeshLambertMaterial)
+					|| swirMissionMaterials.has(material)) continue;
+				swirMissionMaterials.add(material);
+				swirMaterialSetters.push(installSwirMaterialResponse(material, albedo));
+			}
+		});
+	});
+	scene.add(missionScene.group);
 	let missionView: MissionView | undefined;
 	const saltationGrains = createSaltationGrains();
 	scene.add(saltationGrains.object);
@@ -893,8 +890,7 @@ export function mountTerrain(
 	const deimosWorld = new Vector3();
 	const worldToEye = new Quaternion();
 	const nightFog = new Color('#161b29');
-	const duskFog = new Color('#9c624a');
-	const dayFog = new Color('#bb8867');
+	const duskFog = new Color('#a57561');
 	const neutralFog = new Color('#777777');
 	const dustFog = new Color();
 	const lowSun = new Color('#ffad78');
@@ -909,12 +905,14 @@ export function mountTerrain(
 	let swirFrame = 0;
 	let stormStarted = 0;
 	let gustTime = 0;
+	const drillMoving = () => !!missionView?.drilling && !missionView.drillPaused;
 	const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 	const draw = () => {
 		const swir = displayMode === 'swir';
 		const frameTime = performance.now() / 1000;
 		for (const setSwir of swirMaterialSetters) setSwir(swir, frameTime);
 		saltationGrains.update(camera.position, gustTime, windSpeed, swir && dust > 0.02);
+		missionScene.updateDrill(!!missionView?.drilling, drillMoving() && !reducedMotion.matches ? gustTime : 0);
 		updateRockTiles();
 		sun.target.position.copy(camera.position);
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
@@ -940,8 +938,9 @@ export function mountTerrain(
 		sun.color.copy(lowSun).lerp(highSun, daylight);
 		ambient.intensity = 0.045 + 0.42 * twilight + 1.02 * daylight;
 		fog.color.copy(nightFog).lerp(duskFog, twilight).lerp(dayFog, daylight);
+		// Suspended dust softens distant relief while leaving nearby ground clear.
 		if (displayMode === 'swir') fog.color.lerp(neutralFog, 0.85);
-		fog.density = MathUtils.lerp(0.00042, 0.006, dust) * (displayMode === 'swir' ? SWIR_DUST_TRANSMISSION : 1);
+		fog.density = MathUtils.lerp(clearDustDensity, 0.006, dust) * (displayMode === 'swir' ? SWIR_DUST_TRANSMISSION : 1);
 		if (opticalDust > 0) {
 			sun.intensity *= Math.exp(-2.8 * opticalDust / Math.max(0.15, up));
 			ambient.intensity *= MathUtils.lerp(1, 0.57, opticalDust);
@@ -992,7 +991,7 @@ export function mountTerrain(
 	function updateStormMotion() {
 		cancelAnimationFrame(stormFrame);
 		gustTime = 0;
-		if (dust > 0 && !reducedMotion.matches) {
+		if ((dust > 0 || drillMoving()) && !reducedMotion.matches) {
 			stormStarted = performance.now();
 			stormFrame = requestAnimationFrame(animateStorm);
 		}
@@ -1017,8 +1016,11 @@ export function mountTerrain(
 		const wasActive = !!previousView;
 		if (!wasActive && !view) return;
 		missionView = view;
+		const drillMotionChanged = (previousView?.drilling && !previousView.drillPaused) !==
+			(view?.drilling && !view.drillPaused);
+		if (drillMotionChanged) updateStormMotion();
+		missionScene.setView(!!view, !!view?.samplesCollected, !!view?.baseRoute);
 		if (view) explored = true;
-		landmarks.visible = !!view;
 		if (wasActive !== !!view || view?.baseRoute !== previousView?.baseRoute) mapX = Infinity;
 		const player = view?.player;
 		const previousPlayer = previousView?.player;
@@ -1034,6 +1036,7 @@ export function mountTerrain(
 			if (previousPlayer.enabled === player.enabled && previousPlayer.driving === player.driving
 				&& previousPlayer.target === player.target && previousView.showHazard === view.showHazard
 				&& previousView.showPosition === view.showPosition && previousView.baseRoute === view.baseRoute
+				&& previousView.samplesCollected === view.samplesCollected && previousView.drilling === view.drilling
 				&& previousView.tilt === view.tilt) return;
 			const tilt = reducedMotion.matches ? 0 : view.tilt;
 			camera.rotation.z = 0.32 * tilt;
@@ -1101,7 +1104,9 @@ export function mountTerrain(
 		const driving = missionView?.player?.driving;
 		const side = driving ? 0 : steering;
 		if (driving) camera.rotation.y -= steering * dt * 0.9;
-		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) / Math.max(1, Math.hypot(forward, side));
+		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
+		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) * speedMultiplier
+			/ Math.max(1, Math.hypot(forward, side));
 		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
@@ -1215,7 +1220,7 @@ export function mountTerrain(
 			setDisplayMode(displayMode);
 		}
 	}, undefined, () => {
-		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
+		if (!abort.signal.aborted) console.warn('Could not load the HiRISE orthoimage.');
 	});
 	let highTexture: Texture | undefined;
 
@@ -1223,7 +1228,7 @@ export function mountTerrain(
 		if (renderer.capabilities.maxTextureSize < 7765) return;
 		try {
 			const response = await fetch(gridUrl, options);
-			if (!response.ok) throw new Error('No se pudo descargar la cuadrícula HiRISE de alta resolución.');
+			if (!response.ok) throw new Error('Could not download the high-resolution HiRISE grid.');
 			const grid = await response.arrayBuffer();
 			if (abort.signal.aborted || explored) return;
 			const image = await new TextureLoader().loadAsync(imageUrl);
@@ -1231,13 +1236,13 @@ export function mountTerrain(
 				if (abort.signal.aborted || explored) return;
 				const { width: imageWidth, height: imageHeight } = image.image;
 				if (Math.max(imageWidth, imageHeight) > renderer.capabilities.maxTextureSize) {
-					throw new Error('La ortoimagen supera el tamaño máximo de textura.');
+					throw new Error('The orthoimage exceeds the maximum texture size.');
 				}
 				const candidate = buildTerrain(grid);
 				if (candidate.width !== width || candidate.length !== length ||
 					!Number.isFinite(candidate.surfaceHeight(spawnX, spawnZ))) {
 					candidate.geometry.dispose();
-					throw new Error('La cuadrícula de alta resolución no coincide con el terreno.');
+					throw new Error('The high-resolution grid does not match the terrain.');
 				}
 				image.colorSpace = SRGBColorSpace;
 				image.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
@@ -1248,7 +1253,7 @@ export function mountTerrain(
 				if (highTexture !== image) image.dispose();
 			}
 		} catch (error) {
-			if (!abort.signal.aborted) console.warn('No se pudo cargar el terreno de alta resolución.', error);
+			if (!abort.signal.aborted) console.warn('Could not load the high-resolution terrain.', error);
 		}
 	}
 
@@ -1275,9 +1280,7 @@ export function mountTerrain(
 		rockTiles.clear();
 		lastRockTileX = lastRockTileZ = Number.NaN;
 		mapX = Infinity;
-		for (const { block, anchor, offset } of landmarkGrounding) {
-			block.position.y = surfaceHeight(anchor.x, anchor.z) + offset;
-		}
+		missionScene.reground();
 		setDisplayMode(displayMode);
 		updateRockTiles();
 		camera.position.y = eyeY();
@@ -1324,10 +1327,7 @@ export function mountTerrain(
 			geologyLayer?.geology.dispose();
 			swirLayer?.dispose();
 			slopeLayer?.dispose();
-			hardware.dispose();
-			cabin.dispose();
-			frameMaterial.dispose();
-			shale.dispose();
+			missionScene.dispose();
 			optics.dispose();
 			renderer.dispose();
 		}
