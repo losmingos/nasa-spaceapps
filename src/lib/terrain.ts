@@ -6,6 +6,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { buildOutcrop } from './missions/ares01/outcrop.js';
 import { buildSamplingKit } from './missions/ares01/sampling-kit.js';
 import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
@@ -500,9 +501,11 @@ export function mountTerrain(
 	}
 
 	part(BASE, 0, 1.9, 8, 7, 3.8, 8, cabin);
-	const outcrop = { x: SAMPLE.x - 3, z: SAMPLE.z - 2 };
-	part(outcrop, 0, 0.45, 0, 2.8, 0.85, 2, shale);
-	part(outcrop, 0.24, 0.99, 0, 2.2, 0.26, 1.6, shale);
+	const outcrop = buildOutcrop();
+	const rockX = SAMPLING_KIT.x - 0.13;
+	const rockZ = SAMPLING_KIT.z - 0.76;
+	outcrop.group.position.set(rockX, surfaceHeight(rockX, rockZ), rockZ);
+	landmarks.add(outcrop.group);
 	const samplingKit = buildSamplingKit();
 	const { x: kitX, z: kitZ } = SAMPLING_KIT;
 	samplingKit.group.position.set(kitX, surfaceHeight(kitX, kitZ), kitZ);
@@ -898,6 +901,7 @@ export function mountTerrain(
 			hardware.dispose();
 			cabin.dispose();
 			samplingKit.dispose();
+			outcrop.dispose();
 			for (const model of missionAssets) disposeModel(model);
 			shale.dispose();
 			optics.dispose();
