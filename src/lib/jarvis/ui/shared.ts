@@ -75,6 +75,12 @@ const PHASE_LABEL: Record<Telemetry['phase'], string> = {
 	safe: 'a salvo'
 };
 
+const MEDA_CURVE_LABEL: Record<NonNullable<Telemetry['meda_curve']>, string> = {
+	season: 'misma estación',
+	latest: 'último publicado',
+	'storm-blend': 'mezcla con tormenta sol 313'
+};
+
 /** Telemetry as [label, value] rows for display. */
 export function telemetryRows(t: Telemetry): [string, string][] {
 	return [
@@ -89,6 +95,14 @@ export function telemetryRows(t: Telemetry): [string, string][] {
 		['Temperatura del aire', fmt(t.air_temp_c, '°C')],
 		['Presión', fmt(t.pressure_pa, 'Pa')],
 		['Viento', fmt(t.wind_ms, 'm/s')],
-		['Opacidad del polvo', fmt(t.dust_opacity)]
+		['Opacidad del polvo', fmt(t.dust_opacity)],
+		['Temperatura del suelo', fmt(t.ground_temp_c, '°C')],
+		['Humedad relativa', fmt(t.relative_humidity_pct, '%')],
+		['Hora local (LMST)', t.lmst ?? '—'],
+		['Sol de misión · Ls', t.mission_sol === null ? '—' : `${t.mission_sol} · ${fmt(t.ls, '°')}`],
+		['Curva MEDA', t.meda_sol === null ? '—' : `sol ${t.meda_sol} (${MEDA_CURVE_LABEL[t.meda_curve ?? 'season']})`],
+		['Último sol publicado', t.meda_latest_sol === null ? '—' : `${t.meda_latest_sol} (hace ${fmt(t.meda_data_age_sols)} soles)`],
+		['Último dato a esta hora', `${fmt(t.latest_air_temp_c, '°C')} · ${fmt(t.latest_pressure_pa, 'Pa')}`],
+		['Retardo Tierra–Marte', fmt(t.signal_delay_min, 'min')]
 	];
 }

@@ -115,6 +115,9 @@
 		terrain?.refresh();
 	});
 	$effect(() => terrain?.setTime(sceneSol));
+	// Jarvis (MEDA weather replay): same scene clock as the terrain (local sol, mars-time.ts scale).
+	// `assistant` is not reactive; this re-runs whenever sceneSol changes (the live clock ticks every 5 s).
+	$effect(() => assistant?.setSceneClock(sceneSol));
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
 	$effect(() => terrain?.setMissionView(mission && {
 		point: mission.point,

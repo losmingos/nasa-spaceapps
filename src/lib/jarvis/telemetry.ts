@@ -1,6 +1,9 @@
 // Simulated suit/mission telemetry (spec §5.3, D10, D23). Computed on demand from two clocks:
-// mission_start (t_s) and storm_start (storm_t_s). No browser APIs; safe during SSR.
+// mission_start (t_s) and storm_start (storm_t_s), plus the scene clock that drives the MEDA weather
+// replay (weather.ts, D31–D35). No browser APIs; safe during SSR.
 import snapshot from '../data/meda-snapshot.json';
+import { localSolAt } from '../mars-clock.js';
+import { weatherAt } from './weather.js';
 import {
 	O2_START_MIN,
 	ROUTE_LENGTH_M,
@@ -19,18 +22,17 @@ const POWER_DRAIN_PCT_S = 0.01;
 const POWER_DRAIN_STORM_PCT_S = 0.05;
 /** Visibility time constant (s): 10 000 m → ~18 m at storm_t ≈ 90 s, so P5 (< 20 m) arrives ~85 s into the storm. */
 const VISIBILITY_TAU_S = 11;
-/** Dust optical depth reached during the storm, and the base used when MEDA has no value (typical Jezero tau). */
-const DUST_STORM_PEAK = 2.5;
-const DUST_BASE_FALLBACK = 0.5;
-const DUST_TAU_S = 30;
 
 const STEP_IDS: readonly ProtocolStepId[] = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
 const P4_INDEX = 3;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-/** MEDA snapshot values (null when the sensor had no data that sol). */
-export const MEDA = (() => {
+/**
+ * Sol-313 snapshot values baked into the pre-recorded lines (L01, Q4 mp3s, scripts/gen_lines.ts).
+ * Only for those lines: live telemetry weather comes from the MEDA curves (weather.ts).
+ */
+export const LINE_MEDA = (() => {
 	const s = snapshot as unknown as Record<string, unknown>;
 	const air = s.air_temp_c;
 	const airTemp = typeof air === 'object' && air !== null ? num((air as Record<string, unknown>).value) : num(air);
@@ -60,6 +62,8 @@ export interface TelemetrySim {
 	 */
 	setStep(step: ProtocolStepId): void;
 	reset(): void;
+	/** Scene local sol (mars-time.ts scale) for the weather replay; null = real current Jezero time. */
+	setSceneClock(localSol: number | null): void;
 	get(): Telemetry;
 	readonly missionStarted: boolean;
 	readonly stormStarted: boolean;
@@ -67,7 +71,11 @@ export interface TelemetrySim {
 
 const defaultNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-export function createTelemetry(now: () => number = defaultNow, routeLengthM = ROUTE_LENGTH_M): TelemetrySim {
+export function createTelemetry(
+	now: () => number = defaultNow,
+	routeLengthM = ROUTE_LENGTH_M,
+	wallClock: () => number = Date.now
+): TelemetrySim {
 	/** A route shorter than the P6 radius means mission.ts still has placeholders: never auto-advance to P6. */
 	const routeConfigured = routeLengthM > P6_DISTANCE_M;
 	let missionT0: number | null = null; // ms
@@ -75,6 +83,8 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 	let manual: { idx: number; autoIdxAtSet: number } | null = null;
 	/** Mission time (s) at which a manual step ≥ P4 started the walk back. */
 	let manualWalkT: number | null = null;
+	/** Scene local sol, or null to follow the real Jezero clock. Not cleared by reset (the scene owns it). */
+	let sceneSol: number | null = null;
 
 	function clocks() {
 		const n = now();
@@ -131,12 +141,8 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 		else if (missionT0 !== null) phase = 'sampling';
 		else phase = 'idle';
 
-		let dust = MEDA.dust_opacity;
-		if (st !== null) {
-			const base = dust ?? DUST_BASE_FALLBACK;
-			const peak = Math.max(base, DUST_STORM_PEAK);
-			dust = base + (peak - base) * (1 - Math.exp(-st / DUST_TAU_S));
-		}
+		const wall = wallClock();
+		const w = weatherAt(sceneSol ?? localSolAt(wall), st, wall);
 
 		return {
 			t_s: Math.round(t),
@@ -147,10 +153,22 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 			suit_power_pct: round(power, 1),
 			visibility_m: roundVisibility(visibility),
 			distance_to_habitat_m: Math.round(distance),
-			air_temp_c: roundNullable(MEDA.air_temp_c, 1),
-			pressure_pa: roundNullable(MEDA.pressure_pa),
-			wind_ms: roundNullable(MEDA.wind_ms, 1),
-			dust_opacity: roundNullable(dust, 2)
+			air_temp_c: roundNullable(w.air_temp_c, 1),
+			pressure_pa: roundNullable(w.pressure_pa),
+			wind_ms: roundNullable(w.wind_ms, 1),
+			dust_opacity: roundNullable(w.dust_opacity, 2),
+			ground_temp_c: roundNullable(w.ground_temp_c, 1),
+			relative_humidity_pct: roundNullable(w.relative_humidity_pct, 1),
+			lmst: w.lmst,
+			mission_sol: w.mission_sol,
+			ls: round(w.ls, 1),
+			meda_sol: w.meda_sol,
+			meda_curve: w.meda_curve,
+			meda_latest_sol: w.meda_latest_sol,
+			meda_data_age_sols: w.meda_data_age_sols,
+			latest_air_temp_c: roundNullable(w.latest_air_temp_c, 1),
+			latest_pressure_pa: roundNullable(w.latest_pressure_pa),
+			signal_delay_min: roundNullable(w.signal_delay_min, 1)
 		};
 	}
 
@@ -182,6 +200,9 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 			if (idx >= P4_INDEX && manualWalkT === null) manualWalkT = clocks().t;
 		},
 		reset,
+		setSceneClock(localSol) {
+			sceneSol = typeof localSol === 'number' && Number.isFinite(localSol) ? localSol : null;
+		},
 		get: compute,
 		get missionStarted() {
 			return missionT0 !== null;
