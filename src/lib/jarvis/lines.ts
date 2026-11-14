@@ -18,7 +18,7 @@ export interface Line {
 }
 
 export const LINES: readonly Line[] = [
-	{ id: 'L01', kind: 'event', trigger: 'mission_start', template: 'Jarvis online. Sample site is ahead. Air temperature {air_temp_c} degrees Celsius, pressure {pressure_hpa} hectopascals. Conditions nominal.' },
+	{ id: 'L01', kind: 'event', trigger: 'mission_start', template: 'Sara online. Sample site is ahead. Air temperature {air_temp_c} degrees Celsius, pressure {pressure_hpa} hectopascals. Conditions nominal.' },
 	{ id: 'L02', kind: 'event', trigger: 'sample_collected', template: 'Sample logged. Seal it and prepare to head back.' },
 	{ id: 'L03', kind: 'event', trigger: 'storm_start', template: 'Warning: dust storm front approaching from the east. Protocol step one: stop sampling and secure the sample now.' },
 	{ id: 'L04', kind: 'event', trigger: 'storm_start + 30 s', template: 'Visibility is dropping fast. Switch on your lights and beacon, and save suit power.' },
@@ -26,7 +26,7 @@ export const LINES: readonly Line[] = [
 	{ id: 'L06', kind: 'event', trigger: 'P6', template: 'Airlock in range. Dust off before you enter. Well done.' },
 	{ id: 'E01', kind: 'error', trigger: 'empty transcript', template: "Say again, I didn't copy." },
 	{ id: 'E02', kind: 'error', trigger: 'chat error or refusal', template: 'Comms are degraded. Follow the protocol: return to the habitat.' },
-	{ id: 'Q1', kind: 'scripted-answer', trigger: 'cue — "Jarvis, what do I do?"', template: 'Protocol step one: stop sampling, seal the sample tube and stow it. Then check your helmet seal and switch on your lights.' },
+	{ id: 'Q1', kind: 'scripted-answer', trigger: 'cue — "Sara, what do I do?"', template: 'Protocol step one: stop sampling, seal the sample tube and stow it. Then check your helmet seal and switch on your lights.' },
 	{ id: 'Q2', kind: 'scripted-answer', trigger: 'cue — "How far is the habitat?"', template: 'The habitat is {route_length_m} metres {habitat_bearing}, along the marked route. Stay on the route; no shortcuts across the scarps.' },
 	{ id: 'Q3', kind: 'scripted-answer', trigger: 'cue — "How much oxygen do I have?"', template: 'About {o2_start_min} minutes at normal effort, less while you walk in the storm. That is enough to reach the habitat.' },
 	{ id: 'Q4', kind: 'scripted-answer', trigger: 'cue — "Is the wind going to knock me over?"', template: 'No. At {pressure_hpa} hectopascals the air is far too thin to knock you over. The danger is visibility and suit power, so stay on the route.' }

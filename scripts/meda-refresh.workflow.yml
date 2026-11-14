@@ -1,0 +1,63 @@
+# TEMPLATE: copy to .github/workflows/meda-refresh.yml to enable it (it was not committed there because
+# pushing workflow files needs a token with the `workflow` scope).
+# Weekly check for new Mars 2020 MEDA releases in the NASA PDS (spec D35).
+# Runs `npm run data:meda` and, if src/lib/data/meda-curves.json changed, opens a pull request.
+# Uses only the default GITHUB_TOKEN (no secrets, no cloud resources). Requires the repository setting
+# Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+name: Refresh MEDA curves
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: meda-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Keep the downloaded PDS products between runs so only new sols are fetched.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/meda
+          key: meda-${{ github.run_id }}
+          restore-keys: meda-
+      - run: npm run data:meda
+      - name: Open a pull request if the curves changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # built_utc always changes; only open a PR when the data itself changed.
+          if git diff --quiet -I'"built_utc"' -- src/lib/data/meda-curves.json; then
+            echo "No new MEDA data."
+            exit 0
+          fi
+          latest=$(node -e "console.log(require('./src/lib/data/meda-curves.json').latest_published_sol)")
+          branch="data/meda-sol-${latest}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch $branch already exists; skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add src/lib/data/meda-curves.json
+          git commit -m "Refresh MEDA curves (latest sol ${latest})"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Datos MEDA: último sol publicado ${latest}" \
+            --body "Actualización automática de \`src/lib/data/meda-curves.json\` con \`npm run data:meda\` (nuevos datos MEDA en el PDS). Revisa el resumen del job y comprueba \`npm run build\` antes de fusionar."

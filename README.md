@@ -39,6 +39,22 @@ Para regenerar el binario, descarga el IMG desde la ficha de HiRISE y ejecuta:
 python scripts/build_terrain.py ruta/al/DTEEC_002387_1985_003798_1985_A01.IMG
 ```
 
+## Datos del clima de Jarvis (MEDA)
+
+Jarvis cita temperatura, presión, humedad y temperatura del suelo reales, medidas por la estación MEDA del rover Perseverance. **MEDA no tiene un feed en vivo.** Sus datos se publican en el PDS de la NASA por lotes, unas tres veces al año. `src/lib/data/meda-curves.json` guarda curvas diarias reales con un punto cada 10 minutos de hora local: la del último sol publicado, una por cada estación marciana (intervalos de 10° de Ls) y la del sol 313, cuando llegó la tormenta de polvo de enero de 2022. Jarvis reproduce la curva de la misma estación a la hora del reloj del visor y, en la tormenta, pasa a la curva del sol 313. También calcula el retardo de la señal entre la Tierra y Marte. Los detalles, las fuentes y las comprobaciones están en [`src/lib/data/README.md`](src/lib/data/README.md).
+
+**Actualizar tras una nueva entrega del PDS:**
+
+```sh
+npm run data:meda   # descarga solo lo nuevo (caché en .cache/meda, fuera de git) y reescribe meda-curves.json
+```
+
+Revisa el resumen que imprime, ejecuta `npm run build` y haz commit del JSON. El texto del prompt toma el último sol publicado al arrancar, así que hay que reiniciar `npm run dev` o volver a desplegar.
+
+**Refresco automático (opcional):**
+- **GitHub Action (plantilla incluida):** copia `scripts/meda-refresh.workflow.yml` a `.github/workflows/meda-refresh.yml` y haz commit (subir ficheros de workflow requiere un token con el permiso `workflow`, por ejemplo `gh auth refresh -s workflow`). Se ejecuta cada lunes (y a mano desde *Actions → Refresh MEDA curves → Run workflow*). Solo usa el `GITHUB_TOKEN` por defecto y abre un PR si hay datos nuevos. Para que pueda crear el PR, activa *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*. La primera ejecución descarga unos 500 MB del PDS y las siguientes usan la caché.
+- **Cloudflare Cron Trigger + KV (no implementado, es un paso futuro):** (1) `npx wrangler kv namespace create MEDA` y añadir el binding `kv_namespaces: [{ "binding": "MEDA", "id": "<id>" }]` a `wrangler.jsonc`. (2) Añadir `"triggers": { "crons": ["0 6 * * *"] }` y un handler `scheduled` en `scripts/cf-postbuild.js` que ejecute la misma reducción que `scripts/build_meda.ts` y escriba el JSON en KV. Los CSV de un sol pesan unos 15 MB, así que conviene limitarse a comprobar si hay un sol nuevo y procesar solo `latest`. (3) Hacer que el cliente lea las curvas de un endpoint `/api/meda` respaldado por KV, con `meda-curves.json` como reserva. Nada de esto se ha creado en la cuenta de Cloudflare.
+
 ## ARES-01 · The Last Sample
 
 Press **I** to start the interactive mission. Use **WASD** to walk or drive and hold the **arrow keys** to look around. Press **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.

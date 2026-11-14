@@ -53,7 +53,7 @@
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
 	const hudMessage: VisorMessage = $derived(mission ? missionMessage(mission) : {
-		title: voiceLabel ? `JARVIS · ${voiceLabel}` : '',
+		title: voiceLabel ? `SARA · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
 	});
 	const missionClock = $derived(mission ? `${Math.floor(mission.time / 60)}:${String(Math.floor(mission.time % 60)).padStart(2, '0')}` : '');
@@ -78,6 +78,9 @@
 		terrain?.refresh();
 	});
 	$effect(() => terrain?.setTime(sceneSol));
+	// Jarvis (MEDA weather replay): same scene clock as the terrain (local sol, mars-time.ts scale).
+	// `assistant` is not reactive; this re-runs whenever sceneSol changes (the live clock ticks every 5 s).
+	$effect(() => assistant?.setSceneClock(sceneSol));
 	$effect(() => terrain?.setDust(mission?.dust ?? Number(storm)));
 	$effect(() => terrain?.setMissionView(mission && missionTerrainView(mission)));
 
@@ -252,7 +255,7 @@
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
 		Use WASD to walk, the arrow keys to look, and Escape to release the pointer.
 		Press H to show the Mars clock controls.
-		Hold Space to talk to JARVIS and release to send.</p>
+		Hold Space to talk to SARA and release to send.</p>
 
 	<div class="projected">
 		<div class="sr-only" role="status" aria-atomic="true">
@@ -299,7 +302,7 @@
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
 			<button type="button" class="hud-action voice-control"
-					aria-label="JARVIS. Hold to talk and release to send"
+					aria-label="SARA. Hold to talk and release to send"
 					aria-keyshortcuts="Space"
 					data-recording={voiceStatus === 'recording'}
 					onpointerdown={(event) => {
@@ -314,7 +317,7 @@
 						<rect x="9" y="3" width="6" height="12" rx="3" />
 						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
 					</svg>
-					<span>JARVIS</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
+					<span>SARA</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
 				</button>
 		</div>
 	</div>

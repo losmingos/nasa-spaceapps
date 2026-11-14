@@ -432,7 +432,7 @@
 			hud.fillStyle = '#b19a8c';
 			hud.font = '24px ui-monospace, monospace';
 			hud.textAlign = 'right';
-			hud.fillText(`JARVIS · ${MODE_LABEL[mode].toUpperCase()} · ${TTS_LABEL[tts].toUpperCase()}`, W - pad, pad + 24);
+			hud.fillText(`SARA · ${MODE_LABEL[mode].toUpperCase()} · ${TTS_LABEL[tts].toUpperCase()}`, W - pad, pad + 24);
 			hud.textAlign = 'left';
 			hud.textBaseline = 'alphabetic';
 
@@ -452,7 +452,7 @@
 				y += 14;
 			};
 			block('astronaut', 'ASTRONAUTA', astronaut, 2);
-			block('jarvis', 'JARVIS', jarvis, 4);
+			block('jarvis', 'SARA', jarvis, 4);
 
 			hud.font = '20px ui-monospace, monospace';
 			if (error) {
@@ -655,7 +655,7 @@
 </script>
 
 <svelte:head>
-	<title>Jarvis | Prueba VR</title>
+	<title>Sara | VR test</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
@@ -667,13 +667,13 @@
 	{#if panelOpen}
 		<section class="landing" aria-labelledby="title">
 			<div class="identity">
-				<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">VR TEST</span>
+				<span class="planet" aria-hidden="true">◉</span> SARA<span class="divider"></span><span class="subtle">VR TEST</span>
 				<button class="link close" onclick={() => (panelOpen = false)}>Hide</button>
 			</div>
-			<h1 id="title">JARVIS in VR</h1>
+			<h1 id="title">SARA in VR</h1>
 			<p class="lead">
 				Press <strong>Enter VR</strong> to enable audio and the microphone. Grant permission if prompted.
-				Hold <strong>A</strong> to talk to JARVIS in VR.
+				Hold <strong>A</strong> to talk to SARA in VR.
 			</p>
 
 			<div class="chips">
@@ -710,14 +710,14 @@
 				</p>
 			{/if}
 			{#if notice}<p class="error" role="alert">{notice}</p>{/if}
-			{#if lastError}<p class="error">Jarvis: {lastError}</p>{/if}
+			{#if lastError}<p class="error">Sara: {lastError}</p>{/if}
 			{#if placementNote}<p class="muted">{placementNote}</p>{/if}
 
 			<div class="mapping">
 				<div>
 					<h2>Controllers (VR)</h2>
 					<dl>
-						<dt>A (right controller, hold)</dt><dd>Talk to JARVIS</dd>
+						<dt>A (right controller, hold)</dt><dd>Talk to SARA</dd>
 						<dt>Right trigger</dt><dd>sample_collected</dd>
 						<dt>Left trigger</dt><dd>storm_start</dd>
 						<dt>X (left controller)</dt><dd>mission_start (reset)</dd>
