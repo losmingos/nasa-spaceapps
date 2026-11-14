@@ -30,6 +30,7 @@
 	const sol = $derived(Math.floor(localSol));
 	let controlsVisible = $state(false);
 	let storm = $state(false);
+	let flashlightOn = $state(false);
 	let displayMode = $state<TerrainDisplayMode>('visible');
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
 	let geologyAvailable = $state(false);
@@ -189,7 +190,7 @@
 	}
 
 	async function clockShortcut(event: KeyboardEvent) {
-		if (mission || event.defaultPrevented ||
+		if (event.defaultPrevented ||
 			(event.code === 'Escape' && document.querySelector('.mission-controls [aria-expanded="true"]'))) return;
 		if (event.code === 'Escape' && controlsVisible) {
 			controlsVisible = false;
@@ -198,6 +199,13 @@
 		}
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable]'))) return;
+		if (event.code === 'KeyF') {
+			event.preventDefault();
+			flashlightOn = !flashlightOn;
+			terrain?.setFlashlight(flashlightOn);
+			return;
+		}
+		if (mission) return;
 		if (event.code === 'KeyI') {
 			event.preventDefault();
 			selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
@@ -335,7 +343,7 @@
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
 		Use WASD to walk, hold Shift while moving forward to run, the arrow keys to look, and Escape to release the pointer.
-		Press H to open scene controls and I to toggle SWIR.
+		Press F to toggle the flashlight, H to open scene controls and I to toggle SWIR.
 		Hold Space to talk to SARA and release to send.</p>
 
 	<div class="projected">
@@ -388,6 +396,10 @@
 					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
 				</button>
 			{/if}
+			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
+				disabled={!terrain} onclick={() => { flashlightOn = !flashlightOn; terrain?.setFlashlight(flashlightOn); }}>
+				{flashlightOn ? 'Flashlight on' : 'Flashlight'} <kbd>F</kbd>
+			</button>
 			<button type="button" class="hud-action voice-control"
 					aria-label="SARA. Hold to talk and release to send"
 					aria-keyshortcuts="Space"

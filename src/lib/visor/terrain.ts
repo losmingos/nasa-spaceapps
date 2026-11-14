@@ -1,6 +1,6 @@
 import {
 	BufferAttribute, BufferGeometry, CanvasTexture, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
-	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap,
+	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap, SpotLight,
 	PerspectiveCamera, Quaternion, Raycaster, Scene, SRGBColorSpace,
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
@@ -563,6 +563,19 @@ export function mountTerrain(
 	const spawnZ = length * 0.166;
 	const eyeHeight = 1.68;
 	camera.position.set(spawnX, surfaceHeight(spawnX, spawnZ) + eyeHeight, spawnZ);
+	// Suit-mounted torch, attached to the camera so it follows the astronaut's view.
+	const flashlight = new SpotLight('#ffe3b5', 0, 32, Math.PI / 5, 0.55, 2);
+	flashlight.position.set(0, -0.08, 0);
+	flashlight.target.position.set(0, -0.08, -1);
+	flashlight.castShadow = true;
+	flashlight.shadow.mapSize.set(1024, 1024);
+	flashlight.shadow.bias = -0.0002;
+	camera.add(flashlight, flashlight.target);
+	scene.add(camera);
+	function setFlashlight(enabled: boolean) {
+		flashlight.intensity = enabled ? 90 : 0;
+		draw();
+	}
 
 	const rockGeometries = rockProfiles.map(({ material, shape, crown, shear }, variant) => {
 		const geometry = new IcosahedronGeometry(1, material === 1 ? 2 : 1);
@@ -1324,6 +1337,10 @@ export function mountTerrain(
 
 	canvas.addEventListener('keydown', (event) => {
 		if (!canLook()) return;
+		if (event.code === 'KeyF' && !event.repeat) {
+			setFlashlight(flashlight.intensity === 0);
+			return;
+		}
 		if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
 			if (canMove()) { sprintHeld = true; if (!frame) frame = requestAnimationFrame(step); }
 			return;
@@ -1467,6 +1484,7 @@ export function mountTerrain(
 		loadHighQuality,
 		refresh: draw,
 		setTime,
+		setFlashlight,
 		setDisplayMode,
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
 		setDust,
@@ -1493,6 +1511,7 @@ export function mountTerrain(
 			highTerrain?.geometry.dispose();
 			highTexture?.dispose();
 			sun.shadow.dispose();
+			flashlight.shadow.dispose();
 			terrainMaterial.dispose();
 			for (const rockGeometry of rockGeometries) rockGeometry.dispose();
 			for (const material of rockMaterials) {
