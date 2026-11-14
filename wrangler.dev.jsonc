@@ -1,0 +1,8 @@
+{
+  // Used only by `npm run dev` (adapter-cloudflare's platform proxy, see vite.config.ts).
+  // Same runtime settings as wrangler.jsonc but without the CueChannel Durable Object: in dev the cue channel
+  // lives in memory (src/lib/server/jarvis/cue.ts), and the generated worker that exports the class doesn't exist.
+  "name": "nasa-spaceapps",
+  "compatibility_date": "2026-11-02",
+  "compatibility_flags": ["nodejs_compat"]
+}
