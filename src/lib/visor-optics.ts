@@ -13,8 +13,14 @@ export function dustColor(color: Color, twilight: number, daylight: number) {
 	return color.copy(stormNight).lerp(stormDusk, twilight).lerp(stormDay, daylight);
 }
 
+export interface VisorMessage {
+	title: string;
+	detail?: string;
+	kind?: 'warning' | 'danger';
+}
+
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
-	getNotice: () => string, getClock: () => string) {
+	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage) {
 	// A single emissive image is sampled through the curved inner visor, before the gasket.
 	const display = document.createElement('canvas');
 	const context = display.getContext('2d')!;
@@ -23,14 +29,14 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	displayTexture.generateMipmaps = false;
 	let displayWidth = 1;
 	let displayHeight = 1;
-	function drawDisplay(mission: boolean) {
+	function drawDisplay() {
 		const w = displayWidth, h = displayHeight;
 		context.clearRect(0, 0, w, h);
 		const edge = Math.max(40, Math.min(180, w * 0.12));
-		const bottom = Math.max(52, Math.min(160, h * 0.18));
+		const bottom = Math.max(30, Math.min(160, h * 0.18));
 		const mapSize = Math.max(80, Math.min(128, w * 0.095));
-		const mapLeft = mission ? w - mapSize - Math.max(24, w * 0.10) : edge;
-		const y = mission ? Math.max(40, h * 0.21) : h - bottom - mapSize;
+		const mapLeft = edge;
+		const y = h - bottom - mapSize;
 		context.globalAlpha = 0.7;
 		context.drawImage(map, mapLeft, y, mapSize, mapSize);
 		context.globalAlpha = 1;
@@ -41,10 +47,6 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			[mapLeft, y + mapSize, 1, -1], [mapLeft + mapSize, y + mapSize, -1, -1]]) {
 			context.beginPath(); context.moveTo(x, yy + dy * 9);
 			context.lineTo(x, yy); context.lineTo(x + dx * 9, yy); context.stroke();
-		}
-		if (mission) {
-			displayTexture.needsUpdate = true;
-			return;
 		}
 		const fontSize = Math.max(22, Math.min(31, w * 0.025));
 		context.fillStyle = '#c6ffe5';
@@ -59,10 +61,23 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.font = '12px system-ui, sans-serif';
 		context.textAlign = 'center';
 		context.fillStyle = '#ffe0a6';
-		context.fillText(getNotice(), w / 2, Math.max(34, h * 0.075));
+		const notice = getNotice();
+		const message = getMessage();
+		const textWidth = Math.min(w * 0.84, 640);
+		const top = Math.max(32, h * 0.10);
+		if (notice) context.fillText(notice, w / 2, top, textWidth);
+		const messageY = top + (notice ? 22 : 0);
+		context.fillStyle = message.kind === 'danger' ? '#ffb4a1'
+			: message.kind === 'warning' ? '#ffe0a6' : '#c6ffe5';
+		context.font = `500 ${w < 500 ? 15 : 19}px monospace`;
+		context.fillText(message.title, w / 2, messageY, textWidth);
+		if (message.detail) {
+			context.font = '13px monospace';
+			context.fillText(message.detail, w / 2, messageY + 21, textWidth);
+		}
 		context.fillStyle = '#c6ffe5';
 		context.font = '14px monospace';
-		context.fillText(getClock(), w / 2, h * 0.91);
+		context.fillText(getClock(), w / 2, Math.min(h * 0.72, y - 12), textWidth);
 		displayTexture.needsUpdate = true;
 	}
 	const target = new WebGLRenderTarget(1, 1, {
@@ -327,11 +342,11 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			target.setSize(size.x, size.y);
 			material.uniforms.aspect.value = width / height;
 		},
-	render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
+		render(scene: Scene, camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
 		phobos: Vector3, phobosElevation: number, phobosRadius: number,
 		deimos: Vector3, deimosElevation: number, deimosRadius: number,
-		twilight: number, daylight: number, storm: number, gustTime: number, mission: boolean) {
-			drawDisplay(mission);
+		twilight: number, daylight: number, storm: number, gustTime: number) {
+			drawDisplay();
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
 			material.uniforms.sunDirection.value.copy(sun);

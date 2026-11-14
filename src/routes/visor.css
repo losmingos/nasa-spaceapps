@@ -23,35 +23,83 @@ body { margin: 0; background: #0b0d0e; }
 .terrain:focus-visible { outline: 2px solid var(--hud-text); outline-offset: -2px; }
 .projected { pointer-events: none; perspective: 850px; }
 
-.jarvis-status {
+.visor-controls {
 	position: absolute;
-	top: max(12vh, calc(env(safe-area-inset-top) + 58px));
-	left: 50%;
-	transform: translateX(-50%);
+	z-index: 1;
+	inset-inline: 10%;
+	bottom: max(5%, calc(env(safe-area-inset-bottom) + 4px));
 	display: flex;
-	align-items: center;
-	gap: 8px;
-	width: max-content;
-	max-width: calc(100% - 24px);
-	padding: 5px 9px;
-	border: 1px solid #c5e6dc75;
-	border-radius: 5px;
-	background: #142521ed;
-	color: var(--hud-text);
-	font-size: 12px;
-	line-height: 1.3;
+	justify-content: center;
+	flex-wrap: wrap;
+	align-items: end;
+	gap: 6px;
 }
 
-.jarvis-status svg { flex: none; width: 17px; height: 17px; color: var(--signal, #cbebe1); }
-.jarvis-status[data-status='recording'], .jarvis-status[data-status='error'] { --signal: #ffb4a1; }
-.jarvis-status[data-status='thinking'] { --signal: #ffda95; }
-.jarvis-status[data-status='speaking'] { --signal: #a9d4ec; }
-.jarvis-status kbd {
-	padding: 1px 4px;
-	border: 1px solid #c5e6dc75;
-	border-radius: 3px;
-	color: var(--hud-label);
-	font: inherit;
+.mission-controls, .hud-actions {
+	display: flex;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.hud-action {
+	pointer-events: auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 44px;
+	padding: 4px 10px;
+	border: 0;
+	border-bottom: 1px solid #a4dfc8;
+	border-radius: 0;
+	background: #0b1915b3;
+	color: #c6ffe5;
+	text-shadow: 0 1px 3px #05110b;
+	font: 500 13px/1.2 'IBM Plex Mono', ui-monospace, monospace;
+	cursor: pointer;
+}
+
+.hud-action:hover, .hud-action[aria-expanded='true'] { background: #163227e8; }
+.hud-action:focus-visible { outline: 2px solid var(--hud-text); outline-offset: 2px; }
+.hud-action:disabled { opacity: .6; cursor: wait; }
+.voice-control { touch-action: none; user-select: none; }
+.voice-control[data-recording='true'] { color: #ffb4a1; border-color: currentColor; }
+.voice-control svg { width: 16px; height: 16px; }
+.voice-control kbd { font: inherit; font-size: .85em; color: var(--hud-label); }
+.touch-hint { display: none; font-size: .85em; color: var(--hud-label); }
+
+.mission-options {
+	--panel-translate-y: 8px;
+	--panel-open-dur: 250ms;
+	--panel-close-dur: 180ms;
+	position: absolute;
+	inset-inline: 0;
+	bottom: calc(100% + 8px);
+	width: max-content;
+	max-width: 100%;
+	max-height: 50dvh;
+	overflow: auto;
+	margin-inline: auto;
+	padding: 8px;
+	background: #0b1915ed;
+	border-block-start: 1px solid #a4dfc8;
+	color: var(--hud-text);
+	font-size: 13px;
+	text-align: center;
+}
+
+.mission-options p { margin: 0 0 8px; }
+.mission-options span + .hud-actions { margin-top: 6px; }
+.mission-options[data-open='false'] .hud-action { pointer-events: none; }
+
+@media (pointer: coarse) {
+	.voice-control kbd { display: none; }
+	.touch-hint { display: inline; }
+}
+@media (max-width: 480px) {
+	.visor-controls { inset-inline: 5%; }
+	.hud-action { padding-inline: 7px; }
 }
 
 .clock-controls {
@@ -294,4 +342,30 @@ body { margin: 0; background: #0b0d0e; }
 
 @media (prefers-reduced-motion: reduce) {
   .t-text-swap { transition: none !important; }
+}
+
+.t-panel-slide {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity   var(--panel-close-dur) var(--panel-ease),
+    filter    var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.t-panel-slide[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-panel-slide { transition: none !important; }
 }

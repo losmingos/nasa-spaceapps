@@ -5,7 +5,7 @@ export type Priority = 'high' | 'normal';
 
 export type Playable =
 	| { type: 'buffer'; buffer: AudioBuffer }
-	| { type: 'speech'; text: string }
+	| { type: 'speech'; text: string; lang?: string }
 	/** Nothing audible (no audio path available); the subtitle still shows. */
 	| { type: 'none' };
 
@@ -276,7 +276,7 @@ export class AudioEngine {
 			const text = p.type === 'speech' ? p.text : '';
 			const s = synth();
 			if (s && text.trim()) {
-				this.speak(item, s, text);
+				this.speak(item, s, text, p.type === 'speech' ? p.lang : undefined);
 				return;
 			}
 		}
@@ -284,12 +284,15 @@ export class AudioEngine {
 		setTimeout(() => this.finish(item, true), 0);
 	}
 
-	private speak(item: QueueItem, s: SpeechSynthesis, text: string): void {
+	private speak(item: QueueItem, s: SpeechSynthesis, text: string, lang?: string): void {
 		s.cancel();
 		const u = new SpeechSynthesisUtterance(text);
-		const voice = pickVoice(s);
+		const voice = lang
+			? s.getVoices().find((candidate) => candidate.lang.toLowerCase() === lang.toLowerCase())
+				?? s.getVoices().find((candidate) => candidate.lang.split('-')[0] === lang.split('-')[0])
+			: pickVoice(s);
 		if (voice) u.voice = voice;
-		u.lang = voice?.lang ?? 'en-GB';
+		u.lang = voice?.lang ?? lang ?? 'en-GB';
 		u.rate = 1;
 		u.pitch = 0.95;
 		// Chrome sometimes never fires onend: safety timeout based on text length.
