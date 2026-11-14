@@ -1,12 +1,15 @@
 import {
-	BoxGeometry, BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, Group, HemisphereLight, MathUtils,
+	Box3, BoxGeometry, BufferAttribute, BufferGeometry, Color, DirectionalLight, FogExp2, Group, HemisphereLight, MathUtils,
 	IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFSoftShadowMap,
 	PerspectiveCamera, Quaternion, Scene, SRGBColorSpace,
-	TextureLoader, Vector3, WebGLRenderer
+	Texture, TextureLoader, Vector3, WebGLRenderer, type Material
 } from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { buildSamplingKit } from './ares/sampling-kit.js';
 import { buildVisorOptics, dustColor, type VisorMessage } from './visor-optics.js';
 import { solarPosition } from './mars-time.js';
-import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, type Point } from './ares/route.js';
+import { BASE, distanceBetween, HAZARD, HAZARD_RADIUS, LOOSE_ROCK, ROVER, SAMPLE, SAMPLING_KIT, type Point } from './ares/route.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 
@@ -17,7 +20,7 @@ function buildTerrain(data: ArrayBuffer) {
 	const spacing = header.getFloat32(8, true);
 	const count = columns * rows;
 	if (columns < 2 || rows < 2 || data.byteLength !== 12 + count * 4 || !(spacing > 0)) {
-		throw new Error('La cuadrícula de elevación no es válida.');
+		throw new Error('Invalid elevation grid.');
 	}
 
 	const elevations = new Float32Array(data, 12);
@@ -28,7 +31,7 @@ function buildTerrain(data: ArrayBuffer) {
 		low = Math.min(low, height);
 		high = Math.max(high, height);
 	}
-	if (!(high > low)) throw new Error('No hay elevaciones válidas.');
+	if (!(high > low)) throw new Error('No valid elevations found.');
 
 	const width = (columns - 1) * spacing;
 	const length = (rows - 1) * spacing;
@@ -108,7 +111,7 @@ interface MissionView {
 	baseRoute: boolean;
 	showPosition: boolean;
 	tilt: number;
-	player?: { run: number; enabled: boolean; driving: boolean; target?: Point };
+	player?: { run: number; enabled: boolean; speedMultiplier: number; driving: boolean; target?: Point };
 }
 
 const mapSize = 96;
@@ -139,7 +142,8 @@ export function mountTerrain(
 	notify: (notice: TerrainNotice) => void,
 	getNotice: () => string,
 	getClock: () => string,
-	getMessage: () => VisorMessage
+	getMessage: () => VisorMessage,
+	roverUrl: string
 ) {
 	const { geometry, width, length, spacing, surfaceHeight } = buildTerrain(data);
 	let renderer: WebGLRenderer;
@@ -433,7 +437,6 @@ export function mountTerrain(
 	scene.add(landmarks);
 	const hardware = new BoxGeometry(1, 1, 1);
 	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
-	const frameMaterial = new MeshLambertMaterial({ color: '#332b25' });
 	const shale = new MeshLambertMaterial({ color: '#6e4736' });
 	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
 		const block = new Mesh(hardware, paint);
@@ -441,16 +444,58 @@ export function mountTerrain(
 		block.scale.set(w, h, d);
 		landmarks.add(block);
 	}
-	part(ROVER, 0, 1.5, 0, 3, 1.9, 5, cabin);
-	part(ROVER, 0, 1.9, -2.51, 2.2, 0.7, 0.04, frameMaterial);
-	for (const side of [-1, 1]) {
-		for (const axle of [-1.6, 0, 1.6]) part(ROVER, side * 1.6, 0.53, axle, 0.65, 1.05, 1.05, frameMaterial);
+	const roverAnchor = new Group();
+	roverAnchor.position.set(ROVER.x, surfaceHeight(ROVER.x, ROVER.z), ROVER.z);
+	landmarks.add(roverAnchor);
+	let roverRequested = false;
+	let roverAsset: Object3D | undefined;
+
+	function disposeRover(model: Object3D) {
+		const geometries = new Set<BufferGeometry>();
+		const materials = new Set<Material>();
+		const textures = new Set<Texture>();
+		model.traverse((object) => {
+			if (!(object instanceof Mesh)) return;
+			geometries.add(object.geometry);
+			for (const material of [object.material].flat()) {
+				materials.add(material);
+				for (const value of Object.values(material)) {
+					if (value instanceof Texture) textures.add(value);
+				}
+			}
+		});
+		for (const geometry of geometries) geometry.dispose();
+		for (const material of materials) material.dispose();
+		for (const texture of textures) texture.dispose();
+	}
+
+	function loadRover() {
+		if (roverRequested) return;
+		roverRequested = true;
+		new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(roverUrl, ({ scene: model }) => {
+			if (abort.signal.aborted) {
+				disposeRover(model);
+				return;
+			}
+			const bounds = new Box3().setFromObject(model);
+			const center = bounds.getCenter(new Vector3());
+			model.position.set(-center.x, -bounds.min.y, -center.z);
+			model.traverse((object) => { if (object instanceof Mesh) object.castShadow = true; });
+			roverAsset = model;
+			roverAnchor.add(model);
+			draw();
+		}, undefined, (error) => {
+			if (!abort.signal.aborted) console.warn('Could not load the NASA SEV model.', error);
+		});
 	}
 	part(BASE, 0, 1.9, 8, 7, 3.8, 8, cabin);
 	const outcrop = { x: SAMPLE.x - 3, z: SAMPLE.z - 2 };
 	part(outcrop, 0, 0.45, 0, 2.8, 0.85, 2, shale);
 	part(outcrop, 0.24, 0.99, 0, 2.2, 0.26, 1.6, shale);
-	part(outcrop, 0.25, 1.26, 0, 1.5, 0.32, 0.78, cabin);
+	const samplingKit = buildSamplingKit();
+	const { x: kitX, z: kitZ } = SAMPLING_KIT;
+	samplingKit.group.position.set(kitX, surfaceHeight(kitX, kitZ), kitZ);
+	landmarks.add(samplingKit.group);
 	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
 	let missionView: MissionView | undefined;
 
@@ -624,6 +669,8 @@ export function mountTerrain(
 		if (!wasActive && !view) return;
 		missionView = view;
 		landmarks.visible = !!view;
+		if (view) loadRover();
+		roverAnchor.visible = !view?.baseRoute;
 		if (wasActive !== !!view || view?.baseRoute !== previousView?.baseRoute) mapX = Infinity;
 		const player = view?.player;
 		const previousPlayer = previousView?.player;
@@ -699,7 +746,9 @@ export function mountTerrain(
 		const driving = missionView?.player?.driving;
 		const side = driving ? 0 : steering;
 		if (driving) camera.rotation.y -= steering * dt * 0.9;
-		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) / Math.max(1, Math.hypot(forward, side));
+		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
+		const speed = (driving ? (forward < 0 ? 3 : 8) : 1.45) * speedMultiplier
+			/ Math.max(1, Math.hypot(forward, side));
 		const yaw = camera.rotation.y;
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
 		velocityZ = MathUtils.damp(velocityZ, speed * (-side * Math.sin(yaw) - forward * Math.cos(yaw)), 10, dt);
@@ -807,7 +856,7 @@ export function mountTerrain(
 		terrainMaterial.needsUpdate = true;
 		draw();
 	}, undefined, () => {
-		if (!abort.signal.aborted) console.warn('No se pudo cargar la ortoimagen HiRISE.');
+		if (!abort.signal.aborted) console.warn('Could not load the HiRISE orthoimage.');
 	});
 
 	return {
@@ -836,7 +885,8 @@ export function mountTerrain(
 			texture.dispose();
 			hardware.dispose();
 			cabin.dispose();
-			frameMaterial.dispose();
+			samplingKit.dispose();
+			if (roverAsset) disposeRover(roverAsset);
 			shale.dispose();
 			optics.dispose();
 			renderer.dispose();
