@@ -16,7 +16,9 @@ import type { Phase, ProtocolStepId, Telemetry } from './types.js';
 /** O2 consumption multiplier during the storm (exertion). */
 const STORM_O2_FACTOR = 1.5;
 /** Relative oxygen endurance burn while running; a demo workload estimate. */
-const RUN_O2_FACTOR = 2.4;
+const RUN_O2_FACTOR = 1.6;
+/** Accelerate suit oxygen time so a change is visible during a short demo. */
+const O2_TIME_SCALE = 12;
 const O2_START_PCT = 96;
 /** Suit power drain (%/s) before and during the storm. */
 const POWER_DRAIN_PCT_S = 0.01;
@@ -94,7 +96,7 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 	let exertion: Exertion = 'resting';
 	let localSol: number | null = null;
 	let oxygenRemainingMin = O2_START_MIN;
-	let oxygenUpdatedAt: number | null = null;
+	let oxygenUpdatedAt = now();
 	/** Mission time (s) at which a manual step ≥ P4 started the walk back. */
 	let manualWalkT: number | null = null;
 
@@ -106,15 +108,13 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 	}
 
 	function accountOxygen(at = now()) {
-		if (missionT0 === null) return;
-		if (oxygenUpdatedAt === null) oxygenUpdatedAt = at;
 		const elapsed = Math.max(0, (at - oxygenUpdatedAt) / 1000);
 		const stormSeconds = stormT0 === null ? 0
 			: Math.max(0, (at - Math.max(oxygenUpdatedAt, stormT0)) / 1000);
 		const clearSeconds = elapsed - stormSeconds;
 		const workload = exertion === 'running' ? RUN_O2_FACTOR : 1;
 		oxygenRemainingMin = Math.max(0, oxygenRemainingMin
-			- workload * (clearSeconds + stormSeconds * STORM_O2_FACTOR) / 60);
+			- O2_TIME_SCALE * workload * (clearSeconds + stormSeconds * STORM_O2_FACTOR) / 60);
 		oxygenUpdatedAt = at;
 	}
 
@@ -180,7 +180,7 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 			phase,
 			protocolStep,
 			o2_remaining_min: round(o2, 1),
-			o2_remaining_pct: round(O2_START_PCT * o2 / O2_START_MIN),
+			o2_remaining_pct: round(O2_START_PCT * o2 / O2_START_MIN, 1),
 			movement_mode: exertion,
 			suit_power_pct: round(power, 1),
 			visibility_m: roundVisibility(visibility),
@@ -199,22 +199,19 @@ export function createTelemetry(now: () => number = defaultNow, routeLengthM = R
 		manualWalkT = null;
 		exertion = 'resting';
 		oxygenRemainingMin = O2_START_MIN;
-		oxygenUpdatedAt = null;
+		oxygenUpdatedAt = now();
 	}
 
 	return {
 		missionStart() {
 			reset();
 			missionT0 = now();
-			oxygenUpdatedAt = missionT0;
 		},
 		stormStart() {
 			if (stormT0 !== null) return false;
 			const at = now();
-			if (missionT0 === null) {
-				missionT0 = at;
-				oxygenUpdatedAt = at;
-			} else accountOxygen(at);
+			accountOxygen(at);
+			if (missionT0 === null) missionT0 = at;
 			stormT0 = at;
 			return true;
 		},

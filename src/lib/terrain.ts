@@ -347,6 +347,8 @@ export function mountTerrain(
 			const sx = radius * (0.78 + random() * 0.48);
 			const sy = radius * (0.52 + random() * 0.42);
 			const sz = radius * (0.78 + random() * 0.48);
+			// Conservative footprint of the deformed, rotated mesh in the horizontal plane.
+			colliders.push({ x, z, radius: Math.max(sx, sz) * 0.92 });
 			const variant = Math.floor(random() * rockGeometries.length);
 			const palette = ['#765947', '#b4815c', '#916a51'];
 			rockColor.set(palette[variant]);
@@ -672,6 +674,7 @@ export function mountTerrain(
 		}
 		if (!view && atEdge) {
 			atEdge = false;
+			edgeNoticeShown = false;
 			notify('ready');
 		}
 		const { x, z } = view?.point ?? { x: spawnX, z: spawnZ };
@@ -713,10 +716,30 @@ export function mountTerrain(
 	let previous = 0;
 	let frame = 0;
 	let atEdge = false;
+	let edgeNoticeShown = false;
 	const canLook = () => !missionView || !!missionView.player;
 	const canMove = () => !missionView || !!missionView.player?.enabled;
 	const eyeY = () => surfaceHeight(camera.position.x, camera.position.z) + eyeHeight
 		+ (missionView?.player?.driving ? 0.8 : 0);
+	function hitsRock(fromX: number, fromZ: number, toX: number, toZ: number) {
+		const dx = toX - fromX;
+		const dz = toZ - fromZ;
+		const lengthSquared = dx * dx + dz * dz;
+		return rockColliders.some((rock) => {
+			const combinedRadius = rock.radius + 0.34;
+			const startX = fromX - rock.x;
+			const startZ = fromZ - rock.z;
+			const startDistance = Math.hypot(startX, startZ);
+			const endDistance = Math.hypot(toX - rock.x, toZ - rock.z);
+			// If already touching due to a spawn/terrain update, permit only movement away from the rock.
+			if (startDistance < combinedRadius) return endDistance < startDistance - 0.001;
+			if (lengthSquared === 0) return false;
+			const t = MathUtils.clamp(-(startX * dx + startZ * dz) / lengthSquared, 0, 1);
+			const nearestX = startX + dx * t;
+			const nearestZ = startZ + dz * t;
+			return nearestX * nearestX + nearestZ * nearestZ < combinedRadius * combinedRadius;
+		});
+	}
 
 	function step(now: number) {
 		const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
@@ -744,23 +767,42 @@ export function mountTerrain(
 		const blockedByHazard = !!missionView?.player && missionView.showHazard
 			&& distanceBetween({ x, z }, HAZARD) < HAZARD_RADIUS
 			&& distanceBetween({ x, z }, HAZARD) < distanceBetween(camera.position, HAZARD);
-		const hitsRock = rockColliders.some((rock) =>
-			Math.hypot(x - rock.x, z - rock.z) < rock.radius + 0.42
-			&& Math.hypot(x - rock.x, z - rock.z) < Math.hypot(camera.position.x - rock.x, camera.position.z - rock.z)
-		);
-		const blocked = blockedByHazard || hitsRock || !Number.isFinite(nextHeight)
+		const blockedByRock = hitsRock(camera.position.x, camera.position.z, x, z);
+		const blocked = blockedByHazard || blockedByRock || !Number.isFinite(nextHeight)
 			|| Math.abs(nextHeight - surfaceHeight(camera.position.x, camera.position.z)) > distance * 0.72;
-		if (blocked !== atEdge && (forward || side)) {
-			atEdge = blocked;
-			notify(blocked ? 'edge' : 'ready');
+		if (blockedByRock) {
+			if (edgeNoticeShown) notify('ready');
+			edgeNoticeShown = false;
+		} else if (blocked && (forward || side)) {
+			if (!edgeNoticeShown) notify('edge');
+			edgeNoticeShown = true;
+		} else if (!blocked && edgeNoticeShown) {
+			notify('ready');
+			edgeNoticeShown = false;
 		}
+		atEdge = blocked;
 		if (!blocked) {
 			camera.position.x = x;
 			camera.position.z = z;
 			stride += distance;
 		}
-		const bob = reducedMotion.matches || blocked || missionView?.player?.driving ? 0
-			: Math.sin(stride * (sprinting ? 10 : 7)) * Math.min(distance / (dt || 1), 1) * (sprinting ? 0.045 : 0.025);
+		let bob = 0;
+		if (!reducedMotion.matches && !blocked && !missionView?.player?.driving) {
+			if (sprinting && moving) {
+				// Running bounce follows a short ballistic flight under Martian gravity (3.71 m/s²).
+				const cycleLength = 1.65;
+				const flightStart = 0.22;
+				const cycleDuration = cycleLength / Math.max(0.8, Math.hypot(velocityX, velocityZ));
+				const phase = (stride % cycleLength) / cycleLength;
+				if (phase >= flightStart) {
+					const flightDuration = cycleDuration * (1 - flightStart);
+					const flightTime = (phase - flightStart) / (1 - flightStart) * flightDuration;
+					bob = Math.max(0, 0.5 * 3.71 * flightTime * (flightDuration - flightTime));
+				}
+			} else {
+				bob = Math.sin(stride * 7) * Math.min(distance / (dt || 1), 1) * 0.025;
+			}
+		}
 		camera.position.y = eyeY() + bob;
 		draw();
 		if (keys.size || Math.hypot(velocityX, velocityZ) > 0.015) frame = requestAnimationFrame(step);

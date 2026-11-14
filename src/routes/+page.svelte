@@ -340,7 +340,7 @@
 
 			<dl class="readouts" aria-label="Telemetría simulada">
 				<dt class="sr-only">Oxígeno</dt>
-				<dd>{Math.round(voice?.telemetry.o2_remaining_pct ?? 96)}<span>% O₂</span></dd>
+				<dd>{(voice?.telemetry.o2_remaining_pct ?? 96).toFixed(1)}<span>% O₂</span></dd>
 				<dt class="sr-only">Temperatura</dt>
 				<dd>{voice?.telemetry.air_temp_c == null ? '—' : Math.round(voice.telemetry.air_temp_c)}<span>°C</span></dd>
 			</dl>

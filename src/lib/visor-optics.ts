@@ -60,7 +60,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		context.font = `400 ${fontSize}px monospace`;
 		const right = w - edge;
 		const readings = getReadings();
-		context.fillText(String(Math.round(readings.o2Percent)), right - 52, h - bottom - 40);
+		context.fillText(readings.o2Percent.toFixed(1), right - 52, h - bottom - 40);
 		context.fillText(readings.airTempC === null ? '—' : `${Math.round(readings.airTempC)}`, right - 52, h - bottom - 5);
 		context.font = '13px monospace';
 		context.fillText('% O₂', right, h - bottom - 40);
