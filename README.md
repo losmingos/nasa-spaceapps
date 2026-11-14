@@ -2,7 +2,7 @@
 
 Visor 3D del delta occidental de Jezero. Ejecuta `npm ci` y `npm run dev` y abre la URL que muestra Vite. El visor requiere WebGL 2 y carga la cuadrícula incluida en el repositorio.
 
-Arrastra para orbitar, usa la rueda para acercarte y el botón derecho o las flechas para desplazar la cámara. En una pantalla táctil, arrastra con un dedo para girar y usa dos dedos para mover la cámara o acercarte. Usa **Cenital** para mirar desde arriba. La escala vertical inicia en 4× y puede ajustarse a 1× para ver las proporciones físicas.
+Al cargar apareces a pie en el delta. Haz clic en la escena (o pulsa **Intro** con el visor enfocado) para girar con el ratón y usa **WASD** para caminar. Pulsa **Esc** para liberar el ratón. También puedes arrastrar sobre el visor o usar las flechas para mirar. El minimapa muestra el relieve local y tu rumbo. El oxígeno y la temperatura son valores simulados.
 
 ## Datos del terreno
 
