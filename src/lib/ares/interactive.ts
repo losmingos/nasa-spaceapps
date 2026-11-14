@@ -6,26 +6,26 @@ type Phase = 'site' | 'sampling' | 'advisory' | 'continue' | 'abort' | 'secure'
 	| 'beacon' | 'lost' | 'rover' | 'board' | 'shelter' | 'drive' | 'park' | 'closed';
 
 const messages: Record<Phase, [string, string]> = {
-	site: ['Punto de muestreo', 'Acércate al instrumental e inicia la perforación. Quedan unos diez minutos de trabajo.'],
-	sampling: ['Perforación en curso', 'Perforación iniciada. El objetivo es un testigo de lutita del delta de Jezero.'],
-	advisory: ['Aviso de polvo', 'El polvo se intensifica. Recomiendo detener la perforación y volver al rover. ¿Continuamos?'],
-	continue: ['Muestreo bajo aviso', 'Entendido. Mantengo la vigilancia. El margen de retorno está disminuyendo.'],
-	abort: ['Aborto de EVA', 'Alerta crítica. El polvo compromete la navegación. Detén el taladro y regresa al rover.'],
-	secure: ['Asegura el instrumental', 'Taladro detenido. Asegura el equipo y guarda el avance y la posición.'],
-	junction: ['Retorno a pie', 'Bitácora guardada. Rover a unos trescientos cincuenta metros. Camina hacia el primer punto del corredor.'],
-	hazard: ['Ladera inestable', 'Alto. Hay una ladera con regolito suelto. Recomiendo seguir el desvío reconocido, sesenta y cinco metros más largo.'],
-	detour: ['Desvío activo', 'Desvío cargado. Sigue el punto de paso hacia el este y mantén la precaución.'],
-	impact: ['Impacto contra roca', 'Has pisado una roca suelta. Detecto un impacto en el traje. Detente e inicia la comprobación.'],
-	check: ['Verificando el traje', 'Posible daño en la capa exterior. Estoy comprobando la tendencia de presión.'],
-	resume: ['Presión estable', 'Presión estable. No detecto fuga. Puede haber daño superficial. Reanuda el regreso con precaución.'],
-	beacon: ['Regreso al corredor', 'Continúa por el desvío y sigue el corredor hacia el rover.'],
-	lost: ['Posición sin confirmar', 'Alto. He perdido las referencias en el polvo. Solicita posición por la baliza del rover.'],
-	rover: ['Posición confirmada', 'Posición confirmada con la baliza y navegación inercial. Continúa hacia la esclusa.'],
-	board: ['Esclusa del rover', 'Estás junto a la esclusa. Entra en el rover y confirma la presurización.'],
-	shelter: ['EVA finalizada', 'Presurización confirmada. La base está a dos coma cuatro kilómetros. Inicia la conducción cuando estés listo.'],
-	drive: ['Conducción a la base', 'Ruta cargada. Mantén una velocidad reducida y sigue el corredor hasta la base.'],
-	park: ['Acceso a la base', 'Has llegado al acceso a la base. Detén el rover y confirma la llegada.'],
-	closed: ['Base alcanzada', 'Tripulación a salvo. La extracción se interrumpió. Se conservan la posición, las fotografías y el avance.']
+	site: ['Sampling site', 'Approach the equipment and start drilling. About ten minutes of work remain.'],
+	sampling: ['Drilling in progress', 'Drilling started. The target is a mudstone core from the Jezero delta.'],
+	advisory: ['Dust advisory', 'Dust is intensifying. I recommend stopping the drill and returning to the rover. Do you want to continue?'],
+	continue: ['Sampling under advisory', 'Understood. I will keep monitoring. The margin for a safe return is shrinking.'],
+	abort: ['Abort EVA', 'Critical alert. Dust is compromising navigation. Stop the drill and return to the rover.'],
+	secure: ['Secure the equipment', 'Drill stopped. Secure the equipment and log your progress and location.'],
+	junction: ['Return on foot', 'Log saved. The rover is about 350 metres away. Walk to the first waypoint.'],
+	hazard: ['Unstable slope', 'Stop. There is loose regolith on the slope. I recommend the surveyed detour, which adds 65 metres.'],
+	detour: ['Detour active', 'Detour loaded. Head east toward the waypoint and proceed with caution.'],
+	impact: ['Rock impact', 'You stepped on a loose rock. I detected an impact on the suit. Stop and start the integrity check.'],
+	check: ['Checking suit integrity', 'The outer layer may be damaged. I am checking the pressure trend.'],
+	resume: ['Pressure stable', 'Pressure is stable. I detect no leak. There may be surface damage, so proceed with caution.'],
+	beacon: ['Return to the corridor', 'Continue along the detour and follow the corridor toward the rover.'],
+	lost: ['Position unconfirmed', 'Stop. I lost our navigation references in the dust. Request a position fix from the rover beacon.'],
+	rover: ['Position confirmed', 'Position confirmed by the beacon and inertial navigation. Continue to the airlock.'],
+	board: ['Rover airlock', 'You are at the airlock. Enter the rover and confirm pressurization.'],
+	shelter: ['EVA complete', 'Pressurization confirmed. The base is 2.4 kilometres away. Begin driving when ready.'],
+	drive: ['Drive to base', 'Route loaded. Keep your speed low and follow the corridor to the base.'],
+	park: ['Base entrance', 'You have reached the base entrance. Stop the rover and confirm arrival.'],
+	closed: ['Base reached', 'The crew is safe. The location, photographs and drilling progress have been saved for a future attempt.']
 };
 
 export type MissionAction = 'drill' | 'continue' | 'abort' | 'secure' | 'detour' | 'check'
@@ -119,7 +119,7 @@ export function actInteractive(run: InteractiveMission, action: MissionAction): 
 }
 
 const targetNames: Partial<Record<Phase, string>> = {
-	site: 'instrumental', junction: 'cruce', detour: 'punto del desvío', beacon: 'baliza', rover: 'esclusa', drive: 'base'
+	site: 'equipment', junction: 'junction', detour: 'detour waypoint', beacon: 'beacon', rover: 'airlock', drive: 'base'
 };
 
 export function interactiveSnapshot(run: InteractiveMission) {
@@ -139,7 +139,7 @@ export function interactiveSnapshot(run: InteractiveMission) {
 	const snapshot: MissionSnapshot = {
 		cue, point: START, ahead: SAMPLE, route, remaining,
 		dust: run.weatherStarted === null ? 0 : dustAt(run.elapsed - run.weatherStarted),
-		navigation: lost ? 'Sin referencias' : ['rover', 'board'].includes(phase) || baseRoute ? 'Confirmada' : 'Inercial',
+		navigation: lost ? 'References unavailable' : ['rover', 'board'].includes(phase) || baseRoute ? 'Confirmed' : 'Inertial navigation',
 		jump: '', detour: run.detour, walking: move && !driving,
 		pressure: phase === 'check' ? pressureAt(run.elapsed - run.at)
 			: ['resume', 'beacon', 'lost', 'rover', 'board'].includes(phase) || baseRoute ? pressureAt(9) : 'Nominal',

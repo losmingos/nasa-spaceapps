@@ -222,7 +222,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 				{ role: 'assistant' as const, content: reply }
 			].slice(-HISTORY_TURNS);
 
-			let playable: Playable = missionContext ? { type: 'speech', text: reply, lang: 'es-ES' } : speechOrNone(reply);
+			let playable: Playable = speechOrNone(reply);
 			if (ttsMode === 'elevenlabs' && audio.unlocked) {
 				try {
 					const mp3 = await api.tts(reply, signal);

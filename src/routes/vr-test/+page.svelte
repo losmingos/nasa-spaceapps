@@ -19,8 +19,8 @@
 	/** gamepad.buttons index of X on the left controller (xr-standard: 4). */
 	const X_INDEX = 4;
 
-	const MODE_LABEL: Record<AssistantMode, string> = { live: 'En vivo', scripted: 'Guionizado' };
-	const TTS_LABEL: Record<TtsMode, string> = { elevenlabs: 'ElevenLabs', browser: 'Navegador' };
+	const MODE_LABEL: Record<AssistantMode, string> = { live: 'Live', scripted: 'Scripted' };
+	const TTS_LABEL: Record<TtsMode, string> = { elevenlabs: 'ElevenLabs', browser: 'Browser' };
 
 	function variantHref(change: Record<string, string>) {
 		const next = new URLSearchParams(location.search);
@@ -90,7 +90,7 @@
 			if (assistant.getState().status === 'locked') await assistant.unlock();
 		} catch (cause) {
 			console.error(cause);
-			notice = `No se pudo activar el audio o el micrófono: ${message(cause)}. `;
+			notice = `Could not enable audio or microphone: ${message(cause)}. `;
 		}
 		try {
 			if (!navigator.xr) throw new Error('navigator.xr no existe en este navegador');
@@ -98,7 +98,7 @@
 			await enterSession?.(session);
 		} catch (cause) {
 			console.error(cause);
-			notice += `No se pudo entrar en VR: ${message(cause)}. Si es un problema de activación, vuelve a pulsar «Enter VR».`;
+			notice += `Could not enter VR: ${message(cause)}. If activation failed, press Enter VR again.`;
 		} finally {
 			starting = false;
 		}
@@ -113,7 +113,7 @@
 			await assistant.unlock();
 		} catch (cause) {
 			console.error(cause);
-			notice = `No se pudo activar el audio o el micrófono: ${message(cause)}.`;
+			notice = `Could not enable audio or microphone: ${message(cause)}.`;
 		} finally {
 			starting = false;
 		}
@@ -290,9 +290,9 @@
 		let habitatPos = toScene(HABITAT);
 		if (habitatPos.length() < 3) {
 			habitatPos = new THREE.Vector3(0, 0, -40);
-			notes.push('HABITAT coincide con SPAWN en mission.ts (provisional): el hábitat se dibuja 40 m al norte.');
+			notes.push('HABITAT and SPAWN share a location in mission.ts. The habitat is rendered 40 m north.');
 		} else if (Math.hypot(HABITAT.x - SPAWN.x, HABITAT.z - SPAWN.z) > MAX_PLACEMENT_M) {
-			notes.push(`El hábitat está más lejos que ${Math.round(MAX_PLACEMENT_M)} m: se acerca a ese límite.`);
+			notes.push(`The habitat is farther than ${Math.round(MAX_PLACEMENT_M)} m, so it is rendered at that limit.`);
 		}
 		let samplePos = toScene(SAMPLE);
 		const samplePlaceholder = samplePos.length() < 1;
@@ -395,7 +395,7 @@
 		function drawHud() {
 			const astronaut = lastAstronaut;
 			const jarvis = lastJarvis;
-			const debug = `Botones ${buttonsDebug || '(sin mandos)'} · A=${A_INDEX}${lastAction ? ` · ${lastAction}` : ''}`;
+			const debug = `Buttons ${buttonsDebug || '(no controllers)'} · A=${A_INDEX}${lastAction ? ` · ${lastAction}` : ''}`;
 			const error = lastError ?? '';
 			const key = [status, astronaut, jarvis, debug, error].join('\u0000');
 			if (key === hudKey) return; // redraw only on change
@@ -517,7 +517,7 @@
 				gamepad.buttons.forEach((button, index) => {
 					if (button.pressed) pressed.push(index);
 				});
-				const hand = source.handedness === 'left' ? 'I' : source.handedness === 'right' ? 'D' : '?';
+				const hand = source.handedness === 'left' ? 'L' : source.handedness === 'right' ? 'R' : '?';
 				parts.push(`${hand}[${pressed.join(',')}]`);
 				if (source.handedness === 'right') rightA = gamepad.buttons[A_INDEX]?.pressed ?? false;
 				if (source.handedness === 'left') leftX = gamepad.buttons[X_INDEX]?.pressed ?? false;
@@ -526,20 +526,20 @@
 			if (rightA !== prevRightA) {
 				prevRightA = rightA;
 				if (rightA) {
-					lastAction = `A (D${A_INDEX}) → hablar`;
+					lastAction = `A (R${A_INDEX}) → talk`;
 					pttDown();
 				} else {
 					pttUp();
 				}
 			}
-			if (leftX && !prevLeftX) fire('mission_start', `X (I${X_INDEX})`);
+			if (leftX && !prevLeftX) fire('mission_start', `X (L${X_INDEX})`);
 			prevLeftX = leftX;
 		}
 
 		function onSelect(event: XRInputSourceEvent) {
 			// Trigger: right = pick up the sample, left = start the storm (test shortcut). A stays PTT-only (D25).
-			if (event.inputSource.handedness === 'right') fire('sample_collected', 'gatillo D');
-			else if (event.inputSource.handedness === 'left') fire('storm_start', 'gatillo I');
+			if (event.inputSource.handedness === 'right') fire('sample_collected', 'right trigger');
+			else if (event.inputSource.handedness === 'left') fire('storm_start', 'left trigger');
 		}
 
 		function resetDesktopCamera() {
@@ -662,51 +662,51 @@
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={pttUp} />
 
 <main>
-	<canvas bind:this={canvas} aria-label="Vista previa de la escena de prueba. Arrastra para mirar alrededor."></canvas>
+	<canvas bind:this={canvas} aria-label="Test scene preview. Drag to look around."></canvas>
 
 	{#if panelOpen}
 		<section class="landing" aria-labelledby="title">
 			<div class="identity">
-				<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">PRUEBA VR</span>
-				<button class="link close" onclick={() => (panelOpen = false)}>Ocultar</button>
+				<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">VR TEST</span>
+				<button class="link close" onclick={() => (panelOpen = false)}>Hide</button>
 			</div>
-			<h1 id="title">Jarvis en VR</h1>
+			<h1 id="title">JARVIS in VR</h1>
 			<p class="lead">
-				Pulsa <strong>Enter VR</strong>: primero se activan el audio y el micrófono (acepta el permiso si aparece) y después
-				se entra en VR. Mantén <strong>A</strong> para hablar con Jarvis.
+				Press <strong>Enter VR</strong> to enable audio and the microphone. Grant permission if prompted.
+				Hold <strong>A</strong> to talk to JARVIS in VR.
 			</p>
 
 			<div class="chips">
 				<span class="chip" style:--chip={STATUS_COLOR[status]} role="status"><span class="dot"></span>{STATUS_LABEL[status]}</span>
-				<span class="chip neutral">Modo: {MODE_LABEL[mode]}</span>
-				<span class="chip neutral">Voz: {TTS_LABEL[tts]}</span>
-				<span class="chip neutral">A = botón {A_INDEX}</span>
+				<span class="chip neutral">Mode: {MODE_LABEL[mode]}</span>
+				<span class="chip neutral">Voice: {TTS_LABEL[tts]}</span>
+				<span class="chip neutral">A = button {A_INDEX}</span>
 			</div>
 			<p class="variants">
-				Cambiar:
+				Switch to
 				<a data-sveltekit-reload href={variantHref({ mode: mode === 'live' ? 'scripted' : 'live' })}>
-					modo {mode === 'live' ? 'guionizado' : 'en vivo'}
+					{mode === 'live' ? 'scripted' : 'live'}
 				</a>
 				·
 				<a data-sveltekit-reload href={variantHref({ tts: tts === 'elevenlabs' ? 'browser' : 'elevenlabs' })}>
-					voz {tts === 'elevenlabs' ? 'del navegador' : 'ElevenLabs'}
+					{tts === 'elevenlabs' ? 'browser voice' : 'ElevenLabs'}
 				</a>
 			</p>
 
 			<div class="actions">
 				<button class="enter" onclick={enterVR} disabled={starting || inVR || xrSupport === 'unsupported'}>
-					{inVR ? 'En VR…' : starting ? 'Activando…' : 'Enter VR'}
+					{inVR ? 'In VR…' : starting ? 'Enabling…' : 'Enter VR'}
 				</button>
 				{#if status === 'locked'}
-					<button class="secondary" onclick={unlockOnly} disabled={starting}>Solo activar audio (prueba 2D)</button>
+					<button class="secondary" onclick={unlockOnly} disabled={starting}>Enable audio only (2D test)</button>
 				{/if}
 			</div>
 
 			{#if xrSupport === 'checking'}
-				<p class="muted">Comprobando WebXR…</p>
+				<p class="muted">Checking WebXR…</p>
 			{:else if xrSupport === 'unsupported'}
 				<p class="warning" role="status">
-					Este navegador no ofrece WebXR <code>immersive-vr</code>. Puedes probar en 2D: activa el audio y usa el teclado.
+					This browser does not support WebXR <code>immersive-vr</code>. Enable audio and use the keyboard to test in 2D.
 				</p>
 			{/if}
 			{#if notice}<p class="error" role="alert">{notice}</p>{/if}
@@ -715,18 +715,18 @@
 
 			<div class="mapping">
 				<div>
-					<h2>Mandos (VR)</h2>
+					<h2>Controllers (VR)</h2>
 					<dl>
-						<dt>A (dcho, mantener)</dt><dd>Hablar con Jarvis</dd>
-						<dt>Gatillo dcho</dt><dd>sample_collected</dd>
-						<dt>Gatillo izdo</dt><dd>storm_start</dd>
-						<dt>X (izdo)</dt><dd>mission_start (reset)</dd>
+						<dt>A (right controller, hold)</dt><dd>Talk to JARVIS</dd>
+						<dt>Right trigger</dt><dd>sample_collected</dd>
+						<dt>Left trigger</dt><dd>storm_start</dd>
+						<dt>X (left controller)</dt><dd>mission_start (reset)</dd>
 					</dl>
 				</div>
 				<div>
-					<h2>Teclado (2D)</h2>
+					<h2>Keyboard (2D)</h2>
 					<dl>
-						<dt><kbd>Espacio</kbd></dt><dd>Hablar (mantener)</dd>
+						<dt><kbd>Space</kbd></dt><dd>Talk (hold)</dd>
 						<dt><kbd>M</kbd></dt><dd>mission_start</dd>
 						<dt><kbd>T</kbd></dt><dd>storm_start</dd>
 						<dt><kbd>S</kbd></dt><dd>sample_collected</dd>
@@ -734,12 +734,12 @@
 				</div>
 			</div>
 			<p class="muted small">
-				El panel de subtítulos muestra en su última línea los índices de los botones pulsados en cada mando (D = derecho, I =
-				izquierdo). Si A no aparece como {A_INDEX}, abre la página con <code>?ab=&lt;índice&gt;</code>.
+				The bottom line of the subtitle panel shows pressed button indices for both controllers (R = right, L ==
+				left). If A is not reported as {A_INDEX}, open the page with <code>?ab=&lt;index&gt;</code>.
 			</p>
 		</section>
 	{:else}
-		<button class="reopen" onclick={() => (panelOpen = true)}>Mostrar panel</button>
+		<button class="reopen" onclick={() => (panelOpen = true)}>Show panel</button>
 	{/if}
 </main>
 

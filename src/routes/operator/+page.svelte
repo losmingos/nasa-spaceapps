@@ -41,16 +41,16 @@
 	}
 
 	const EVENTS: { id: MissionEvent; label: string }[] = [
-		{ id: 'mission_start', label: 'Inicio de misión' },
-		{ id: 'sample_collected', label: 'Muestra recogida' },
-		{ id: 'storm_start', label: 'Empieza la tormenta' }
+		{ id: 'mission_start', label: 'Mission start' },
+		{ id: 'sample_collected', label: 'Sample collected' },
+		{ id: 'storm_start', label: 'Storm starts' }
 	];
 	const CHECKLIST = [
-		'Voz ElevenLabs (tts=elevenlabs / JARVIS_TTS=elevenlabs) y créditos disponibles.',
-		'Reset hecho: mission_start o R en /operator.',
-		'El móvil de respaldo está grabando audio (D18).',
-		'El grabador nativo de las Quest tiene el micrófono activado.',
-		'No hay ficheros sin guardar en el editor (evita recargas en caliente).'
+		'ElevenLabs voice selected and credits available (tts=elevenlabs / JARVIS_TTS=elevenlabs).',
+		'Reset with mission_start or R on /operator.',
+		'The backup phone is recording audio (D18).',
+		'The Quest recorder has its microphone enabled.',
+		'Save all editor files to avoid hot reloads.'
 	];
 
 	const params = new URLSearchParams(location.search);
@@ -75,7 +75,7 @@
 	const locked = $derived(target === 'local' && (!assistantState || assistantState.status === 'locked'));
 	const currentStep = $derived(target === 'local' ? (assistantState?.telemetry.protocolStep ?? null) : lastSentStep);
 	const checklistDone = $derived(checks.every(Boolean));
-	const time = (d: Date) => d.toLocaleTimeString('es-ES', { hour12: false });
+	const time = (d: Date) => d.toLocaleTimeString('en-GB', { hour12: false });
 
 	// ---- Local assistant lifecycle -----------------------------------------------
 
@@ -226,7 +226,7 @@
 </script>
 
 <svelte:head>
-	<title>Jarvis | Operador</title>
+	<title>Jarvis | Operator</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
@@ -235,27 +235,27 @@
 <main>
 	<header>
 		<div class="identity">
-			<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">PANEL DEL OPERADOR</span>
+			<span class="planet" aria-hidden="true">◉</span> JARVIS<span class="divider"></span><span class="subtle">OPERATOR PANEL</span>
 		</div>
-		<div class="segmented" role="group" aria-label="Destino">
-			<span class="segmented-label">Destino</span>
-			<button aria-pressed={target === 'local'} onclick={() => selectTarget('local')}>Este portátil</button>
-			<button aria-pressed={target === 'quest'} onclick={() => selectTarget('quest')}>Las Quest</button>
+		<div class="segmented" role="group" aria-label="Target">
+			<span class="segmented-label">Target</span>
+			<button aria-pressed={target === 'local'} onclick={() => selectTarget('local')}>This laptop</button>
+			<button aria-pressed={target === 'quest'} onclick={() => selectTarget('quest')}>Quest headset</button>
 		</div>
 	</header>
 
-	<section class="hero" aria-label="Estado">
+	<section class="hero" aria-label="Status">
 		{#if target === 'local'}
 			<div class="hero-main">
 				{#if locked}
 					<button class="unlock" onclick={activateAudio} disabled={unlocking}>
-						{unlocking ? 'Activando…' : 'Activar audio'}
-						<small>Pide el micrófono y desbloquea el sonido. Obligatorio antes de nada.</small>
+						{unlocking ? 'Enabling…' : 'Enable audio'}
+						<small>Grant microphone access to enable audio.</small>
 					</button>
 				{:else if mode === 'scripted'}
 					<div class="ptt scripted-note">
-						Modo guionizado: no se graba voz
-						<small>Lanza las respuestas Q1–Q4 cuando el compañero termine cada pregunta.</small>
+						Scripted mode does not record audio
+						<small>Play answers Q1–Q4 after each question.</small>
 					</div>
 				{:else}
 					<button
@@ -270,11 +270,11 @@
 						onlostpointercapture={pttUp}
 						oncontextmenu={(event) => event.preventDefault()}
 					>
-						{pttHeld ? 'Grabando… suelta para enviar' : 'Mantén pulsado para hablar'}
-						<small>o mantén la barra espaciadora</small>
+						{pttHeld ? 'Recording… release to send' : 'Hold to talk'}
+						<small>or hold Space</small>
 					</button>
 				{/if}
-				{#if unlockError}<p class="error" role="alert">No se pudo activar el audio: {unlockError}</p>{/if}
+				{#if unlockError}<p class="error" role="alert">Could not enable audio: {unlockError}</p>{/if}
 			</div>
 			<div class="hero-side">
 				{#if assistantState}
@@ -282,29 +282,29 @@
 						<span class="dot"></span>{STATUS_LABEL[assistantState.status]}
 					</span>
 				{/if}
-				<div class="segmented" role="group" aria-label="Modo">
-					<span class="segmented-label">Modo</span>
-					<button aria-pressed={mode === 'live'} onclick={() => reconfigure({ mode: 'live' })}>En vivo</button>
-					<button aria-pressed={mode === 'scripted'} onclick={() => reconfigure({ mode: 'scripted' })}>Guionizado</button>
+				<div class="segmented" role="group" aria-label="Mode">
+					<span class="segmented-label">Mode</span>
+					<button aria-pressed={mode === 'live'} onclick={() => reconfigure({ mode: 'live' })}>Live</button>
+					<button aria-pressed={mode === 'scripted'} onclick={() => reconfigure({ mode: 'scripted' })}>Scripted</button>
 				</div>
-				<div class="segmented" role="group" aria-label="Voz">
-					<span class="segmented-label">Voz</span>
+				<div class="segmented" role="group" aria-label="Voice">
+					<span class="segmented-label">Voice</span>
 					<button aria-pressed={tts === 'elevenlabs'} onclick={() => reconfigure({ tts: 'elevenlabs' })}>ElevenLabs</button>
-					<button aria-pressed={tts === 'browser'} onclick={() => reconfigure({ tts: 'browser' })}>Navegador</button>
+					<button aria-pressed={tts === 'browser'} onclick={() => reconfigure({ tts: 'browser' })}>Browser</button>
 				</div>
 			</div>
 		{:else}
 			<div class="hero-main remote">
-				<span class="chip" style:--chip="#ed9d71"><span class="dot"></span>Control remoto</span>
+				<span class="chip" style:--chip="#ed9d71"><span class="dot"></span>Remote control</span>
 				<p>
-					Cada botón envía <code>POST /api/cue</code>; las Quest lo consultan cada 500 ms. El modo y la voz se eligen en la
-					URL de las gafas, p. ej. <code>/vr-test?mode=scripted&amp;tts=elevenlabs</code>.
+					Each button sends <code>POST /api/cue</code>. The headset polls every 500 ms. Select mode and voice in the
+					headset URL, for example <code>/vr-test?mode=scripted&amp;tts=elevenlabs</code>.
 				</p>
 			</div>
 			<div class="hero-side sent" aria-live="polite">
-				<h2>Últimos cues enviados</h2>
+				<h2>Recent cues</h2>
 				{#if sent.length === 0}
-					<p class="muted">Todavía no se ha enviado nada.</p>
+					<p class="muted">No cues sent yet.</p>
 				{:else}
 					<ol>
 						{#each sent as entry (entry.key)}
@@ -323,7 +323,7 @@
 	<div class="layout">
 		<div class="column">
 			<section class="panel" aria-labelledby="events-title" class:dimmed={locked}>
-				<h2 id="events-title">Eventos de misión</h2>
+				<h2 id="events-title">Mission events</h2>
 				<div class="cue-grid three">
 					{#each EVENTS as event (event.id)}
 						{@const line = EVENT_LINES.find((l) => l.trigger === event.id)}
@@ -338,7 +338,7 @@
 			</section>
 
 			<section class="panel" aria-labelledby="lines-title" class:dimmed={locked}>
-				<h2 id="lines-title">Frases fijas</h2>
+				<h2 id="lines-title">Preset lines</h2>
 				<div class="cue-grid">
 					{#each [...EVENT_LINES, ...ERROR_LINES] as line (line.id)}
 						<button class="cue" class:flash={flashed === line.id} disabled={locked} onclick={() => cue(line.id)}
@@ -348,7 +348,7 @@
 						</button>
 					{/each}
 				</div>
-				<h3>Respuestas del guion (nivel 0)</h3>
+				<h3>Scripted answers (level 0)</h3>
 				<div class="cue-grid">
 					{#each SCRIPTED_LINES as line (line.id)}
 						<button class="cue scripted" class:flash={flashed === line.id} disabled={locked} onclick={() => cue(line.id)}
@@ -362,8 +362,8 @@
 
 			<section class="panel" aria-labelledby="protocol-title" class:dimmed={locked}>
 				<div class="panel-head">
-					<h2 id="protocol-title">Protocolo de tormenta</h2>
-					<span class="hint">Teclas 1–6 · {target === 'local' ? 'paso actual' : 'último enviado'} resaltado</span>
+					<h2 id="protocol-title">Storm protocol</h2>
+					<span class="hint">Keys 1–6 · {target === 'local' ? 'current step' : 'last sent'} highlighted</span>
 				</div>
 				<div class="steps">
 					{#each PROTOCOL as step, index (step.id)}
@@ -378,7 +378,7 @@
 					{/each}
 				</div>
 				<button class="reset" class:flash={flashed === 'reset'} disabled={locked} onclick={() => cue('reset')}>
-					<kbd>R</kbd> Reset de toma <span class="muted">— historial, reloj de telemetría y cola de audio a cero</span>
+					<kbd>R</kbd> Reset take <span class="muted">— clear history, telemetry clock and audio queue</span>
 				</button>
 			</section>
 		</div>
@@ -387,8 +387,8 @@
 			{#if target === 'local'}
 				<section class="panel" aria-labelledby="telemetry-title">
 					<div class="panel-head">
-						<h2 id="telemetry-title">Telemetría</h2>
-						<span class="hint">{mode === 'live' ? 'En vivo' : 'Guionizado'} · {tts === 'elevenlabs' ? 'ElevenLabs' : 'Navegador'}</span>
+						<h2 id="telemetry-title">Telemetry</h2>
+						<span class="hint">{mode === 'live' ? 'Live' : 'Scripted'} · {tts === 'elevenlabs' ? 'ElevenLabs' : 'Browser'}</span>
 					</div>
 					{#if assistantState}
 						<table>
@@ -399,25 +399,25 @@
 							</tbody>
 						</table>
 						{#if assistantState.lastError}
-							<p class="error" role="alert">Último error: {assistantState.lastError}</p>
+							<p class="error" role="alert">Last error: {assistantState.lastError}</p>
 						{/if}
 					{:else}
-						<p class="muted">Asistente no disponible.</p>
+						<p class="muted">Assistant unavailable.</p>
 					{/if}
 				</section>
 
 				<section class="panel" aria-labelledby="log-title">
 					<div class="panel-head">
-						<h2 id="log-title">Transcripción</h2>
-						<button class="link" onclick={() => (log = [])} disabled={log.length === 0}>Limpiar</button>
+						<h2 id="log-title">Transcript</h2>
+						<button class="link" onclick={() => (log = [])} disabled={log.length === 0}>Clear</button>
 					</div>
 					{#if log.length === 0}
-						<p class="muted">Aquí aparecen la pregunta del astronauta y la respuesta de Jarvis (lo más nuevo arriba).</p>
+						<p class="muted">Astronaut questions and JARVIS replies appear here, newest first.</p>
 					{:else}
 						<ol class="log" aria-live="polite">
 							{#each log as entry (entry.key)}
 								<li style:--speaker={SPEAKER_COLOR[entry.speaker]}>
-									<span class="log-meta"><strong>{SPEAKER_LABEL[entry.speaker]}</strong> · turno {entry.turnId} · {time(entry.at)}</span>
+									<span class="log-meta"><strong>{SPEAKER_LABEL[entry.speaker]}</strong> · turn {entry.turnId} · {time(entry.at)}</span>
 									<span>{entry.text}</span>
 								</li>
 							{/each}
@@ -428,7 +428,7 @@
 
 			<section class="panel" aria-labelledby="checklist-title">
 				<div class="panel-head">
-					<h2 id="checklist-title">Checklist antes de cada toma</h2>
+					<h2 id="checklist-title">Pre-take checklist</h2>
 					<span class="hint" class:ok={checklistDone}>{checks.filter(Boolean).length}/{checks.length}</span>
 				</div>
 				<ul class="checklist">
@@ -436,14 +436,14 @@
 						<li><label><input type="checkbox" bind:checked={checks[index]} /> <span>{item}</span></label></li>
 					{/each}
 				</ul>
-				<button class="link" onclick={() => (checks = CHECKLIST.map(() => false))}>Desmarcar todo</button>
+				<button class="link" onclick={() => (checks = CHECKLIST.map(() => false))}>Uncheck all</button>
 			</section>
 
 			<section class="panel" aria-labelledby="script-title">
-				<h2 id="script-title">Guion del nivel 0</h2>
+				<h2 id="script-title">Level 0 script</h2>
 				<p class="muted">
-					El compañero lee la pregunta; cuando termina, pulsa la respuesta. Los eventos de la escena (storm_start…) lanzan
-					sus frases solos.
+					Play each answer after your teammate reads the question. Scene events such as storm_start play
+					their lines automatically.
 				</p>
 				<ol class="script">
 					{#each SCRIPTED_LINES as line (line.id)}
