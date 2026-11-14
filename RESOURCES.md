@@ -14,9 +14,13 @@ Descarga el IMG y el GeoTIFF de la tabla. Para la ortoimagen instala `numpy`, `r
 ```sh
 python scripts/build_terrain.py DTEEC_002387_1985_003798_1985_A01.IMG
 python scripts/build_ortho.py DTEEC_002387_1985_003798_1985_A01.IMG JEZ_hirise_soc_007_orthoMosaic_25cm_Ortho_blend120.tif
+python scripts/build_terrain.py DTEEC_002387_1985_003798_1985_A01.IMG --high
+python scripts/build_ortho.py DTEEC_002387_1985_003798_1985_A01.IMG JEZ_hirise_soc_007_orthoMosaic_25cm_Ortho_blend120.tif --high
 ```
 
 El generador reproyecta el GeoTIFF ortográfico a la proyección equirectangular del DTM, recorta la textura entre los centros de la primera y la última muestra de la malla y ajusta el contraste entre los percentiles 1 y 99. El canal alfa marca las zonas sin cobertura.
+
+La opción `--high` genera `jezero-high.bin` (867 × 1443 muestras, a 8,08 m de separación) y `jezero-ortho-high.webp` (1,5 m por píxel). Ambas calidades comparten origen y extensión. Los materiales del visor añaden polvo, grava y microrrelieve ilustrativos a la cartografía orbital.
 
 ## Referencias para el detalle a ras de suelo
 

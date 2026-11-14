@@ -22,16 +22,19 @@ export function buildAres01Scene(
 	landmarks.visible = false;
 	const hardware = new BoxGeometry(1, 1, 1);
 	const cabin = new MeshLambertMaterial({ color: '#ccc6b7' });
+	const terrainAnchors: { object: Object3D; point: Point; heightOffset: number }[] = [];
 	const shale = new MeshLambertMaterial({ color: '#6e4736' });
 	function part(anchor: Point, dx: number, y: number, dz: number, w: number, h: number, d: number, paint: MeshLambertMaterial) {
 		const block = new Mesh(hardware, paint);
 		block.position.set(anchor.x + dx, surfaceHeight(anchor.x, anchor.z) + y, anchor.z + dz);
 		block.scale.set(w, h, d);
 		landmarks.add(block);
+		terrainAnchors.push({ object: block, point: anchor, heightOffset: y });
 	}
 	const roverAnchor = new Group();
 	roverAnchor.position.set(ROVER.x, surfaceHeight(ROVER.x, ROVER.z), ROVER.z);
 	landmarks.add(roverAnchor);
+	terrainAnchors.push({ object: roverAnchor, point: ROVER, heightOffset: 0 });
 	let assetsRequested = false;
 	const missionAssets: Object3D[] = [];
 
@@ -89,16 +92,25 @@ export function buildAres01Scene(
 	const rockZ = SAMPLING_KIT.z - 0.76;
 	outcrop.group.position.set(rockX, surfaceHeight(rockX, rockZ), rockZ);
 	landmarks.add(outcrop.group);
+	terrainAnchors.push({ object: outcrop.group, point: { x: rockX, z: rockZ }, heightOffset: 0 });
 	const samplingKit = buildSamplingKit();
 	const { x: kitX, z: kitZ } = SAMPLING_KIT;
 	samplingKit.group.position.set(kitX, surfaceHeight(kitX, kitZ), kitZ);
 	landmarks.add(samplingKit.group);
+	terrainAnchors.push({ object: samplingKit.group, point: SAMPLING_KIT, heightOffset: 0 });
 	samplingKit.setContact(rockX - kitX,
 		outcrop.group.position.y + ABRASION_HEIGHT - samplingKit.group.position.y, rockZ - kitZ);
 	part(LOOSE_ROCK, 0, 0.18, 0, 0.65, 0.36, 0.48, shale);
 
 	return {
 		group: landmarks,
+		reground() {
+			for (const { object, point, heightOffset } of terrainAnchors) {
+				object.position.y = surfaceHeight(point.x, point.z) + heightOffset;
+			}
+			samplingKit.setContact(rockX - kitX,
+				outcrop.group.position.y + ABRASION_HEIGHT - samplingKit.group.position.y, rockZ - kitZ);
+		},
 		setView(active: boolean, samplesCollected: boolean, baseRoute: boolean) {
 			landmarks.visible = active;
 			if (active) loadMissionAssets();
