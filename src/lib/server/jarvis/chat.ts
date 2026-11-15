@@ -90,7 +90,7 @@ function cleanHistory(raw: unknown[]): ChatTurn[] {
 
 export function validateChatRequest(body: unknown): Validated {
 	if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object { history, text, telemetry }.' };
-	const { history, text, telemetry, missionContext, places, visor } = body;
+	const { history, text, telemetry, missionContext, places, visor, hazards, temperature_forecast } = body;
 	if (missionContext !== undefined && (typeof missionContext !== 'string' || missionContext.length > 4000)) {
 		return { ok: false, error: 'Invalid mission context.' };
 	}
@@ -107,9 +107,28 @@ export function validateChatRequest(body: unknown): Validated {
 			telemetry: cleanTelemetry(telemetry),
 			missionContext: missionContext as string | undefined,
 			places: cleanPlaces(places),
-			visor: cleanVisor(visor)
+			visor: cleanVisor(visor),
+			hazards: cleanHazards(hazards),
+			temperature_forecast: cleanTemperatureForecast(temperature_forecast)
 		}
 	};
+}
+
+function cleanHazards(raw: unknown): string[] | undefined {
+	if (!Array.isArray(raw)) return undefined;
+	return raw.filter((item): item is string => typeof item === 'string' && item.length <= 160).slice(0, 8);
+}
+
+function cleanTemperatureForecast(raw: unknown): ChatRequest['temperature_forecast'] {
+	if (!Array.isArray(raw)) return undefined;
+	return raw.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		const { hours_ahead, air_temp_c, lmst } = item;
+		if (typeof hours_ahead !== 'number' || !Number.isFinite(hours_ahead) || hours_ahead <= 0 || hours_ahead > 12) return [];
+		if (air_temp_c !== null && (typeof air_temp_c !== 'number' || !Number.isFinite(air_temp_c))) return [];
+		if (typeof lmst !== 'string' || !/^\d\d:\d\d$/.test(lmst)) return [];
+		return [{ hours_ahead, air_temp_c: air_temp_c as number | null, lmst }];
+	}).slice(0, 24);
 }
 
 /** Keep at most 8 well-formed place fixes ({ distance_m, bearing_deg, direction }); drop anything else. */
@@ -136,6 +155,8 @@ function telemetryWithMission(req: ChatRequest): Record<string, unknown> {
 	const out: Record<string, unknown> = { ...req.telemetry };
 	if (req.places) out.places = req.places;
 	if (req.visor) out.visor = req.visor;
+	if (req.hazards) out.nearby_hazards = req.hazards;
+	if (req.temperature_forecast) out.temperature_forecast = req.temperature_forecast;
 	if (!req.missionContext) return out;
 	let mission: unknown = req.missionContext;
 	try {
