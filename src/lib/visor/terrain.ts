@@ -16,6 +16,7 @@ import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
 import { createRockContact, footingOnRocks, type RockContact } from './rock-contact.js';
 import { HAZARD, HAZARD_RADIUS } from '../missions/ares01/route.js';
+import { MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '../jarvis/visor-control.js';
 import { weatherAt } from '../jarvis/weather.js';
 import {
 	computeStaticRisk, dangerColor, dangerScore, temperatureRisk, visibilityRisk,
@@ -1964,7 +1965,7 @@ export function mountTerrain(
 		setTime,
 		setFlashlight,
 		setMapZoom: (zoom: number) => {
-			mapZoom = MathUtils.clamp(zoom, 0.5, 4);
+			mapZoom = MathUtils.clamp(zoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM);
 			mapX = mapZ = Infinity;
 			draw();
 		},

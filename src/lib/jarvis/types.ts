@@ -79,12 +79,35 @@ export interface ChatRequest {
 	missionContext?: string;
 	/** Live straight-line distance and bearing from the astronaut to named places (see places.ts). */
 	places?: Places;
+	/** Current visor state (minimap zoom, infrared), so Sara knows limits and what is already on. */
+	visor?: VisorState;
 }
 export interface ChatResponse {
 	reply: string;
 	/** Set when the server could not get a model answer; client plays this fixed line instead. */
 	fallback?: 'E02';
+	/** Things Sara asked the visor to do (via Claude tool use), executed by the page. */
+	actions?: AssistantAction[];
 }
+
+/** What the visor reports to Sara at question time. */
+export interface VisorState {
+	/** Helmet minimap zoom: 1 = default, higher = closer (less area, more detail), lower = wider. */
+	map_zoom: number;
+	map_min_zoom: number;
+	map_max_zoom: number;
+	/** SWIR infrared view currently on. */
+	infrared_on: boolean;
+	/** Whether the infrared view can be used right now (the visor allows it only in free exploration). */
+	infrared_available: boolean;
+}
+
+export type MapZoomAction = 'in' | 'out' | 'reset' | 'set';
+
+/** An action Sara requests from the visor (via Claude tool use). The page decides how to apply it. */
+export type AssistantAction =
+	| { type: 'map_zoom'; action: MapZoomAction; /** Target zoom level, only for action 'set'. */ level?: number }
+	| { type: 'infrared'; on: boolean };
 
 /** POST /api/tts — JSON { text } → audio/mpeg bytes (cached server-side by sha1(text)). */
 export interface TtsRequest {
@@ -141,6 +164,10 @@ export interface Assistant {
 	setMissionContext(context?: string): void;
 	/** Called at question time to get live distances to named places; return null when the position is unknown. */
 	setPlacesProvider(provider: (() => Places | null) | null): void;
+	/** Called at question time to report the visor state (minimap zoom, infrared) to Sara. */
+	setVisorStateProvider(provider: (() => VisorState | null) | null): void;
+	/** Visor actions Sara requests (zoom the minimap, infrared on/off). Fired when the reply arrives, before speech. */
+	onAction(cb: (action: AssistantAction) => void): () => void;
 	/** Start telemetry without playing the scripted mission-start line. */
 	startMissionClock(): void;
 	setExertion(level: Exertion): void;

@@ -19,6 +19,8 @@ import type {
 	CueId,
 	Exertion,
 	MissionEvent,
+	AssistantAction,
+	VisorState,
 	NotifyOptions,
 	ProtocolStepId,
 	Subtitle
@@ -68,6 +70,15 @@ export function createAssistant(options: AssistantOptions): Assistant {
 	});
 
 	const subtitleListeners = new Set<(s: Subtitle) => void>();
+	const actionListeners = new Set<(a: AssistantAction) => void>();
+	let visorStateProvider: (() => VisorState | null) | null = null;
+	function liveVisorState(): VisorState | undefined {
+		try {
+			return visorStateProvider?.() ?? undefined;
+		} catch {
+			return undefined;
+		}
+	}
 	const stateListeners = new Set<(s: AssistantState) => void>();
 
 	const audio = new AudioEngine(() => emitState());
@@ -222,10 +233,19 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			emitSubtitle({ speaker: 'astronaut', text: question, turnId });
 
 			const res = await api.chat(
-				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext, places: livePlaces() },
+				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext, places: livePlaces(), visor: liveVisorState() },
 				signal
 			);
 			if (!isCurrent(turnId)) return;
+			for (const action of res.actions ?? []) {
+				for (const cb of actionListeners) {
+					try {
+						cb(action);
+					} catch (err) {
+						console.error('[jarvis] action handler failed', err);
+					}
+				}
+			}
 			const reply = res.reply.trim();
 			if (res.fallback || !reply) {
 				finishRequest(turnId);
@@ -498,6 +518,11 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		reset,
 		setMissionContext: (context) => { missionContext = context; },
 		setPlacesProvider: (provider) => { placesProvider = provider; },
+		setVisorStateProvider: (provider) => { visorStateProvider = provider; },
+		onAction(cb) {
+			actionListeners.add(cb);
+			return () => actionListeners.delete(cb);
+		},
 		setSceneClock: (localSol) => telemetry.setSceneClock(localSol ?? null),
 		playLine: (id) => void playLineInternal(id),
 		onSubtitle(cb) {
