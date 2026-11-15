@@ -16,7 +16,7 @@ Para probar desde el PC por USB, activa el modo desarrollador en el visor y acep
 
 Para compartir la vista, abre el menú con **A** y entra en **Visor settings → Compartir vista → Crear código**. En el PC, abre `/spectator` en el mismo servidor e introduce el código. Si las gafas usan `adb reverse` en el puerto 5173, la página en el PC es `http://localhost:5173/spectator`. Se transmite la vista de un ojo con los efectos del visor y el HUD, sin audio. Puedes detenerla desde el mismo menú o salir de VR.
 
-Se admite un espectador por código. Para redes que impiden la conexión directa, configura `VR_SHARE_ICE_SERVERS` con un array JSON de entradas ICE que incluya tu servidor TURN. Con `DEMO_TOKEN` configurado, el visor necesita el enlace de acceso habitual y al PC le basta con el código de sala.
+Se admite un espectador por código. En Cloudflare, ambos dispositivos se conectan por HTTPS al mismo despliegue. El Durable Object retransmite la imagen por WebSocket sin requerir una red local compartida ni TURN. Con `npm run dev`, la vista se transmite por WebRTC y admite la variable `VR_SHARE_ICE_SERVERS` para configurar TURN. Con `DEMO_TOKEN` configurado, el visor necesita el enlace de acceso habitual y al PC le basta con el código de sala.
 
 ## Despliegue en Cloudflare Workers
 

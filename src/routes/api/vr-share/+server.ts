@@ -1,6 +1,6 @@
 import { jsonError } from '#lib/server/http.js';
 import { rateLimit } from '#lib/server/ratelimit.js';
-import { iceServers, newCode, roomRequest } from '#lib/server/vr-share.js';
+import { newCode, roomRequest, shareTransport } from '#lib/server/vr-share.js';
 import type { RequestHandler } from './$types';
 
 export const prerender = false;
@@ -14,7 +14,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 		if (res.status === 409) continue;
 		if (!res.ok) return res;
 		const { key } = await res.json() as { key: string };
-		return Response.json({ code, key, iceServers: iceServers() }, { status: 201, headers: { 'cache-control': 'no-store' } });
+		return Response.json({ code, key, ...shareTransport() }, { status: 201, headers: { 'cache-control': 'no-store' } });
 	}
 	return jsonError(503, 'No se pudo generar el código. Inténtalo de nuevo.');
 };

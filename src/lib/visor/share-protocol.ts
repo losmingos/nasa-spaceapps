@@ -9,4 +9,9 @@ export type ShareState = {
 	offer?: Signal;
 	answer?: Signal;
 };
-export type ShareTicket = { code: string; key: string; iceServers: RTCIceServer[] };
+export const SHARE_SOCKET_PROTOCOL = 'ares-share-v1';
+export const MAX_SHARE_FRAME = 256 * 1024;
+
+export type ShareTicket = { code: string; key: string } & (
+	{ relay: true; iceServers?: never } | { relay?: false; iceServers: RTCIceServer[] }
+);
