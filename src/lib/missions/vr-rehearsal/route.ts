@@ -37,9 +37,6 @@ export const ROUTE: Point[] = [SAMPLE, { x: 1720, z: -400 }, { x: 1920, z: -560 
  * SAMPLE ≈ 68.4 m, HABITAT ≈ 65.4 m, SPAWN ≈ 68.5 m, before any vertical exaggeration (mesh.scale.y).
  * Along ROUTE (sampled every 4 m) the ground stays between −2535.4 and −2531.3 m, almost level.
  */
-export const SAMPLE_ELEVATION_M = -2531.9;
-export const HABITAT_ELEVATION_M = -2534.8;
-export const SPAWN_ELEVATION_M = -2531.8;
 
 /** Assumed walking speed for the telemetry (m/s). */
 export const WALK_SPEED_MS = 1.0;

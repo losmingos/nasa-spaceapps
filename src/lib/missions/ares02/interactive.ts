@@ -15,7 +15,6 @@ const markers = [alternative[1], bravo];
 const plannedKwhPerMetre = routeForecast(routes[1]).total / routeLength;
 const actionDelaySeconds = 1;
 const checkRadius = 4;
-const arrivalRadius = 4;
 
 export interface Run {
 	stage: Stage;
@@ -89,7 +88,7 @@ export function stepRun(run: Run, delta: number, position: Point): Run {
 			return enter(next, 'eva-prep');
 		case 'drive': {
 			next.driven += distanceBetween(run.position, position);
-			if (distanceBetween(position, markers[run.leg]) > (run.leg === 2 ? arrivalRadius : checkRadius)) return next;
+			if (distanceBetween(position, markers[run.leg]) > checkRadius) return next;
 			if (run.leg === 0) {
 				next.leg++;
 				return next;

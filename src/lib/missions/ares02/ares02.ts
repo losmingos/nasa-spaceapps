@@ -9,10 +9,6 @@ export const routes = [
 
 export const usableEnergy = 9.5;
 export const reserve = 9.15;
-export const waitHours = 8 + 55 / 60;
-export const normalLoad = 1.5;
-export const shelterLoad = 0.9;
-export const shelterEnergy = shelterLoad * waitHours;
 
 export function forecast(available: number, remaining: number) {
 	const arrival = Math.round((available - remaining) * 100) / 100;

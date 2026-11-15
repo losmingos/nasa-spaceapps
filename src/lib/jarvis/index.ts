@@ -32,7 +32,7 @@ export type { LineId } from './lines.js';
 export type { PlaceFix, Places, PlanePoint } from './places.js';
 import type { Places } from './places.js';
 export { placesFrom } from './places.js';
-export { getCue, postCue } from './api.js';
+export { getCue } from './api.js';
 
 /** Presses shorter than this are accidental taps and are discarded (D22). */
 const MIN_CLIP_MS = 600;

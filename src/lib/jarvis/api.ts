@@ -1,5 +1,5 @@
 // Fetch wrappers for the Jarvis endpoints (spec §4). Browser-only at call time; safe to import during SSR.
-import type { ChatRequest, ChatResponse, CueId, CueState, SttResponse } from './types.js';
+import type { ChatRequest, ChatResponse, CueState, SttResponse } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CUE_TIMEOUT_MS = 3_000;
@@ -93,15 +93,4 @@ export async function getCue(signal?: AbortSignal): Promise<CueState> {
 		{ signal, timeoutMs: CUE_TIMEOUT_MS }
 	);
 	return (await res.json()) as CueState;
-}
-
-/** POST /api/cue { id } → { seq }. */
-export async function postCue(id: CueId, signal?: AbortSignal): Promise<CueState> {
-	const res = await request(
-		'/api/cue',
-		{ method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ id }) },
-		{ signal, timeoutMs: CUE_TIMEOUT_MS }
-	);
-	const data = (await res.json()) as Partial<CueState>;
-	return { seq: typeof data.seq === 'number' ? data.seq : 0, id: data.id ?? id };
 }

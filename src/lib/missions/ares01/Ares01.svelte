@@ -27,8 +27,8 @@
 	let run = $state.raw(startInteractive());
 	let runId = $state(0);
 	let lastCue = '';
-	const player = $derived(mode === 'interactive' ? interactiveSnapshot(run) : undefined);
 	const snapshot = $derived(interactiveSnapshot(run));
+	const player = $derived(mode === 'interactive' ? snapshot : undefined);
 	const elapsed = $derived(run.elapsed);
 	const finished = $derived(snapshot.cue.id === 'closed');
 	const actions = $derived(player ? availableActions(run) : []);
@@ -114,7 +114,7 @@
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) return;
 		if (!mode) {
-			if (event.code === 'KeyM' && ready) {
+			if (event.code === 'KeyI' && ready) {
 				event.preventDefault();
 				start('interactive');
 			}

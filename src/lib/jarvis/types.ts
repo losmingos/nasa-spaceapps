@@ -126,11 +126,6 @@ export type AssistantAction =
 	| { type: 'infrared'; on: boolean }
 	| { type: 'danger_layer'; on: boolean };
 
-/** POST /api/tts — JSON { text } → audio/mpeg bytes (cached server-side by sha1(text)). */
-export interface TtsRequest {
-	text: string;
-}
-
 /** Operator cue channel for level 0 (D28). */
 export type CueId = LineId | MissionEvent | 'reset' | `step:${ProtocolStepId}`;
 /** GET /api/cue → latest cue (id null if none yet). POST /api/cue { id } → { seq }. */
