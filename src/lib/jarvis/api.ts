@@ -63,9 +63,15 @@ export async function chat(req: ChatRequest, signal?: AbortSignal): Promise<Chat
 		{ signal }
 	);
 	const data = (await res.json()) as Partial<ChatResponse>;
+	// Keep the visor actions Sara requested (map zoom, infrared): dropping them made Sara say
+	// "zooming out" while nothing happened. The server already validates their shape.
+	const actions = Array.isArray(data.actions)
+		? data.actions.filter((a) => a && (a.type === 'map_zoom' || a.type === 'infrared'))
+		: [];
 	return {
 		reply: typeof data.reply === 'string' ? data.reply : '',
-		...(data.fallback ? { fallback: data.fallback } : {})
+		...(data.fallback ? { fallback: data.fallback } : {}),
+		...(actions.length ? { actions } : {})
 	};
 }
 

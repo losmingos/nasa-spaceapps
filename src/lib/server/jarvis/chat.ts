@@ -1,8 +1,9 @@
 // /api/chat logic: request validation + one Claude Haiku 5.5 call (spec §4.3).
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { ChatRequest, ChatResponse, ChatTurn, MedaCurve, Telemetry } from '#lib/jarvis/types.js';
+import type { AssistantAction, ChatRequest, ChatResponse, ChatTurn, MapZoomAction, MedaCurve, Telemetry, VisorState } from '#lib/jarvis/types.js';
 import type { Places } from '#lib/jarvis/places.js';
+import { MAP_MAX_ZOOM, MAP_MIN_ZOOM, VOICE_ZOOM_FACTOR } from '#lib/jarvis/visor-control.js';
 import { isRecord } from '../http.js';
 import { SYSTEM_PROMPT } from './prompt.js';
 
@@ -89,7 +90,7 @@ function cleanHistory(raw: unknown[]): ChatTurn[] {
 
 export function validateChatRequest(body: unknown): Validated {
 	if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object { history, text, telemetry }.' };
-	const { history, text, telemetry, missionContext, places } = body;
+	const { history, text, telemetry, missionContext, places, visor } = body;
 	if (missionContext !== undefined && (typeof missionContext !== 'string' || missionContext.length > 4000)) {
 		return { ok: false, error: 'Invalid mission context.' };
 	}
@@ -105,7 +106,8 @@ export function validateChatRequest(body: unknown): Validated {
 			history: cleanHistory(history ?? []),
 			telemetry: cleanTelemetry(telemetry),
 			missionContext: missionContext as string | undefined,
-			places: cleanPlaces(places)
+			places: cleanPlaces(places),
+			visor: cleanVisor(visor)
 		}
 	};
 }
@@ -133,6 +135,7 @@ function cleanPlaces(raw: unknown): Places | undefined {
 function telemetryWithMission(req: ChatRequest): Record<string, unknown> {
 	const out: Record<string, unknown> = { ...req.telemetry };
 	if (req.places) out.places = req.places;
+	if (req.visor) out.visor = req.visor;
 	if (!req.missionContext) return out;
 	let mission: unknown = req.missionContext;
 	try {
@@ -142,6 +145,87 @@ function telemetryWithMission(req: ChatRequest): Record<string, unknown> {
 	}
 	out.mission = mission;
 	return out;
+}
+
+
+/** Sara's tools. Static, so they stay inside the cached prompt prefix (tools render before the system prompt). */
+const MAP_TOOL: Anthropic.Tool = {
+	name: 'set_map_zoom',
+	description:
+		'Zoom the helmet minimap. Use it only when the astronaut asks to zoom, enlarge, reduce, get closer, see more area or reset the map. ' +
+		`"in" makes the view ${VOICE_ZOOM_FACTOR} times closer (less area, more detail); "out" makes it ${VOICE_ZOOM_FACTOR} times wider (more area); ` +
+		`"reset" returns to the default zoom of 1; "set" goes to an exact level between ${MAP_MIN_ZOOM} and ${MAP_MAX_ZOOM}.`,
+	input_schema: {
+		type: 'object',
+		properties: {
+			action: { type: 'string', enum: ['in', 'out', 'reset', 'set'] },
+			level: { type: 'number', description: `Only for "set": the target zoom level, ${MAP_MIN_ZOOM} to ${MAP_MAX_ZOOM}.` }
+		},
+		required: ['action'],
+		additionalProperties: false
+	},
+	strict: true
+};
+
+const INFRARED_TOOL: Anthropic.Tool = {
+	name: 'set_infrared',
+	description:
+		'Turn the helmet SWIR infrared view on or off. Infrared sees through dust better than visible light. ' +
+		'Use it only when the astronaut asks for infrared, thermal or SWIR vision, or to switch it off, and only if visor.infrared_available is true.',
+	input_schema: {
+		type: 'object',
+		properties: { on: { type: 'boolean', description: 'true to turn infrared on, false to turn it off.' } },
+		required: ['on'],
+		additionalProperties: false
+	},
+	strict: true
+};
+
+const TOOLS: Anthropic.Tool[] = [MAP_TOOL, INFRARED_TOOL];
+
+const MAP_CONFIRMATION: Record<MapZoomAction, string> = {
+	in: 'Copy, zooming the map in.',
+	out: 'Copy, zooming the map out.',
+	reset: 'Copy, map back to the default zoom.',
+	set: 'Copy, map zoom set.'
+};
+
+function confirmation(action: AssistantAction): string {
+	if (action.type === 'infrared') return action.on ? 'Copy, infrared on.' : 'Copy, infrared off.';
+	return MAP_CONFIRMATION[action.action];
+}
+
+/** Tool calls → visor actions (validated; anything malformed is dropped). At most one action per kind. */
+function actionsFrom(content: Anthropic.ContentBlock[]): AssistantAction[] {
+	let map: AssistantAction | undefined;
+	let infrared: AssistantAction | undefined;
+	for (const block of content) {
+		if (block.type !== 'tool_use' || !isRecord(block.input)) continue;
+		if (block.name === MAP_TOOL.name && !map) {
+			const { action, level } = block.input;
+			if (action !== 'in' && action !== 'out' && action !== 'reset' && action !== 'set') continue;
+			if (action === 'set') {
+				if (typeof level !== 'number' || !Number.isFinite(level)) continue;
+				map = { type: 'map_zoom', action, level: Math.min(MAP_MAX_ZOOM, Math.max(MAP_MIN_ZOOM, level)) };
+			} else {
+				map = { type: 'map_zoom', action };
+			}
+		} else if (block.name === INFRARED_TOOL.name && !infrared && typeof block.input.on === 'boolean') {
+			infrared = { type: 'infrared', on: block.input.on };
+		}
+	}
+	return [map, infrared].filter((a): a is AssistantAction => !!a);
+}
+
+function cleanVisor(raw: unknown): VisorState | undefined {
+	if (!isRecord(raw) || typeof raw.map_zoom !== 'number' || !Number.isFinite(raw.map_zoom)) return undefined;
+	return {
+		map_zoom: Math.round(raw.map_zoom * 100) / 100,
+		map_min_zoom: MAP_MIN_ZOOM,
+		map_max_zoom: MAP_MAX_ZOOM,
+		infrared_on: raw.infrared_on === true,
+		infrared_available: raw.infrared_available === true
+	};
 }
 
 export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatResponse> {
@@ -155,6 +239,7 @@ export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatRes
 			model: CHAT_MODEL,
 			max_tokens: 2000,
 			output_config: { effort: 'low' },
+			tools: TOOLS,
 			system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
 			messages
 		});
@@ -175,6 +260,10 @@ export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatRes
 			.join(' ')
 			.replace(/\s+/g, ' ')
 			.trim();
+		// The tool call is executed by the visor; we don't send a tool_result back (one round trip keeps latency
+		// low), so a reply with only a tool call gets a fixed spoken confirmation.
+		const actions = actionsFrom(res.content);
+		if (actions.length) return { reply: reply || actions.map(confirmation).join(" "), actions };
 		if (!reply) return { reply: '', fallback: 'E02' };
 		return { reply };
 	} catch (err) {

@@ -2,6 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { asset, resolve } from '$app/paths';
 	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { BUTTON_ZOOM_STEP, MAP_MAX_ZOOM, MAP_MIN_ZOOM, clampMapZoom, voiceMapZoom } from '#lib/jarvis/visor-control.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
@@ -410,7 +411,7 @@
 		}
 		if (event.code === 'Equal' || event.code === 'NumpadAdd' || event.code === 'Minus' || event.code === 'NumpadSubtract') {
 			event.preventDefault();
-			mapZoom = Math.max(0.5, Math.min(4, mapZoom + (event.code === 'Equal' || event.code === 'NumpadAdd' ? 0.5 : -0.5)));
+			mapZoom = clampMapZoom(mapZoom + (event.code === 'Equal' || event.code === 'NumpadAdd' ? BUTTON_ZOOM_STEP : -BUTTON_ZOOM_STEP));
 			terrain?.setMapZoom(mapZoom);
 			return;
 		}
@@ -484,6 +485,23 @@ if (mission || nightfall || ares02) return;
 			const parked = nightfall?.terrain.parkedRover;
 			return placesFrom(position, parked ? { bravo, rover: parked } : { bravo });
 		});
+		// Sara's visor controls by voice. The map shares mapZoom with the Map +/− buttons and keys, but each voice
+		// command zooms ×4 (VOICE_ZOOM_FACTOR) instead of ±0.5. Infrared follows the visor's own rule: free
+		// exploration only (same condition as the I key and the Y button).
+		const infraredAvailable = () => !mission && !nightfall && !ares02 && !ares01;
+		sara.setVisorStateProvider(() => ({
+			map_zoom: mapZoom, map_min_zoom: MAP_MIN_ZOOM, map_max_zoom: MAP_MAX_ZOOM,
+			infrared_on: displayMode === 'swir', infrared_available: infraredAvailable()
+		}));
+		const unsubscribeAction = sara.onAction((action) => {
+			if (action.type === 'map_zoom') {
+				mapZoom = voiceMapZoom(mapZoom, action.action, action.level);
+				terrain?.setMapZoom(mapZoom);
+			} else if (action.type === 'infrared' && infraredAvailable()) {
+				if (action.on && displayMode !== 'swir') selectDisplayMode('swir');
+				else if (!action.on && displayMode === 'swir') selectDisplayMode(previousDisplayMode);
+			}
+		});
 		voice = sara.getState();
 		const unsubscribeVoice = sara.onState((state) => { voice = state; flushMissionLine(); terrain?.refresh(); });
 		now = Date.now();
@@ -528,6 +546,7 @@ if (mission || nightfall || ares02) return;
 			request.abort();
 			assistant = undefined;
 			unsubscribeVoice();
+			unsubscribeAction();
 			sara.dispose();
 			missionVoice?.dispose();
 			clearInterval(clockTimer);
@@ -624,10 +643,10 @@ if (mission || nightfall || ares02) return;
 			{/if}
 			{#if inVR}
 				<div class="visor-map-controls">
-					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= 4}
-						onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
-					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= 0.5}
-						onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
+					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
+						onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
+					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
+						onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
 				</div>
 			{/if}
 			<div class="visor-suit-controls">
@@ -709,10 +728,10 @@ if (mission || nightfall || ares02) return;
 					<div class="control-section">
 						<h2>Map</h2>
 						<div class="layer-buttons" role="group" aria-label="Minimap zoom">
-							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= 4}
-								onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>Map +</button>
-							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= 0.5}
-								onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>Map −</button>
+							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
+								onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}>Map +</button>
+							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
+								onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}>Map −</button>
 						</div>
 					</div>
 					<div class="control-section">
