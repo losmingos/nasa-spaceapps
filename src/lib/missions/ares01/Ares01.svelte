@@ -1,10 +1,10 @@
 <script lang="ts">
+	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import { onMount, tick } from 'svelte';
 	import MissionControls from '../MissionControls.svelte';
 	import { dialogueAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
-	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import { DETOUR_EXTRA, type Point } from './route.js';
 
 	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
@@ -173,13 +173,13 @@
 <svelte:window onkeydown={keyboard} />
 
 {#if mode && !finished}
-	<MissionControls id="mission-options" menuLabel="ARES-01" running={!!mode} open={menuOpen}
+	<MissionControls {immersive} id="mission-options" menuLabel="ARES-01" running={!!mode} open={menuOpen}
 		onmenu={() => { menuOpen = !menuOpen; }} bind:menubutton={menuButton}
 		{actions} {actionLabels} {paused} onact={perform}
-		testing={testing && mode === 'interactive' && !finished} fast={fastTravel}
+		testing={testing && mode === 'interactive'} fast={fastTravel}
 		ontest={() => { fastTravel = !fastTravel; focusScene(); }}>
 		<div class="hud-actions">
-			<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'} [P]</button>
+			<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'}{#if !immersive} [P]{/if}</button>
 			<button class="hud-action" onclick={() => start(mode)}>Restart</button>
 			<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
 		</div>

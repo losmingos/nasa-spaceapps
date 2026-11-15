@@ -140,12 +140,12 @@
 <svelte:window onkeydown={keyboard} />
 
 {#if running && !finished}
-	<MissionControls id="nightfall-options" menuLabel="ARES-02" running={!!running} {open}
+	<MissionControls {immersive} id="nightfall-options" menuLabel="ARES-02" running={!!running} {open}
 		onmenu={() => { open = !open; }} bind:menubutton={menuButton}
 		actions={controls} actionLabels={labels} {paused} onact={perform}
-		testing={testing && running && !finished} {fast} ontest={toggleTestSpeed}>
+		{testing} {fast} ontest={toggleTestSpeed}>
 		<div class="hud-actions">
-			<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'} [P]</button>
+			<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'}{#if !immersive} [P]{/if}</button>
 			<button class="hud-action" onclick={() => start(true)}>Restart</button>
 			<button class="hud-action" onclick={() => start(false)}>Exit</button>
 		</div>

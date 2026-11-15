@@ -2,6 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { asset, resolve } from '$app/paths';
 	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
+	import { BUTTON_ZOOM_STEP, MAP_MAX_ZOOM, MAP_MIN_ZOOM, clampMapZoom, voiceMapZoom } from '#lib/jarvis/visor-control.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
@@ -18,6 +19,7 @@
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
 	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
 	import { createMissionScene, missionContext, missionMessage, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
+	import VisorIcon from './VisorIcon.svelte';
 	import type { XrMenuItem, XrMenuPage } from './xr-controls.js';
 	import type { VisorMessage } from '#lib/visor/optics.js';
 
@@ -27,6 +29,7 @@
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
 	let vrSupported = $state(false);
 	let vrBusy = $state(false);
+	let visor: HTMLElement;
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
 	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
@@ -346,9 +349,12 @@
 					onToggleFlashlight: toggleFlashlight,
 					onMenuOpen: () => { vrPage = 'main'; },
 					getMenu: getVrMenu,
-					getMissionScreen: () => missionScreen,
-					getAction: () => getMissionControls().find((item) => item.close && item.id !== 'pause')?.label,
-					getVoiceLabel: () => voiceLabel
+					visor,
+					setClockInput: (name, value) => {
+						if (name === 'sol') setClock(Number(value), clock);
+						else setClock(sol, value);
+					},
+					getMissionScreen: () => missionScreen
 				});
 				missionVoice?.unlock();
 				void assistant?.unlock().catch((cause) => {
@@ -405,7 +411,7 @@
 		}
 		if (event.code === 'Equal' || event.code === 'NumpadAdd' || event.code === 'Minus' || event.code === 'NumpadSubtract') {
 			event.preventDefault();
-			mapZoom = Math.max(0.5, Math.min(4, mapZoom + (event.code === 'Equal' || event.code === 'NumpadAdd' ? 0.5 : -0.5)));
+			mapZoom = clampMapZoom(mapZoom + (event.code === 'Equal' || event.code === 'NumpadAdd' ? BUTTON_ZOOM_STEP : -BUTTON_ZOOM_STEP));
 			terrain?.setMapZoom(mapZoom);
 			return;
 		}
@@ -479,6 +485,23 @@ if (mission || nightfall || ares02) return;
 			const parked = nightfall?.terrain.parkedRover;
 			return placesFrom(position, parked ? { bravo, rover: parked } : { bravo });
 		});
+		// Sara's visor controls by voice. The map shares mapZoom with the Map +/− buttons and keys, but each voice
+		// command zooms ×4 (VOICE_ZOOM_FACTOR) instead of ±0.5. Infrared follows the visor's own rule: free
+		// exploration only (same condition as the I key and the Y button).
+		const infraredAvailable = () => !mission && !nightfall && !ares02 && !ares01;
+		sara.setVisorStateProvider(() => ({
+			map_zoom: mapZoom, map_min_zoom: MAP_MIN_ZOOM, map_max_zoom: MAP_MAX_ZOOM,
+			infrared_on: displayMode === 'swir', infrared_available: infraredAvailable()
+		}));
+		const unsubscribeAction = sara.onAction((action) => {
+			if (action.type === 'map_zoom') {
+				mapZoom = voiceMapZoom(mapZoom, action.action, action.level);
+				terrain?.setMapZoom(mapZoom);
+			} else if (action.type === 'infrared' && infraredAvailable()) {
+				if (action.on && displayMode !== 'swir') selectDisplayMode('swir');
+				else if (!action.on && displayMode === 'swir') selectDisplayMode(previousDisplayMode);
+			}
+		});
 		voice = sara.getState();
 		const unsubscribeVoice = sara.onState((state) => { voice = state; flushMissionLine(); terrain?.refresh(); });
 		now = Date.now();
@@ -523,6 +546,7 @@ if (mission || nightfall || ares02) return;
 			request.abort();
 			assistant = undefined;
 			unsubscribeVoice();
+			unsubscribeAction();
 			sara.dispose();
 			missionVoice?.dispose();
 			clearInterval(clockTimer);
@@ -540,7 +564,7 @@ if (mission || nightfall || ares02) return;
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
-<main class="visor">
+<main class="visor" bind:this={visor} class:immersive={inVR}>
 	<canvas class="terrain" bind:this={canvas} tabindex="0" inert={!!missionScreen && !inVR}
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
@@ -613,32 +637,39 @@ if (mission || nightfall || ares02) return;
 			<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
 			{/if}
 			{#if vrSupported}
-				<button type="button" class="hud-action" disabled={!terrain || vrBusy} onclick={toggleVR}>
-					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
+				<button type="button" class="hud-action visor-exit" aria-label={inVR ? 'Exit VR' : undefined} disabled={!terrain || vrBusy} onclick={toggleVR}>
+					{#if inVR}<VisorIcon name="exit" />{:else if vrBusy}Entering VR…{:else}Enter VR{/if}
 				</button>
 			{/if}
-			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
-				disabled={!terrain} onclick={toggleFlashlight}>
-				{flashlightOn ? 'Flashlight on' : 'Flashlight'} <kbd>F</kbd>
-			</button>
-			<button type="button" class="hud-action voice-control"
-					aria-label="SARA. Hold to talk and release to send"
-					aria-keyshortcuts="Space"
-					data-recording={voiceStatus === 'recording'}
-					onpointerdown={(event) => {
-						if (event.button !== 0 || !event.isPrimary) return;
-						event.currentTarget.setPointerCapture(event.pointerId);
-						void voiceDown('pointer');
-					}}
-					onpointerup={() => { if (voiceInput === 'pointer') voiceUp(); }}
-					onlostpointercapture={() => { if (voiceInput === 'pointer') voiceUp(); }}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-						stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<rect x="9" y="3" width="6" height="12" rx="3" />
-						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
-					</svg>
-					<span>SARA</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
+			{#if inVR}
+				<div class="visor-map-controls">
+					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
+						onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
+					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
+						onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
+				</div>
+			{/if}
+			<div class="visor-suit-controls">
+				<button type="button" class="hud-action" aria-label="Flashlight" aria-pressed={flashlightOn} aria-keyshortcuts="F"
+					disabled={!terrain} onclick={toggleFlashlight}>
+					{#if inVR}<VisorIcon name="flashlight" />{:else}{flashlightOn ? 'Flashlight on' : 'Flashlight'}{/if} <kbd>{inVR ? 'B' : 'F'}</kbd>
 				</button>
+				<button type="button" class="hud-action voice-control"
+						aria-label="SARA. Hold to talk and release to send"
+						aria-keyshortcuts="Space"
+						data-recording={voiceStatus === 'recording'}
+						onpointerdown={(event) => {
+							if (event.button !== 0 || !event.isPrimary) return;
+							event.currentTarget.setPointerCapture(event.pointerId);
+							void voiceDown('pointer');
+						}}
+						onpointerup={() => { if (voiceInput === 'pointer') voiceUp(); }}
+						onlostpointercapture={() => { if (voiceInput === 'pointer') voiceUp(); }}>
+						<VisorIcon name="mic" />
+						<span>SARA</span><kbd>{inVR ? 'Hold grip' : 'Space'}</kbd>
+						{#if !inVR}<span class="touch-hint" aria-hidden="true">Hold</span>{/if}
+					</button>
+			</div>
 		</div>
 	</div>
 
@@ -677,11 +708,11 @@ if (mission || nightfall || ares02) return;
 					<div class="control-section">
 						<h2>Mars time</h2>
 						<label>Sol (MSD)
-							<input type="number" min="0" max="99999" step="1" value={sol}
+							<input name="sol" type="number" min="0" max="99999" step="1" value={sol}
 								onchange={(event) => setClock(event.currentTarget.valueAsNumber, clock)} />
 						</label>
 						<label>Local time (LMST)
-							<input type="time" value={clock}
+							<input name="time" type="time" value={clock}
 								onchange={(event) => setClock(sol, event.currentTarget.value)} />
 						</label>
 						<button type="button" onclick={() => { now = Date.now(); selectedSol = undefined; }}>
@@ -697,10 +728,10 @@ if (mission || nightfall || ares02) return;
 					<div class="control-section">
 						<h2>Map</h2>
 						<div class="layer-buttons" role="group" aria-label="Minimap zoom">
-							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= 4}
-								onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>Map +</button>
-							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= 0.5}
-								onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>Map −</button>
+							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
+								onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}>Map +</button>
+							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
+								onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}>Map −</button>
 						</div>
 					</div>
 					<div class="control-section">
@@ -723,7 +754,7 @@ if (mission || nightfall || ares02) return;
 			<button type="button" class="scene-controls-trigger" bind:this={controlsButton}
 				aria-expanded={controlsVisible} aria-controls="scene-controls-panel" aria-keyshortcuts="H"
 				onclick={() => { controlsVisible = !controlsVisible; }}>
-				Controls <kbd>H</kbd>
+				{#if inVR}<VisorIcon name="settings" />{/if} Controls{#if !inVR} <kbd>H</kbd>{/if}
 			</button>
 		</div>
 	{/if}
