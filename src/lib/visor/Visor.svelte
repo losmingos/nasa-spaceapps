@@ -29,6 +29,9 @@
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
 	let vrSupported = $state(false);
 	let vrBusy = $state(false);
+	let vrAudioPrepared = false;
+	let preparingVrAudio = $state(false);
+	let vrAudioNotice = $state('');
 	let visor: HTMLElement;
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
@@ -340,9 +343,36 @@
 			if (inVR) {
 				await scene.exitVR();
 			} else {
+				if (!vrAudioPrepared && assistant) {
+					preparingVrAudio = true;
+					unlockFailed = false;
+					try {
+						missionVoice?.unlock();
+						await assistant.unlock();
+					} catch {
+						unlockFailed = true;
+					} finally {
+						preparingVrAudio = false;
+						vrAudioPrepared = true;
+					}
+					if (terrain !== scene) return;
+					if (micUnavailable || unlockFailed) {
+						vrAudioNotice = 'SARA is unavailable. Check the site’s microphone permission or select Enter VR to continue.';
+						return;
+					}
+					// Answering the mic prompt can outlast the activation required by WebXR.
+					if (!navigator.userActivation?.isActive) {
+						vrAudioNotice = 'Microphone ready. Select Enter VR to continue.';
+						return;
+					}
+				}
+				vrAudioNotice = '';
 				vrPage = 'main';
-				const entering = scene.enterVR(xr, {
-					onEnd: () => { inVR = false; },
+				await scene.enterVR(xr, {
+					onEnd: () => {
+						inVR = false;
+						vrAudioPrepared = false;
+					},
 					onTalkStart: () => { void voiceDown('vr'); },
 					onTalkEnd: () => { if (voiceInput === 'vr') voiceUp(); },
 					onToggleSwir: () => { if (!mission && !nightfall && !ares02) toggleSwir(); },
@@ -356,12 +386,6 @@
 					},
 					getMissionScreen: () => missionScreen
 				});
-				missionVoice?.unlock();
-				void assistant?.unlock().catch((cause) => {
-					console.error('[jarvis] Audio unavailable', cause);
-					unlockFailed = true;
-				});
-				await entering;
 				inVR = scene.isInVR();
 			}
 		} catch (cause) {
@@ -620,6 +644,7 @@ if (mission || nightfall || ares02) return;
 
 		<div class="visor-controls">
 			{#if vrError}<p class="vr-error" role="alert">{vrError}</p>{/if}
+			{#if vrAudioNotice}<p class="vr-error" role="status">{vrAudioNotice}</p>{/if}
 			{#if ares02}
 				<Ares02 bind:this={nightfallControls} immersive={inVR} ready={!!terrain} onview={(view) => { nightfall = view; }}
 					ondialogue={playNightfallDialogue} onstart={startMission} onpause={pauseMission}
@@ -638,7 +663,7 @@ if (mission || nightfall || ares02) return;
 			{/if}
 			{#if vrSupported}
 				<button type="button" class="hud-action visor-exit" aria-label={inVR ? 'Exit VR' : undefined} disabled={!terrain || vrBusy} onclick={toggleVR}>
-					{#if inVR}<VisorIcon name="exit" />{:else if vrBusy}Entering VR…{:else}Enter VR{/if}
+					{#if inVR}<VisorIcon name="exit" />{:else if preparingVrAudio}Allow microphone…{:else if vrBusy}Entering VR…{:else}Enter VR{/if}
 				</button>
 			{/if}
 			{#if inVR}

@@ -2,6 +2,7 @@
 // Browser globals are only touched inside methods (SSR-safe import).
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+const MIC_PERMISSION_TIMEOUT_MS = 20_000;
 
 export interface Clip {
 	blob: Blob;
@@ -44,9 +45,27 @@ export class Recorder {
 			throw new Error('getUserMedia not available (needs a secure context: https or localhost)');
 		}
 		if (typeof MediaRecorder === 'undefined') throw new Error('MediaRecorder not available');
-		this.stream = await navigator.mediaDevices.getUserMedia({
+		const request = navigator.mediaDevices.getUserMedia({
 			audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
 		});
+		let timedOut = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			this.stream = await Promise.race([
+				request.then((stream) => {
+					if (timedOut) stream.getTracks().forEach((track) => track.stop());
+					return stream;
+				}),
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(() => {
+						timedOut = true;
+						reject(new Error('Microphone permission request timed out'));
+					}, MIC_PERMISSION_TIMEOUT_MS);
+				})
+			]);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
 	/** Start a new recording on the persistent stream. Returns false if not possible. */

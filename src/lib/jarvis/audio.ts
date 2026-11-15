@@ -114,7 +114,12 @@ export class AudioEngine {
 				/* ignore */
 			}
 		}
-		return resumed.then(() => undefined);
+		// Autoplay restrictions can leave resume() pending until the next browser gesture.
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		return Promise.race([
+			resumed,
+			new Promise<void>((resolve) => { timer = setTimeout(resolve, 3000); })
+		]).finally(() => clearTimeout(timer));
 	}
 
 	async decode(data: ArrayBuffer): Promise<AudioBuffer> {
