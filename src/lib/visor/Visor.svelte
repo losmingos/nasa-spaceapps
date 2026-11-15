@@ -59,8 +59,11 @@
 	let dangerRisk = $state(0);
 	let dangerMessage = $state<VisorMessage>();
 	let systemAlert = $state<VisorMessage>();
-	let oxygenAlerted = false;
+	let oxygenAlertLevel = 0;
+	let oxygenAlertTimer: ReturnType<typeof setTimeout> | undefined;
+	const oxygenAlertTitles = ['Low oxygen', 'Critical oxygen', 'Oxygen emergency'];
 	let coldAlerted = false;
+	let coldAlertTimer: ReturnType<typeof setTimeout> | undefined;
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
 	// Terrain risk thresholds (dangerScore × 100). ON entries set the warning, OFF entries clear it (hysteresis).
 	const CAUTION_ON = 0.20;
@@ -135,25 +138,49 @@
 		const currentTemp = voice?.telemetry.air_temp_c;
 		if (typeof oxygen === 'number') {
 			if (oxygen >= 35) {
-				oxygenAlerted = false;
-				if (systemAlert?.title === 'Low oxygen') systemAlert = undefined;
+				oxygenAlertLevel = 0;
+				if (oxygenAlertTitles.includes(systemAlert?.title ?? '')) {
+					systemAlert = undefined;
+					clearTimeout(oxygenAlertTimer);
+					oxygenAlertTimer = undefined;
+				}
 			}
-			else if (oxygen < 30 && !oxygenAlerted) {
-				oxygenAlerted = true;
-				const text = `Oxygen reserve is below thirty percent. Current reserve: ${Math.round(oxygen)} percent. Return to the rover or habitat now.`;
-				systemAlert = { title: 'Low oxygen', detail: text, kind: 'danger' };
-				assistant?.announce(text);
+			else {
+				const level = oxygen < 15 ? 3 : oxygen < 20 ? 2 : oxygen < 30 ? 1 : 0;
+				if (level > oxygenAlertLevel) {
+					oxygenAlertLevel = level;
+					const title = level === 3 ? 'Oxygen emergency' : level === 2 ? 'Critical oxygen' : 'Low oxygen';
+					const text = level === 3
+						? `Oxygen emergency. Less than fifteen percent remains. Return to shelter immediately.`
+						: level === 2
+							? `Critical oxygen. Less than twenty percent remains. Return to shelter immediately.`
+							: `Low oxygen. Less than thirty percent remains. Return to the rover or habitat now.`;
+					systemAlert = { title, kind: 'danger' };
+					clearTimeout(oxygenAlertTimer);
+					oxygenAlertTimer = setTimeout(() => {
+						if (systemAlert?.title === title) systemAlert = undefined;
+						oxygenAlertTimer = undefined;
+					}, 6000);
+					assistant?.announce(text);
+				}
 			}
 		}
 		const extremeCold = currentTemp !== null && currentTemp !== undefined && currentTemp < -60;
 		if (!extremeCold && currentTemp !== null && currentTemp !== undefined) {
 			coldAlerted = false;
+			clearTimeout(coldAlertTimer);
+			coldAlertTimer = undefined;
 			if (systemAlert?.title === 'Cold approaching') systemAlert = undefined;
 		}
-		else if (!coldAlerted) {
+		else if (extremeCold && !coldAlerted) {
 			coldAlerted = true;
 			const text = `Cold approaching. Outside air temperature is below minus sixty degrees Celsius. Monitor suit heating and power.`;
-			if (!systemAlert || systemAlert.title !== 'Low oxygen') systemAlert = { title: 'Cold approaching', kind: 'warning' };
+			if (!oxygenAlertTitles.includes(systemAlert?.title ?? '')) systemAlert = { title: 'Cold approaching', kind: 'warning' };
+			clearTimeout(coldAlertTimer);
+			coldAlertTimer = setTimeout(() => {
+				if (systemAlert?.title === 'Cold approaching') systemAlert = undefined;
+				coldAlertTimer = undefined;
+			}, 6000);
 			assistant?.announce(text);
 		}
 	});
@@ -297,6 +324,9 @@
 		selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
 	}
 
+	// ARES-01 keeps every terrain layer available throughout the mission.
+	const layersAvailable = $derived(!nightfall && !ares02);
+
 	function resetClock() {
 		now = Date.now();
 		selectedSol = undefined;
@@ -354,7 +384,7 @@
 			return { title: 'Visor settings', items: [
 				{ id: 'flashlight', label: 'Flashlight', active: flashlightOn, run: toggleFlashlight },
 				{ id: 'map', label: 'Minimap', run: () => { vrPage = 'map'; } },
-				...(!mission && !nightfall && !ares02
+				...(layersAvailable
 					? [{ id: 'scene', label: 'Scene controls', run: () => { vrPage = 'scene'; } }]
 					: []),
 				{ id: 'help', label: 'Controller help', run: () => { vrPage = 'help'; } },
@@ -404,7 +434,7 @@
 			};
 		}
 
-		if (!mission && !nightfall && !ares02 && vrPage === 'scene') {
+		if (layersAvailable && vrPage === 'scene') {
 			const layers: Array<[TerrainDisplayMode, string]> = [
 				['visible', 'Relief'], ['danger', 'Danger calculation'], ['swir', 'Infrared simulation']
 			];
@@ -413,10 +443,12 @@
 					id: mode, label, active: displayMode === mode,
 					run: () => mode === 'swir' ? toggleSwir() : selectDisplayMode(mode)
 				})),
-				{ id: 'storm', label: 'Dust storm', active: storm, run: () => { storm = !storm; } },
-				{ id: 'sol', label: 'Sol · ' + sol, run: () => { vrDigits = ''; vrPage = 'sol'; } },
-				{ id: 'time', label: 'LMST · ' + clock, run: () => { vrDigits = ''; vrPage = 'time'; } },
-				{ id: 'live', label: 'Return to current time', run: resetClock }, back
+				...(!mission ? [
+					{ id: 'storm', label: 'Dust storm', active: storm, run: () => { storm = !storm; } },
+					{ id: 'sol', label: 'Sol · ' + sol, run: () => { vrDigits = ''; vrPage = 'sol'; } },
+					{ id: 'time', label: 'LMST · ' + clock, run: () => { vrDigits = ''; vrPage = 'time'; } },
+					{ id: 'live', label: 'Return to current time', run: resetClock }
+				] : []), back
 			] };
 		}
 
@@ -471,7 +503,7 @@
 					},
 					onTalkStart: () => { void voiceDown('vr'); },
 					onTalkEnd: () => { if (voiceInput === 'vr') voiceUp(); },
-					onToggleSwir: () => { if (!mission && !nightfall && !ares02) toggleSwir(); },
+					onToggleSwir: () => { if (layersAvailable) toggleSwir(); },
 					onToggleFlashlight: toggleFlashlight,
 					onMenuOpen: () => { vrPage = 'main'; },
 					getMenu: getVrMenu,
@@ -533,8 +565,8 @@
 			terrain?.setMapZoom(mapZoom);
 			return;
 		}
-if (mission || nightfall || ares02) return;
-		if (event.code === 'KeyI' && !ares01) {
+		if (!layersAvailable) return;
+		if (event.code === 'KeyI') {
 			event.preventDefault();
 			selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir');
 			return;
@@ -614,16 +646,16 @@ if (mission || nightfall || ares02) return;
 			});
 		});
 		// Sara's visor controls by voice. The map shares mapZoom with the Map +/− buttons and keys, but each voice
-		// command zooms ×4 (VOICE_ZOOM_FACTOR) instead of ±0.5. Infrared follows the visor's own rule: free
-		// exploration only (same condition as the I key and the Y button).
-		const infraredAvailable = () => !mission && !nightfall && !ares02 && !ares01;
-		// Danger layer: same rule as its Relief / Danger / Infrared buttons (free exploration and ARES-01 before start).
-		const dangerAvailable = () => !mission && !nightfall && !ares02;
+		// command zooms ×4 (VOICE_ZOOM_FACTOR) instead of ±0.5. Voice, menus,
+		// keyboard and Quest controllers share the same layer availability.
+		const infraredAvailable = () => layersAvailable;
+		const dangerAvailable = () => layersAvailable;
 		sara.setVisorStateProvider(() => ({
 			map_zoom: mapZoom, map_min_zoom: MAP_MIN_ZOOM, map_max_zoom: MAP_MAX_ZOOM,
 			infrared_on: displayMode === 'swir', infrared_available: infraredAvailable(),
 			danger_on: displayMode === 'danger', danger_available: dangerAvailable(),
-			danger_risk: displayMode === 'danger' ? dangerRisk : null
+			danger_risk: displayMode === 'danger' ? dangerRisk : null,
+			flashlight_on: flashlightOn
 		}));
 		const unsubscribeAction = sara.onAction((action) => {
 			if (action.type === 'map_zoom') {
@@ -635,6 +667,9 @@ if (mission || nightfall || ares02) return;
 			} else if (action.type === 'danger_layer' && dangerAvailable()) {
 				if (action.on && displayMode !== 'danger') selectDisplayMode('danger');
 				else if (!action.on && displayMode === 'danger') selectDisplayMode('visible');
+			} else if (action.type === 'flashlight') {
+				// Same toggle as the F key, the B button and the HUD button.
+				if (action.on !== flashlightOn) toggleFlashlight();
 			}
 		});
 		voice = sara.getState();
@@ -685,6 +720,8 @@ if (mission || nightfall || ares02) return;
 			missionVoice?.dispose();
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
+			clearTimeout(oxygenAlertTimer);
+			clearTimeout(coldAlertTimer);
 			terrain?.dispose();
 			terrain = undefined;
 		};
@@ -727,7 +764,7 @@ if (mission || nightfall || ares02) return;
 			<p class="error-help">Check that your browser supports WebGL 2, then reload.</p>
 		{/if}
 
-		{#if displayMode === 'swir' && !mission && !nightfall && !ares02}
+		{#if displayMode === 'swir' && layersAvailable}
 			<div class="swir-reticle" aria-hidden="true"></div>
 		{/if}
 
@@ -836,10 +873,11 @@ if (mission || nightfall || ares02) return;
 		</div>
 	{/if}
 
-	{#if !mission && !ares02}
+	{#if layersAvailable}
 		<div class="scene-controls">
 			<section id="scene-controls-panel" class="scene-controls-panel" aria-label="Scene controls"
 				hidden={!controlsVisible}>
+					{#if !mission}
 					<div class="control-section">
 						<h2>Mars time</h2>
 						<label>Sol (MSD)
@@ -860,6 +898,7 @@ if (mission || nightfall || ares02) return;
 							{storm ? 'Storm active' : 'Storm mode'}
 						</button>
 					</div>
+					{/if}
 					<div class="control-section">
 						<h2>Map</h2>
 						<div class="layer-buttons" role="group" aria-label="Minimap zoom">
@@ -875,8 +914,8 @@ if (mission || nightfall || ares02) return;
 							<button type="button" aria-pressed={displayMode === 'visible'} onclick={() => selectDisplayMode('visible')}>Relief</button>
 							<button type="button" aria-pressed={displayMode === 'danger'}
 								onclick={() => selectDisplayMode('danger')}>Danger calculation</button>
-							<button type="button" aria-pressed={displayMode === 'swir'} aria-keyshortcuts={ares01 ? undefined : "I"}
-								onclick={() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir')}>Infrared simulation{ares01 ? "" : " · I"}</button>
+							<button type="button" aria-pressed={displayMode === 'swir'} aria-keyshortcuts="I"
+								onclick={toggleSwir}>Infrared simulation · I</button>
 						</div>
 						<p class="layer-caption">
 							{#if displayMode === 'danger'}Risk: soil consistency (SIM 3464 × HiRISE) · slope · relief · ground temp · dust

@@ -2,7 +2,7 @@ import {
 	BoxGeometry, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial,
 	PlaneGeometry, SpotLight, SRGBColorSpace
 } from 'three';
-import type { VisorMessage } from './optics.js';
+import type { VisorMessage, VisorReadings, XrHudControls } from './optics.js';
 
 export function buildRoverCabin(map: HTMLCanvasElement) {
 	const group = new Group();
@@ -110,17 +110,19 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 	}
 	// The instrument display is fixed to the dashboard.
 	const panel = document.createElement('canvas');
-	panel.width = 640;
-	panel.height = 208;
+	panel.width = 960;
+	panel.height = 360;
 	const ctx = panel.getContext('2d')!;
 	const texture = new CanvasTexture(panel);
 	texture.colorSpace = SRGBColorSpace;
 	const display = new MeshBasicMaterial({ map: texture });
-	const screen = new PlaneGeometry(1.39, 0.45);
+	const screen = new PlaneGeometry(1.39, 0.52);
 	const console = new Mesh(screen, display);
-	const bezel = part(recess, 0, -0.41, -0.95, 1.47, 0.53, 0.065);
+	const bezel = part(recess, 0, -0.41, -0.95, 1.47, 0.60, 0.065);
 	bezel.rotation.x = -0.32;
-	console.position.set(0, -0.41, -0.92);
+	// Offset along the tilted bezel's normal, beyond its 32.5 mm half-depth.
+	// A world-Z offset alone leaves the display occluded by its own housing.
+	console.position.set(0, -0.41 + Math.sin(0.32) * 0.04, -0.95 + Math.cos(0.32) * 0.04);
 	console.rotation.x = -0.32;
 	group.add(console);
 	for (const side of [-1, 1]) {
@@ -135,9 +137,11 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 		part(i === 0 ? hardware : frame, -0.39 + i * 0.13, -0.63, -0.78, 0.075, 0.035, 0.08);
 	}
 	let lastUpdate = -Infinity;
+	let hud: XrHudControls | undefined;
 
 	return {
 		group,
+		setHud(controls: XrHudControls | undefined) { hud = controls; },
 		setLights(power: number) {
 			for (const child of group.children) {
 				if (child instanceof SpotLight) {
@@ -146,11 +150,14 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 				}
 			}
 		},
-		update(now: number, message: VisorMessage, speed: number, heading: number, lights: number, clock: string) {
+		update(now: number, message: VisorMessage, speed: number, heading: number, lights: number, clock: string,
+			readings: VisorReadings, notice: string, swir: boolean) {
 			if (now - lastUpdate < 0.08) return;
 			lastUpdate = now;
 			ctx.fillStyle = '#0a171c';
-			ctx.fillRect(0, 0, 640, 208);
+			ctx.fillRect(0, 0, 960, 360);
+			ctx.save();
+			ctx.scale(1.5, 1.5);
 			ctx.fillStyle = '#172d32';
 			ctx.fillRect(192, 18, 1, 172);
 			ctx.fillRect(205, 128, 418, 1);
@@ -177,6 +184,14 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 			ctx.fillText(message.detail ?? '', 205, 166, 418);
 			ctx.fillStyle = '#bbf5df';
 			ctx.fillText(message.readouts?.map(({ value, unit }) => `${value} ${unit}`.trim()).join('  ·  ') ?? 'CABIN PRESSURIZED', 205, 189, 418);
+			ctx.restore();
+			ctx.font = '20px monospace';
+			ctx.fillStyle = '#bbf5df';
+			ctx.fillText(`O₂ ${readings.o2Percent.toFixed(1)}%  ·  ${readings.airTempC === null ? '—' : Math.round(readings.airTempC)}°C  ·  ${swir ? 'SWIR 1.65 µm' : 'VISIBLE'}`, 24, 315, 680);
+			ctx.fillText(`SARA · ${hud?.voice?.toUpperCase() ?? 'COMMS'}`, 735, 315, 200);
+			const actions = hud?.actions.map(({ hand, label }) => `${hand === 'right' ? 'R' : 'L'} TRIGGER · ${label}`).join('    ');
+			ctx.fillStyle = notice ? '#ffe0a6' : '#bbf5df';
+			ctx.fillText(notice || actions || (hud ? 'A · Controls   B · Lamps   R GRIP · SARA' : 'F · Lamps   Hold Space · SARA'), 24, 345, 912);
 			texture.needsUpdate = true;
 		},
 		dispose() {

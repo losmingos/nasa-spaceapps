@@ -1324,7 +1324,8 @@ export function mountTerrain(
 				drawMap();
 				lastMapAt = cabinMapNow;
 			}
-			cabin.update(frameTime, getMessage(), Math.hypot(velocityX, velocityZ) * 3.6, compass(roverYaw), power, getClock());
+			cabin.update(frameTime, getMessage(), Math.hypot(velocityX, velocityZ) * 3.6, compass(roverYaw), power, getClock(),
+				getReadings(), getNotice(), displayMode === 'swir');
 		}
 
 		const swir = displayMode === 'swir';
@@ -1829,6 +1830,7 @@ export function mountTerrain(
 
 		const restoreDesktop = () => {
 			if (xrSession !== session) return;
+			cabin.setHud(undefined);
 			sessionEvents.abort();
 			setTalking(false);
 			uiTexture.dispose();
@@ -1938,15 +1940,15 @@ export function mountTerrain(
 					if (left) hands.push('left');
 					displayedActions = controls.getActions().slice(0, hands.length)
 						.map((item, index) => ({ hand: hands[index], item }));
-					optics.updateXrHud(
-						readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)),
-						{
-							showControlsHint: !!right,
-							actions: displayedActions.map(({ hand, item }) => ({ hand, label: item.label })),
-							voice: right ? controls.getVoiceStatus() : undefined,
-							time: reducedMotion.matches ? 0 : now / 1000
-						}
-					);
+					const hud = {
+						showControlsHint: !!right,
+						actions: displayedActions.map(({ hand, item }) => ({ hand, label: item.label })),
+						voice: right ? controls.getVoiceStatus() : undefined,
+						time: reducedMotion.matches ? 0 : now / 1000
+					};
+					cabin.setHud(driving ? hud : undefined);
+					if (!driving) optics.updateXrHud(
+						readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)), hud);
 				}
 			}
 			phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);

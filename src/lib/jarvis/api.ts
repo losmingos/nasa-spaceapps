@@ -66,7 +66,7 @@ export async function chat(req: ChatRequest, signal?: AbortSignal): Promise<Chat
 	// Keep the visor actions Sara requested (map zoom, infrared): dropping them made Sara say
 	// "zooming out" while nothing happened. The server already validates their shape.
 	const actions = Array.isArray(data.actions)
-		? data.actions.filter((a) => a && (a.type === 'map_zoom' || a.type === 'infrared' || a.type === 'danger_layer'))
+		? data.actions.filter((a) => a && (a.type === 'map_zoom' || a.type === 'infrared' || a.type === 'danger_layer' || a.type === 'flashlight'))
 		: [];
 	return {
 		reply: typeof data.reply === 'string' ? data.reply : '',
