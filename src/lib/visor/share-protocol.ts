@@ -1,6 +1,7 @@
 import type { VisorMessage, VisorReadings, XrHudControls } from './optics.js';
 import type { MissionView, TerrainDisplayMode } from './terrain.js';
 import type { XrMenuPage } from './xr-controls.js';
+import type { VoiceEvent } from '../jarvis/voice-relay.js';
 
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const CODE_PATTERN = /^[2-9A-HJ-NP-Z]{8}$/;
@@ -10,6 +11,10 @@ export const displayCode = (code: string) => code.replace(/^(.{4})(.{4})$/, '$1-
 export const SHARE_SOCKET_PROTOCOL = 'ares-state-v1';
 export const MAX_SHARE_STATE = 64 * 1024;
 export const POSE_BYTES = 52;
+export const SHARE_VOICE_RATE = 16000;
+const VOICE_SAMPLES = 640;
+const VOICE_PACKET_BYTES = 2 + VOICE_SAMPLES * Int16Array.BYTES_PER_ELEMENT;
+type SpeechEvent = Extract<VoiceEvent, { type: 'speech' | 'speech-stop' }>;
 
 export type ShareTicket = { code: string; key: string };
 export type ShareMenu = Omit<XrMenuPage, 'items'> & {
@@ -41,7 +46,7 @@ export type ShareWorld = {
 // Rig position, world-space head position and quaternion, rover yaw, speed, vertical FOV.
 export type SharePose = Float32Array<ArrayBuffer>;
 
-export function readShareState(data: string): ShareWorld | ShareHud | undefined {
+export function readShareState(data: string): ShareWorld | ShareHud | SpeechEvent | undefined {
 	if (data.length > MAX_SHARE_STATE) return;
 	try {
 		const value = JSON.parse(data);
@@ -50,9 +55,33 @@ export function readShareState(data: string): ShareWorld | ShareHud | undefined 
 			(!value.mission || value.mission === 'ares01' || value.mission === 'ares02')) return value;
 		if (value?.type === 'hud' && typeof value.clock === 'string' && typeof value.message?.title === 'string' &&
 			Number.isFinite(value.readings?.o2Percent)) return value;
+		if (value?.type === 'speech-stop') return { type: 'speech-stop' };
+		if (value?.type === 'speech' && typeof value.text === 'string' && value.text.length <= 3000 &&
+			(value.lang === undefined || typeof value.lang === 'string' && value.lang.length <= 35)) {
+			return { type: 'speech', text: value.text, lang: value.lang };
+		}
 	} catch {
 		// Ignore invalid messages.
 	}
+}
+
+export function isShareVoice(data: ArrayBuffer) {
+	if (data.byteLength !== VOICE_PACKET_BYTES) return false;
+	const header = new Uint8Array(data, 0, 2);
+	return header[0] === 1 && (header[1] === 1 || header[1] === 2);
+}
+
+export function encodeShareVoice(event: Extract<VoiceEvent, { type: 'pcm' }>) {
+	if (event.samples.length !== VOICE_SAMPLES) return;
+	const packet = new ArrayBuffer(VOICE_PACKET_BYTES);
+	new Uint8Array(packet, 0, 2).set([1, event.kind === 'command' ? 1 : 2]);
+	new Int16Array(packet, 2).set(event.samples);
+	return packet;
+}
+
+export function readShareVoice(data: ArrayBuffer): VoiceEvent | undefined {
+	if (!isShareVoice(data)) return;
+	return { type: 'pcm', kind: new Uint8Array(data, 1, 1)[0] === 1 ? 'command' : 'reply', samples: new Int16Array(data, 2) };
 }
 
 export function readSharePose(data: ArrayBuffer): SharePose | undefined {

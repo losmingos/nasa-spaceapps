@@ -1,6 +1,7 @@
 import { resolve } from '$app/paths';
+import type { VoiceEvent } from '../jarvis/voice-relay.js';
 import {
-	MAX_SHARE_STATE, readSharePose, readShareState, SHARE_SOCKET_PROTOCOL,
+	encodeShareVoice, MAX_SHARE_STATE, readSharePose, readShareState, readShareVoice, SHARE_SOCKET_PROTOCOL,
 	type ShareHud, type SharePose, type ShareTicket, type ShareWorld
 } from './share-protocol.js';
 
@@ -88,6 +89,7 @@ export function createHost(update: Update) {
 	let transmitting = false;
 	let world: string | undefined;
 	let hud: string | undefined;
+	let spectatorGeneration = 0;
 
 	return {
 		get live() { return ready && room.socket?.readyState === WebSocket.OPEN; },
@@ -95,6 +97,7 @@ export function createHost(update: Update) {
 		start: () => room.start(undefined, (data, ws) => {
 			if (data !== 'ready' && data !== 'waiting') return;
 			ready = data === 'ready';
+			spectatorGeneration++;
 			transmitting = false;
 			if (ready) {
 				if (world) ws.send(world);
@@ -103,6 +106,17 @@ export function createHost(update: Update) {
 			}
 			update(ready ? 'Conectando con el PC…' : 'Esperando al PC', room.code);
 		}),
+		voiceRelay() {
+			const ws = room.socket;
+			if (!ready || ws?.readyState !== WebSocket.OPEN) return;
+			const generation = spectatorGeneration;
+			return (event: VoiceEvent) => {
+				if (!ready || generation !== spectatorGeneration || ws.readyState !== WebSocket.OPEN ||
+					ws.bufferedAmount > 12_000) return;
+				const data = event.type === 'pcm' ? encodeShareVoice(event) : JSON.stringify(event);
+				if (data) ws.send(data);
+			};
+		},
 		publishWorld(value: ShareWorld) {
 			const next = JSON.stringify(value);
 			if (world === next) return;
@@ -141,7 +155,8 @@ export function createSpectator(
 	code: string,
 	receiveState: (data: ShareWorld | ShareHud) => void,
 	receivePose: (pose: SharePose) => void,
-	update: Update
+	update: Update,
+	receiveVoice?: (voice: VoiceEvent) => void
 ) {
 	const room = connect('view', update);
 	return {
@@ -154,6 +169,11 @@ export function createSpectator(
 					return;
 				}
 				if (data instanceof ArrayBuffer) {
+					const voice = readShareVoice(data);
+					if (voice) {
+						receiveVoice?.(voice);
+						return;
+					}
 					const pose = readSharePose(data);
 					if (!pose) return;
 					room.expectData();
@@ -161,7 +181,8 @@ export function createSpectator(
 					if (ws.readyState === WebSocket.OPEN) ws.send('ack');
 				} else if (typeof data === 'string') {
 					const value = readShareState(data);
-					if (value) receiveState(value);
+					if (value?.type === 'world' || value?.type === 'hud') receiveState(value);
+					else if (value) receiveVoice?.(value);
 				}
 			});
 		}

@@ -46,6 +46,7 @@
 	let shareCode = '';
 	let shareStatus = '';
 	let shareHost = $state.raw<ReturnType<typeof createHost>>();
+	const shareVoice = () => shareHost?.voiceRelay();
 	let shareSubtitle: string | undefined;
 	let subtitleTimer: ReturnType<typeof setTimeout>;
 	let vrError = $state('');
@@ -401,7 +402,7 @@
 		if (vrPage === 'share') {
 			return {
 				title: shareCode ? `Código · ${displayCode(shareCode)}` : 'Compartir vista',
-				lines: [shareStatus, 'En el PC, abre /spectator en esta misma web.'].filter(Boolean),
+				lines: [shareStatus, 'En el PC, abre /spectator en esta misma web.', 'Se comparten los comandos de voz y las respuestas de SARA.'].filter(Boolean),
 				items: [
 					{ id: 'toggle-share', label: shareHost ? 'Detener transmisión' : 'Crear código', run: toggleSharing },
 					{ id: 'back', label: 'Volver', run: () => { vrPage = 'settings'; } }
@@ -688,7 +689,8 @@
 		const sara = createAssistant({
 			mode: params.get('mode') === 'scripted' ? 'scripted' : 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
-			cuePolling: params.get('remote') === '1'
+			cuePolling: params.get('remote') === '1',
+			voiceRelay: shareVoice
 		});
 		assistant = sara;
 		sara.setPlacesProvider(() => {

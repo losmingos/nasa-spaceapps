@@ -16,7 +16,7 @@ Para probar desde el PC por USB, activa el modo desarrollador en el visor y acep
 
 Para compartir la vista, abre el menú con **A** y entra en **Visor settings → Compartir vista → Crear código**. En el PC, abre `/spectator` en ese mismo despliegue e introduce el código. El PC renderiza la vista 3D en primera persona a partir de la pose de las gafas y el estado de la escena. La vista incluye la misión, el HUD, los menús y los subtítulos de SARA. Puedes detenerla desde el mismo menú o salir de VR.
 
-Se admite un espectador por código. El Durable Object retransmite los datos por WebSocket y prioriza la pose más reciente mientras entrega los cambios de misión en orden. Para probar la vista compartida en local, usa `npm run cf:dev`. Con `DEMO_TOKEN` configurado, las gafas necesitan el enlace de acceso habitual y al PC le basta con el código de sala.
+Se admite un espectador por código. El Durable Object retransmite los datos por WebSocket y prioriza la pose más reciente mientras entrega los cambios de misión en orden. El PC puede entrar en pantalla completa y escuchar el comando del micrófono mientras se mantiene pulsado el botón de voz, además de las respuestas de SARA. Para probar la vista compartida en local, usa `npm run cf:dev`. Con `DEMO_TOKEN` configurado, las gafas necesitan el enlace de acceso habitual y al PC le basta con el código de sala.
 
 ## Despliegue en Cloudflare Workers
 

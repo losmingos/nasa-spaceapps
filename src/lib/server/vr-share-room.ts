@@ -1,4 +1,4 @@
-import { readSharePose, readShareState, SHARE_SOCKET_PROTOCOL } from '../visor/share-protocol.js';
+import { isShareVoice, readSharePose, readShareState, SHARE_SOCKET_PROTOCOL } from '../visor/share-protocol.js';
 
 const ROOM_LIFETIME = 4 * 60 * 60_000;
 const PRESENCE = 40_000;
@@ -117,6 +117,8 @@ export class ShareRoom {
 		} else if (ws === host) {
 			if (typeof message === 'string') {
 				if (readShareState(message)) view.send(message);
+			} else if (isShareVoice(message)) {
+				view.send(message);
 			} else if (readSharePose(message)) {
 				if (this.posesInFlight >= POSE_WINDOW) this.latestPose = message;
 				else {

@@ -92,8 +92,14 @@ export function createAssistant(options: AssistantOptions): Assistant {
 	}
 	const stateListeners = new Set<(s: AssistantState) => void>();
 
-	const audio = new AudioEngine(() => emitState());
+	const audio = new AudioEngine(() => emitState(), options.voiceRelay);
 	const recorder = new Recorder();
+	let stopSharedMicrophone: (() => void) | undefined;
+
+	function stopMicrophoneRelay() {
+		stopSharedMicrophone?.();
+		stopSharedMicrophone = undefined;
+	}
 	const telemetry = createTelemetry();
 
 	let disposed = false;
@@ -207,6 +213,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			turnId: tid,
 			priority: high ? 'high' : 'normal',
 			playable,
+			shareVoice: turnId !== undefined,
 			onStart: () => emitSubtitle({ speaker: 'jarvis', text, turnId: tid })
 		});
 		emitState();
@@ -288,6 +295,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 				turnId,
 				priority: 'normal',
 				playable,
+				shareVoice: true,
 				onStart: () => emitSubtitle({ speaker: 'jarvis', text: reply, turnId })
 			});
 			emitState();
@@ -328,6 +336,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		cancelPending();
 		pendingAnnouncements.length = 0;
 		audio.stopAll();
+		stopMicrophoneRelay();
 		if (recorder.recording) void recorder.stop();
 		ignoringPress = false;
 		history = [];
@@ -470,6 +479,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			emitState();
 			return;
 		}
+		if (recorder.recordingStream) stopSharedMicrophone = audio.shareMicrophone(recorder.recordingStream);
 		lastError = null;
 		emitState();
 	}
@@ -482,6 +492,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		}
 		if (!recorder.recording) return;
 		const pressMs = recorder.elapsedMs();
+		stopMicrophoneRelay();
 		const clip = recorder.stop();
 		if (pressMs < MIN_CLIP_MS) {
 			void clip; // accidental tap: discard without any request
@@ -536,6 +547,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		if (cueTimer !== null) clearTimeout(cueTimer);
 		clearL04();
 		tickTimer = cueTimer = null;
+		stopMicrophoneRelay();
 		audio.dispose();
 		recorder.close();
 		subtitleListeners.clear();

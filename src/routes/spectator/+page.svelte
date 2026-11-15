@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { asset, resolve } from '$app/paths';
 	import { createSpectator } from '#lib/visor/share-client.js';
+	import { createSpectatorAudio } from '#lib/visor/spectator-audio.js';
 	import { CODE_PATTERN, displayCode, normalizeCode, type ShareHud, type SharePose, type ShareWorld } from '#lib/visor/share-protocol.js';
 	import { mountTerrain, type GeologyData } from '#lib/visor/terrain.js';
 	import { createMissionScene } from '#lib/missions/ares01/visor.js';
@@ -13,6 +14,10 @@
 	let active = $state(false);
 	let playing = $state(false);
 	let hud = $state.raw<ShareHud>();
+	let fullscreen = $state(false);
+	let expanded = $state(false);
+	let sound = $state(true);
+	let screen: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
 	let session: ReturnType<typeof createSpectator> | undefined;
@@ -22,10 +27,39 @@
 	let appliedWorld: ShareWorld | undefined;
 	let missionViewKey: string | undefined;
 	let latestPose: SharePose | undefined;
+	const audio = createSpectatorAudio();
+
+	async function toggleFullscreen() {
+		if (expanded) {
+			expanded = false;
+			return;
+		}
+		if (document.fullscreenElement === screen) {
+			await document.exitFullscreen();
+			return;
+		}
+		try {
+			if (document.fullscreenEnabled) {
+				await screen.requestFullscreen();
+				return;
+			}
+		} catch {
+			// Some browsers restrict the native fullscreen request.
+		}
+		expanded = active;
+	}
+
+	function toggleSound() {
+		sound = !sound;
+		audio.setEnabled(sound);
+	}
 
 	function disconnect() {
 		session?.close();
 		session = undefined;
+		audio.close();
+		if (document.fullscreenElement === screen) void document.exitFullscreen().catch(() => {});
+		expanded = false;
 		loadRequest?.abort();
 		loadRequest = undefined;
 		terrain?.dispose();
@@ -105,6 +139,7 @@
 		disconnect();
 		code = displayCode(normalized);
 		active = true;
+		audio.setEnabled(sound);
 		loadRequest = new AbortController();
 		void loadTerrain(loadRequest.signal);
 		session = createSpectator(normalized, (state) => {
@@ -116,7 +151,7 @@
 		}, applyPose, (message, room) => {
 			if (!room) disconnect();
 			status = message;
-		});
+		}, audio.receive);
 		void session.start();
 	}
 
@@ -129,6 +164,9 @@
 		};
 	});
 </script>
+
+<svelte:document onfullscreenchange={() => { fullscreen = document.fullscreenElement === screen; }} />
+<svelte:window onkeydown={(event) => { if (event.key === 'Escape') expanded = false; }} />
 
 <svelte:head>
 	<title>Vista en directo | ARES</title>
@@ -155,7 +193,12 @@
 		</div>
 	</form>
 	<p class="status" role="status">{playing ? '● ' : ''}{status}</p>
-	<div class="screen" hidden={!active}>
+	<div class="screen" bind:this={screen} class:expanded hidden={!active}>
+		<div class="toolbar">
+			<button type="button" onclick={toggleSound}>{sound ? 'Silenciar' : 'Activar sonido'}</button>
+			<button type="button" onclick={toggleFullscreen}>{fullscreen || expanded ? 'Salir de pantalla completa' : 'Pantalla completa'}</button>
+		</div>
+		<div class="view">
 		<canvas class="scene" bind:this={canvas} aria-label="Vista 3D en primera persona de las gafas"></canvas>
 		<canvas bind:this={map} width="192" height="192" hidden></canvas>
 		{#if hud?.menu}
@@ -180,6 +223,7 @@
 			</div>
 		{/if}
 		{#if hud?.subtitle}<p class="subtitle">SARA · {hud.subtitle}</p>{/if}
+		</div>
 	</div>
 </main>
 
@@ -195,8 +239,14 @@
 	input { width: 12ch; background: #1d1715; font-family: ui-monospace, monospace; text-transform: uppercase; }
 	button { background: #5d392b; cursor: pointer; }
 	.status { min-height: 1.4em; }
-	.screen { position: relative; border: 1px solid #47352c; border-radius: 10px; overflow: hidden; background: #090808; }
+	.screen { border: 1px solid #47352c; border-radius: 10px; overflow: hidden; background: #090808; }
+	.toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 8px; flex-wrap: wrap; }
+	.view { position: relative; min-height: 0; }
 	.scene { display: block; width: 100%; height: clamp(240px, 62vw, 70vh); pointer-events: none; }
+	.screen:fullscreen { display: flex; flex-direction: column; border: none; border-radius: 0; }
+	.screen.expanded { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; border: none; border-radius: 0; }
+	.screen:is(:fullscreen, .expanded) .view { flex: 1; }
+	.screen:is(:fullscreen, .expanded) .scene { height: 100%; }
 	.menu { position: absolute; inset: 10% 12%; overflow: auto; padding: clamp(12px, 4vw, 32px); background: #171211f5; border: 1px solid #91664f; border-radius: 8px; }
 	h2 { margin: 0 0 .6em; font-size: clamp(18px, 3vw, 26px); }
 	.menu p { margin: .5em 0; }

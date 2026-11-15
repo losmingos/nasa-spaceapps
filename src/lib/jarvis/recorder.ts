@@ -38,6 +38,10 @@ export class Recorder {
 		return this.recorder !== null;
 	}
 
+	get recordingStream(): MediaStream | null {
+		return this.recorder ? this.stream : null;
+	}
+
 	/** Open the persistent mic stream once (called from unlock(), inside the «Enter VR» gesture). */
 	async open(): Promise<void> {
 		if (this.hasStream) return;

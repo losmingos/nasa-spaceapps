@@ -1,3 +1,6 @@
+import { asset } from '$app/paths';
+import type { VoiceKind, VoiceRelay } from './voice-relay.js';
+
 // Single AudioContext + single playback queue with priorities (spec §4.5, D20, D26).
 // Nothing here touches browser globals until a method is called, so it is safe to import during SSR.
 
@@ -14,6 +17,7 @@ export interface PlayRequest {
 	turnId: number;
 	priority: Priority;
 	playable: Playable;
+	shareVoice?: boolean;
 	/** Called when the item actually starts (use it to show the subtitle in sync). */
 	onStart?: () => void;
 }
@@ -66,8 +70,9 @@ export class AudioEngine {
 	private current: QueueItem | null = null;
 	private cancelledThrough = 0;
 	private lastBusy = false;
+	private voiceWorklet?: Promise<boolean>;
 
-	constructor(private onBusyChange: (busy: boolean) => void = () => {}) {}
+	constructor(private onBusyChange: (busy: boolean) => void = () => {}, private voiceRelay?: VoiceRelay) {}
 
 	get unlocked(): boolean {
 		return this.ctx !== null;
@@ -90,6 +95,9 @@ export class AudioEngine {
 			this.master = this.ctx.createGain();
 			this.master.gain.value = 1;
 			this.master.connect(this.ctx.destination);
+			if (this.voiceRelay && this.ctx.audioWorklet) {
+				this.voiceWorklet = this.ctx.audioWorklet.addModule(asset('spectator-voice.js')).then(() => true, () => false);
+			}
 		}
 		const ctx = this.ctx;
 		const resumed = ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : Promise.resolve();
@@ -125,6 +133,45 @@ export class AudioEngine {
 	async decode(data: ArrayBuffer): Promise<AudioBuffer> {
 		if (!this.ctx) throw new Error('AudioContext not unlocked');
 		return this.ctx.decodeAudioData(data);
+	}
+
+	shareMicrophone(stream: MediaStream): (() => void) | undefined {
+		const ctx = this.ctx;
+		const send = this.voiceRelay?.();
+		if (!ctx || !send || !this.voiceWorklet) return;
+		try {
+			return this.tapVoice(ctx.createMediaStreamSource(stream), 'command', send);
+		} catch {
+			// A relay failure must not interrupt the local microphone recording.
+		}
+	}
+
+	private tapVoice(source: AudioNode, kind: VoiceKind, send = this.voiceRelay?.()) {
+		const ctx = this.ctx;
+		let stopped = false;
+		let tap: AudioWorkletNode | undefined;
+		if (!ctx || !send || !this.voiceWorklet) return;
+		void this.voiceWorklet.then((available) => {
+			if (!available || stopped || ctx.state === 'closed') return;
+			const node = new AudioWorkletNode(ctx, 'spectator-voice');
+			node.port.onmessage = ({ data }) => {
+				if (data instanceof Int16Array) send({ type: 'pcm', kind, samples: data });
+			};
+			source.connect(node);
+			node.connect(ctx.destination);
+			tap = node;
+		}).catch(() => {});
+		return () => {
+			stopped = true;
+			const node = tap;
+			if (!node) return;
+			source.disconnect(node);
+			node.port.postMessage('flush');
+			setTimeout(() => {
+				node.port.close();
+				node.disconnect();
+			}, 100);
+		};
 	}
 
 	/** Fetch + decode an mp3. Returns null on 404 / decode failure. */
@@ -265,9 +312,14 @@ export class AudioEngine {
 			const src = ctx.createBufferSource();
 			src.buffer = p.buffer;
 			src.connect(this.master);
-			src.onended = () => this.finish(item, true);
+			const stopRelay = item.shareVoice ? this.tapVoice(src, 'reply') : undefined;
+			src.onended = () => {
+				stopRelay?.();
+				this.finish(item, true);
+			};
 			item.stop = () => {
 				src.onended = null;
+				stopRelay?.();
 				try {
 					src.stop();
 				} catch {
@@ -300,6 +352,7 @@ export class AudioEngine {
 		u.lang = voice?.lang ?? lang ?? 'en-GB';
 		u.rate = 1;
 		u.pitch = 0.95;
+		const relay = item.shareVoice ? this.voiceRelay?.() : undefined;
 		// Chrome sometimes never fires onend: safety timeout based on text length.
 		const safety = setTimeout(() => this.finish(item, true), 4000 + text.length * 90);
 		const end = () => {
@@ -313,8 +366,10 @@ export class AudioEngine {
 			u.onend = null;
 			u.onerror = null;
 			s.cancel();
+			relay?.({ type: 'speech-stop' });
 		};
 		s.speak(u);
+		relay?.({ type: 'speech', text, lang: u.lang });
 	}
 
 	private finish(item: QueueItem, played: boolean): void {
