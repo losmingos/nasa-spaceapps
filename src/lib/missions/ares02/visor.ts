@@ -124,6 +124,7 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 		key: `${run.stage}:${run.lights}`,
 		speaker: 'jarvis' as const,
 		state: script.id,
+		stage: run.stage,
 		context: JSON.stringify({
 			scenario: 'ARES-02', state: run?.stage ?? script.id, objective: title, guidance: text,
 			actions: run && actions(run).map(action => labels[action]), batteryBIsolated: faulted,

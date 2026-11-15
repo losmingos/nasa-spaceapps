@@ -10,7 +10,7 @@
     "binding": "ASSETS",
     "directory": ".svelte-kit/cloudflare"
   },
-  // Operator cue channel and WebRTC signaling rooms.
+  // Operator cue channel and VR spectator rooms.
   "durable_objects": {
     "bindings": [
       { "name": "JARVIS_CUE", "class_name": "CueChannel" },

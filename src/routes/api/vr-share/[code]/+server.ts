@@ -1,7 +1,7 @@
 import { CODE_PATTERN } from '#lib/visor/share-protocol.js';
 import { isRecord, jsonError } from '#lib/server/http.js';
 import { rateLimit } from '#lib/server/ratelimit.js';
-import { roomRequest, roomSocket, shareTransport } from '#lib/server/vr-share.js';
+import { roomAction, roomRequest } from '#lib/server/vr-share.js';
 import type { RequestHandler } from './$types';
 
 export const prerender = false;
@@ -12,7 +12,7 @@ export const GET: RequestHandler = ({ request, params, url }) => {
 		return jsonError(426, 'Se requiere una conexión WebSocket.');
 	}
 	if (request.headers.get('origin') !== url.origin) return jsonError(403, 'Origen no permitido.');
-	return roomSocket(params.code, request);
+	return roomRequest(params.code, request);
 };
 
 export const POST: RequestHandler = async ({ request, params, getClientAddress }) => {
@@ -29,7 +29,7 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress }
 			const { done, value } = await reader.read();
 			if (done) break;
 			bytes += value.byteLength;
-			if (bytes > 36_000) {
+		if (bytes > 1024) {
 				void reader.cancel();
 				return jsonError(413, 'Solicitud demasiado grande.');
 			}
@@ -40,15 +40,15 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress }
 		return jsonError(400, 'Solicitud inválida.');
 	}
 	if (!isRecord(data) || typeof data.action !== 'string' ||
-		!['join', 'host', 'view', 'offer', 'answer', 'leave', 'stop'].includes(data.action)) {
+		!['join', 'leave', 'stop'].includes(data.action)) {
 		return jsonError(400, 'Acción inválida.');
 	}
 	if (data.action === 'join' || typeof data.key !== 'string') {
 		const ip = request.headers.get('cf-connecting-ip') ?? getClientAddress();
 		if (rateLimit(`vr-join:${ip}`, 20, 60_000)) return jsonError(429, 'Demasiados intentos. Espera un minuto.');
 	}
-	const res = await roomRequest(code, data);
+	const res = await roomAction(code, data);
 	if (!res.ok || data.action !== 'join') return res;
 	const { key } = await res.json() as { key: string };
-	return Response.json({ code, key, ...shareTransport() }, { headers: { 'cache-control': 'no-store' } });
+	return Response.json({ code, key }, { headers: { 'cache-control': 'no-store' } });
 };

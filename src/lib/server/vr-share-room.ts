@@ -1,9 +1,9 @@
-import { MAX_SHARE_FRAME, SHARE_SOCKET_PROTOCOL, type ShareState, type Signal } from '../visor/share-protocol.js';
+import { readSharePose, readShareState, SHARE_SOCKET_PROTOCOL } from '../visor/share-protocol.js';
 
 const ROOM_LIFETIME = 4 * 60 * 60_000;
 const PRESENCE = 40_000;
-const tick = (time: number) => Math.floor(time / 5000);
-type Viewer = { key: string; seen: number; offer?: Signal; answer?: Signal };
+const POSE_WINDOW = 12;
+type Viewer = { key: string; seen: number };
 type Room = { key: string; expires: number; seen: number; viewer?: Viewer };
 type Storage = {
 	get<T>(key: string): Promise<T | undefined>;
@@ -31,16 +31,12 @@ const error = (status: number, message: string) => reply({ error: message }, sta
 const expired = () => error(404, 'El código no existe o la transmisión ha terminado.');
 const secret = () => crypto.randomUUID();
 
-function validSignal(value: unknown, type: Signal['type']): value is Signal {
-	if (!value || typeof value !== 'object') return false;
-	const { type: kind, sdp } = value as Partial<Signal>;
-	return kind === type && typeof sdp === 'string' && sdp.startsWith('v=0') && sdp.length <= 24_000;
-}
-
-/** One headset and one spectator. Frames pass through sockets and are never stored. */
+/** One headset and one spectator. Only room credentials and expiration are persisted. */
 export class ShareRoom {
 	private room?: Room;
 	private readonly storage?: Storage;
+	private posesInFlight = 0;
+	private latestPose?: ArrayBuffer;
 
 	constructor(private readonly state?: RoomState) {
 		this.storage = state?.storage;
@@ -88,6 +84,10 @@ export class ShareRoom {
 		const { 0: client, 1: server } = new WebSocketPair();
 		this.state.acceptWebSocket(server, [peer]);
 		server.serializeAttachment(key);
+		if (peer === 'view') {
+			this.posesInFlight = 0;
+			this.latestPose = undefined;
+		}
 		const host = this.socket('host');
 		const view = this.socket('view');
 		if (host && view) {
@@ -105,10 +105,25 @@ export class ShareRoom {
 		if (this.inactive) return;
 		const host = this.socket('host');
 		const view = this.socket('view');
-		if (ws === view && message === 'frame') {
-			host?.send('frame');
-		} else if (ws === host && message instanceof ArrayBuffer && message.byteLength <= MAX_SHARE_FRAME) {
-			view?.send(message);
+		if (!host || !view) return;
+		if (ws === view && message === 'ack' && this.posesInFlight) {
+			this.posesInFlight--;
+			if (this.latestPose) {
+				const pose = this.latestPose;
+				this.latestPose = undefined;
+				view.send(pose);
+				this.posesInFlight++;
+			}
+		} else if (ws === host) {
+			if (typeof message === 'string') {
+				if (readShareState(message)) view.send(message);
+			} else if (readSharePose(message)) {
+				if (this.posesInFlight >= POSE_WINDOW) this.latestPose = message;
+				else {
+					view.send(message);
+					this.posesInFlight++;
+				}
+			}
 		}
 	}
 
@@ -129,7 +144,7 @@ export class ShareRoom {
 
 	async fetch(request: Request): Promise<Response> {
 		if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') return this.openSocket(request);
-		const { action, key, viewer, signal } = (await request.json()) as Record<string, unknown>;
+		const { action, key } = (await request.json()) as Record<string, unknown>;
 		const now = Date.now();
 		const room = this.room;
 		if (action === 'create') {
@@ -155,24 +170,12 @@ export class ShareRoom {
 			await save(this.storage);
 			return reply({ key: slot.key });
 		}
-		if (action === 'stop' || action === 'host' || action === 'answer') {
+		if (action === 'stop') {
 			if (key !== room.key) return expired();
-			if (action === 'stop') {
-				this.room = undefined;
-				this.closeSockets();
-				await this.storage?.delete('room');
-				return reply({});
-			}
-			const previous = room.seen;
-			room.seen = now;
-			const slot = room.viewer;
-			if (action === 'answer') {
-				if (!slot || viewer !== slot.key || !slot.offer) return error(409, 'El espectador se desconectó.');
-				if (!validSignal(signal, 'answer')) return error(400, 'Respuesta de vídeo inválida.');
-				slot.answer = signal;
-			}
-			if (action === 'answer' || tick(now) !== tick(previous)) await save(this.storage);
-			return reply({ viewer: slot?.key, offer: slot?.offer } satisfies ShareState);
+			this.room = undefined;
+			this.closeSockets();
+			await this.storage?.delete('room');
+			return reply({});
 		}
 		const slot = room.viewer;
 		if (!slot || key !== slot.key) return expired();
@@ -182,14 +185,6 @@ export class ShareRoom {
 			await save(this.storage);
 			return reply({});
 		}
-		if (action !== 'view' && action !== 'offer') return error(400, 'Acción inválida.');
-		const previous = slot.seen;
-		slot.seen = now;
-		if (action === 'offer') {
-			if (slot.offer || !validSignal(signal, 'offer')) return error(400, 'Oferta de vídeo inválida.');
-			slot.offer = signal;
-		}
-		if (action === 'offer' || tick(now) !== tick(previous)) await save(this.storage);
-		return reply({ answer: slot.answer } satisfies ShareState);
+		return error(400, 'Acción inválida.');
 	}
 }

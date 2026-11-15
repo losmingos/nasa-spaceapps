@@ -43,7 +43,7 @@ Requisitos de navegador: **WebGL 2** para el visor; **WebXR** opcional para VR; 
 | Build | Vite 8 + TypeScript 6 (`strict`) |
 | 3D | Three.js 0.187 |
 | Despliegue | Cloudflare Workers con `@sveltejs/adapter-cloudflare` |
-| Estado compartido | Durable Objects `CueChannel` (cues) y `ShareRoom` (señalización de la vista compartida) |
+| Estado compartido | Durable Objects `CueChannel` (cues) y `ShareRoom` (sesiones de la vista compartida) |
 | IA de voz | Groq Whisper (`whisper-large-v3-turbo`), Anthropic Claude (`claude-haiku-5-5`), ElevenLabs (`eleven_flash_v2_5`) |
 | Datos reales | HiRISE DTM + ortofoto (Jezero), USGS SIM 3464, MEDA (Mars 2020) |
 | Idiomas | Interfaz y respuestas de SARA en inglés; documentación en español |
@@ -113,9 +113,8 @@ flowchart LR
 
   VISOR -->|fetch| API
   OP -->|POST /api/cue| API
-  VISOR -.->|señalización| API
-  SPEC -.->|señalización| API
-  VISOR <-->|WebRTC P2P| SPEC
+  VISOR -->|pose y estado por WebSocket| API
+  API -->|pose y estado por WebSocket| SPEC
   ASSETS -.->|entrega estática| VISOR
   API --> GROQ
   API --> CLAUDE
@@ -129,7 +128,7 @@ Principios:
 1. **El cliente hace el trabajo pesado** (render 3D, telemetría, estado de misión) y el servidor solo valida y reenvía las llamadas a IA, cues y caché.
 2. **Todo se prerenderiza** (`src/routes/+layout.ts` exporta `prerender = true`); las páginas son recursos estáticos y `/api/*` declara `prerender = false`.
 3. **Las claves nunca llegan al navegador**: solo se leen en el servidor desde `$app/env/private`.
-4. **Estado compartido mínimo**: solo el canal de cues y la señalización de la vista compartida necesitan consistencia entre instancias, de ahí los Durable Objects.
+4. **Estado compartido mínimo**: el canal de cues y las sesiones de la vista compartida usan Durable Objects para mantener la consistencia entre instancias.
 
 ---
 
@@ -161,9 +160,8 @@ Principios:
 │   │   │   ├── rover-cabin.ts        # cabina y salpicadero
 │   │   │   ├── rock-contact.ts       # apoyo y colisión con rocas
 │   │   │   ├── xr-controls.ts        # punteros y menús WebXR
-│   │   │   ├── share-client.ts       # emisor y espectador WebRTC
-│   │   │   ├── share-mirror.ts       # captura del ojo para la vista compartida
-│   │   │   ├── share-protocol.ts     # códigos de sala
+│   │   │   ├── share-client.ts       # sesiones WebSocket del visor y del espectador
+│   │   │   ├── share-protocol.ts     # códigos de sala, estado de escena y pose binaria
 │   │   │   └── VisorIcon.svelte
 │   │   ├── missions/
 │   │   │   ├── MissionControls.svelte
@@ -223,7 +221,7 @@ Principios:
 | `/api/tts` | `src/routes/api/tts/+server.ts` | Texto → MP3 | Worker |
 | `/api/cue` | `src/routes/api/cue/+server.ts` | Canal de cues del operador | Worker |
 | `/api/vr-share` | `src/routes/api/vr-share/+server.ts` | Crear sala de vista compartida | Worker |
-| `/api/vr-share/[code]` | `src/routes/api/vr-share/[code]/+server.ts` | Unirse y señalización WebRTC | Worker |
+| `/api/vr-share/[code]` | `src/routes/api/vr-share/[code]/+server.ts` | Unirse y abrir el WebSocket de estado | Worker |
 
 Las tres páginas del visor montan el mismo componente `Visor.svelte` con un flag (`ares01` / `ares02`). `Visor.svelte` también permite iniciar una misión desde la propia página de exploración (menú VR o briefing en pantalla).
 
@@ -293,10 +291,10 @@ Dibujado en un lienzo que se compone sobre la visera: minimapa elíptico con rum
 
 Desde el menú VR (**Visor settings → Compartir vista → Crear código**) el visor abre una sala y muestra un código de **8 caracteres**. En el PC se abre `/spectator` en el mismo servidor y se introduce el código (o `/spectator?code=...`).
 
-- **WebRTC P2P**: se transmite la vista de un ojo con los efectos del visor y el HUD, **sin audio**.
+- El PC renderiza la escena 3D a partir de la pose, el estado de misión, el HUD, los menús y los subtítulos.
 - **Un espectador por código**; se cierra desde el menú VR, al salir de VR o al cerrar la pestaña del PC.
-- La señalización (oferta, respuesta y candidatos ICE) pasa por `/api/vr-share/[code]`, respaldada por el Durable Object `ShareRoom`.
-- Redes que bloquean la conexión directa necesitan TURN: define `VR_SHARE_ICE_SERVERS` con un array JSON de `RTCIceServer`.
+- El Durable Object `ShareRoom` retransmite la pose y los cambios de estado a través de un WebSocket en `/api/vr-share/[code]`.
+- Cuando se acumulan poses, se conserva la más reciente. Los cambios de misión se entregan en orden.
 - Con `DEMO_TOKEN`, crear sala exige el enlace con token (`?k=`), pero al PC le basta el código de sala.
 
 ---
@@ -490,7 +488,6 @@ Todas son opcionales al arrancar: la app funciona sin claves y cada endpoint dev
 | `ELEVENLABS_VOICE_ID` | Voz predefinida de ElevenLabs |
 | `ELEVENLABS_MODEL_ID` | Opcional; por defecto `eleven_flash_v2_5` |
 | `DEMO_TOKEN` | Si existe, `/api/*` exige token y limita peticiones |
-| `VR_SHARE_ICE_SERVERS` | JSON opcional con servidores ICE/TURN para la vista compartida |
 | `JARVIS_RECORDING` | `1` desactiva HMR de Vite durante una grabación |
 
 Se cargan con `defineEnvVars` en `src/env.ts` y se leen en servidor desde `$app/env/private`. En desarrollo van en `.env` (ignorado por git); para `wrangler dev`, en `.dev.vars`.
@@ -516,7 +513,7 @@ Se cargan con `defineEnvVars` en `src/env.ts` y se leen en servidor desde `$app/
 
 ### 12.4. Wrangler
 
-`wrangler.jsonc` define el Worker (`.svelte-kit/cloudflare/_worker.js`), los assets estáticos (`.svelte-kit/cloudflare`), los bindings `JARVIS_CUE` y `VR_SHARE`, y las migraciones de ambos Durable Objects (`v1`, `v2`). `scripts/cf-postbuild.js` añade al Worker generado los `export` de `CueChannel` y `ShareRoom` que Wrangler necesita. `wrangler.dev.jsonc` no declara Durable Objects: en desarrollo los cues y las salas viven en memoria.
+`wrangler.jsonc` define el Worker (`.svelte-kit/cloudflare/_worker.js`), los assets estáticos (`.svelte-kit/cloudflare`), los bindings `JARVIS_CUE` y `VR_SHARE`, y las migraciones de ambos Durable Objects (`v1`, `v2`). `scripts/cf-postbuild.js` añade al Worker generado los `export` de `CueChannel` y `ShareRoom` que Wrangler necesita. `wrangler.dev.jsonc` no declara Durable Objects: Vite mantiene los cues en memoria. La vista compartida se prueba con `npm run cf:dev`.
 
 ---
 
@@ -598,7 +595,7 @@ No hay tests automatizados en el repositorio. El control de calidad se apoya en:
 - **Fobos, Deimos y crepúsculo** son aproximaciones visuales; no son efemérides de precisión.
 - **Sin suite de tests automatizada**; la validación es manual y por `svelte-check`/build.
 - **`missions/vr-rehearsal/route.ts`** conserva un nombre heredado; contiene constantes de simulación compartidas, no una misión jugable.
-- **La vista compartida** admite un espectador por código y depende de WebRTC; en redes restrictivas necesita TURN (`VR_SHARE_ICE_SERVERS`). Transmite vídeo de un ojo, sin audio.
+- **La vista compartida** admite un espectador por código. El PC renderiza una vista monoscópica con la pose de las gafas y los datos de misión.
 - La documentación mezcla español e inglés (README, specs); este documento y `RESUMEN.md` están en español y el producto en inglés.
 
 ---

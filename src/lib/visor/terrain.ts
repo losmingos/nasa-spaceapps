@@ -11,7 +11,8 @@ import {
 } from './optics.js';
 import { buildRoverCabin } from './rover-cabin.js';
 import { createXrPointer, mountXrControls, xrMenuItemAt, xrStick, type XrMenuItem, type XrMenuPage } from './xr-controls.js';
-import type { ShareMirror } from './share-mirror.js';
+import type { createHost } from './share-client.js';
+import type { SharePose } from './share-protocol.js';
 import type { Exertion } from '../jarvis/types.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
@@ -42,7 +43,8 @@ interface XrControls {
 	getMenu: () => XrMenuPage;
 	getActions: () => XrMenuItem[];
 	getVoiceStatus: () => XrVoiceStatus;
-	getShareMirror: () => ShareMirror | undefined;
+	getShareHost: () => ReturnType<typeof createHost> | undefined;
+	getShareSubtitle: () => string | undefined;
 	getMissionScreen: () => 'briefing' | 'complete' | undefined;
 }
 
@@ -536,7 +538,8 @@ export function mountTerrain(
 	getSwir: () => SwirHudData,
 	getReadings: () => VisorReadings,
 	onExertion: (level: Exertion) => void,
-	createMissionScene?: MissionSceneFactory
+	createMissionScene?: MissionSceneFactory,
+	spectating = false
 ) {
 	const lightTerrain = buildTerrain(data);
 	const { width, length } = lightTerrain;
@@ -756,6 +759,15 @@ export function mountTerrain(
 	flashlight.shadow.bias = -0.0002;
 	camera.add(flashlight, flashlight.target);
 	scene.add(camera);
+	const spectatorCamera = spectating ? new PerspectiveCamera(camera.fov, 1, camera.near, camera.far) : undefined;
+	if (spectatorCamera) {
+		spectatorCamera.rotation.order = 'YXZ';
+		spectatorCamera.position.copy(camera.position);
+		spectatorCamera.quaternion.copy(camera.quaternion);
+	}
+	if (spectatorCamera) scene.add(spectatorCamera.add(flashlight, flashlight.target));
+	let spectatorSpeed = 0;
+	let spectatorHeading = 0;
 	function setFlashlight(enabled: boolean) {
 		flashlight.intensity = enabled ? 90 : 0;
 		draw();
@@ -1052,7 +1064,7 @@ export function mountTerrain(
 	let mapZ = Infinity;
 	let mapScaleLast = 0;
 	let mapZoom = 1;
-	function drawMap(yaw = missionView?.inCabin ? roverYaw : camera.rotation.y) {
+	function drawMap(yaw = missionView?.inCabin ? roverYaw : spectatorCamera ? spectatorHeading : camera.rotation.y) {
 		if (!mapContext || !reliefContext || !pixels) return;
 		const scale = (missionView?.map.scale ?? metresPerPixel) / mapZoom;
 		// Keep the astronaut centered while mission landmarks and the route move around them.
@@ -1326,7 +1338,7 @@ export function mountTerrain(
 				drawMap();
 				lastMapAt = cabinMapNow;
 			}
-			cabin.update(frameTime, getMessage(), Math.hypot(velocityX, velocityZ) * 3.6, compass(roverYaw), power, getClock(),
+			cabin.update(frameTime, getMessage(), (spectatorCamera ? spectatorSpeed : Math.hypot(velocityX, velocityZ)) * 3.6, compass(roverYaw), power, getClock(),
 				getReadings(), getNotice(), displayMode === 'swir');
 		}
 
@@ -1339,7 +1351,15 @@ export function mountTerrain(
 		sun.target.position.copy(camera.position);
 		sun.position.copy(camera.position).addScaledVector(sunDirectionWorld, rockLoadRadius * 2.5);
 	}
-	const draw = () => {
+	let spectatorFrame = 0;
+	function draw() {
+		if (!spectating) drawNow();
+		else if (!spectatorFrame) spectatorFrame = requestAnimationFrame(() => {
+			spectatorFrame = 0;
+			drawNow();
+		});
+	}
+	function drawNow() {
 		if (xrSession) return;
 		cancelAnimationFrame(lookFrame);
 		lookFrame = 0;
@@ -1347,7 +1367,8 @@ export function mountTerrain(
 		const now = performance.now();
 		if (swir) lastSwirDrawAt = now;
 		updateWorld(now / 1000);
-		worldToEye.copy(camera.quaternion).invert();
+		const view = spectatorCamera ?? camera;
+		worldToEye.copy(view.quaternion).invert();
 		lightInView.copy(sunDirectionWorld).applyQuaternion(worldToEye);
 		phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);
 		deimosWorld.set(moonPositions.deimos.east, moonPositions.deimos.up, -moonPositions.deimos.north);
@@ -1364,11 +1385,11 @@ export function mountTerrain(
 			renderer.shadowMap.needsUpdate = true;
 			shadowDirty = false;
 		}
-		optics.render(scene, camera, lightInView, Math.asin(MathUtils.clamp(sunDirectionWorld.y, -1, 1)),
+		optics.render(scene, view, lightInView, Math.asin(MathUtils.clamp(sunDirectionWorld.y, -1, 1)),
 			phobosInView, moonPositions.phobos.up, moonPositions.phobos.angularRadius,
 			deimosInView, moonPositions.deimos.up, moonPositions.deimos.angularRadius,
 			twilight, daylight, swir ? 0 : dust, gustTime, swir, windSpeed, !!missionView?.inCabin);
-	};
+	}
 	function updateLighting() {
 		const up = sunDirectionWorld.y;
 		const opticalDust = displayMode === 'swir' ? 0 : dust;
@@ -1581,6 +1602,10 @@ export function mountTerrain(
 		if (!clientWidth || !clientHeight) return;
 		camera.aspect = clientWidth / clientHeight;
 		camera.updateProjectionMatrix();
+		if (spectatorCamera) {
+			spectatorCamera.aspect = camera.aspect;
+			spectatorCamera.updateProjectionMatrix();
+		}
 		renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 		renderer.setSize(clientWidth, clientHeight, false);
 		optics.resize(clientWidth, clientHeight);
@@ -1607,7 +1632,7 @@ export function mountTerrain(
 		currentExertion = level;
 		onExertion(level);
 	}
-	const canLook = () => !xrSession && (!missionView || !!missionView.player);
+	const canLook = () => !spectating && !xrSession && (!missionView || !!missionView.player);
 	const canMove = () => !missionView || !!missionView.player?.enabled;
 	const eyeOffset = () => missionView?.inCabin ? 2.5 : eyeHeight;
 	const eyeY = () => {
@@ -1748,6 +1773,9 @@ export function mountTerrain(
 		uiTexture.generateMipmaps = false;
 		const pointer = createXrPointer(xrOrigin, controlPlane);
 		const headPosition = new Vector3();
+		const headRotation = new Quaternion();
+		const sharedPose = new Float32Array(13);
+		let previousShare: ReturnType<typeof createHost> | undefined;
 		const sessionEvents = new AbortController();
 		const eventOptions = { signal: sessionEvents.signal };
 		const shadowWasEnabled = flashlight.castShadow;
@@ -1920,6 +1948,21 @@ export function mountTerrain(
 			hudCamera.position.set(position.x, position.y, position.z);
 			hudCamera.quaternion.copy(worldToEye);
 			xrOrigin.updateMatrixWorld(true);
+			const share = controls.getShareHost();
+			if (share) {
+				if (share !== previousShare) lastHud = -Infinity;
+				const view = pose.views[0];
+				if (view) {
+					camera.position.toArray(sharedPose, 0);
+					hudCamera.getWorldPosition(headPosition).toArray(sharedPose, 3);
+					hudCamera.getWorldQuaternion(headRotation).toArray(sharedPose, 6);
+					sharedPose[10] = roverYaw;
+					sharedPose[11] = Math.hypot(velocityX, velocityZ);
+					sharedPose[12] = MathUtils.radToDeg(2 * Math.atan(1 / view.projectionMatrix[5]));
+					share.publishPose(sharedPose);
+				}
+			}
+			previousShare = share;
 			if (!reducedMotion.matches && (dust > 0 || drillMoving())) gustTime = (now - stormStarted) / 1000;
 			updateWorld(now / 1000);
 
@@ -1936,29 +1979,38 @@ export function mountTerrain(
 					uiTexture.needsUpdate = true;
 				}
 				drawMap(driving ? roverYaw : camera.rotation.y + headYaw);
+				const hud = {
+					showControlsHint: !!right,
+					actions: [] as Array<{ hand: 'right' | 'left'; label: string }>,
+					voice: right ? controls.getVoiceStatus() : undefined,
+					time: reducedMotion.matches ? 0 : now / 1000
+				};
 				if (!menuOpen) {
 					const hands: Array<'right' | 'left'> = [];
 					if (right) hands.push('right');
 					if (left) hands.push('left');
 					displayedActions = controls.getActions().slice(0, hands.length)
 						.map((item, index) => ({ hand: hands[index], item }));
-					const hud = {
-						showControlsHint: !!right,
-						actions: displayedActions.map(({ hand, item }) => ({ hand, label: item.label })),
-						voice: right ? controls.getVoiceStatus() : undefined,
-						time: reducedMotion.matches ? 0 : now / 1000
-					};
+					hud.actions = displayedActions.map(({ hand, item }) => ({ hand, label: item.label }));
 					cabin.setHud(driving ? hud : undefined);
 					if (!driving) optics.updateXrHud(
 						readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)), hud);
 				}
+				const menu = menuOpen ? displayedMenu : undefined;
+				share?.publishHud({
+					type: 'hud',
+					menu: menu && { ...menu, items: menu.items.map(({ id, label, active, disabled }) => ({ id, label, active, disabled })) },
+					controls: { showControlsHint: hud.showControlsHint, actions: hud.actions, voice: hud.voice },
+					clock: getClock(), message: getMessage(), readings: getReadings(), notice: getNotice(),
+					subtitle: controls.getShareSubtitle()
+				});
 			}
 			phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);
 			deimosWorld.set(moonPositions.deimos.east, moonPositions.deimos.up, -moonPositions.deimos.north);
 			const swir = displayMode === 'swir';
 			optics.renderXr(scene, xrCamera, controlPlane, uiTexture, menuOpen, sunDirectionWorld,
 				phobosWorld, moonPositions.phobos.angularRadius, deimosWorld, moonPositions.deimos.angularRadius,
-				twilight, daylight, swir ? 0 : dust, gustTime, swir, windSpeed, driving, controls.getShareMirror());
+				twilight, daylight, swir ? 0 : dust, gustTime, swir, windSpeed, driving);
 		});
 		const starting = renderer.xr.setSession(session);
 		// Three.js restores the desktop framebuffer before resizing the canvas.
@@ -2173,6 +2225,23 @@ export function mountTerrain(
 		setWind,
 		loadMissionScene,
 		setMissionView,
+		setSpectatorPose(pose: SharePose) {
+			if (!spectatorCamera) return;
+			explored = true;
+			camera.position.fromArray(pose, 0);
+			spectatorCamera.position.fromArray(pose, 3);
+			spectatorCamera.quaternion.fromArray(pose, 6).normalize();
+			roverYaw = pose[10];
+			spectatorSpeed = pose[11];
+			spectatorHeading = spectatorCamera.rotation.y;
+			if (spectatorCamera.fov !== pose[12]) {
+				spectatorCamera.fov = pose[12];
+				spectatorCamera.updateProjectionMatrix();
+			}
+			const now = performance.now();
+			if (now - lastShadowAt >= 250) { shadowDirty = true; lastShadowAt = now; }
+			draw();
+		},
 		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
 		getHeading: () => compass(missionView?.inCabin ? roverYaw : camera.rotation.y),
 		getNearbyHazards: (): string[] => {
@@ -2217,6 +2286,7 @@ export function mountTerrain(
 			cancelAnimationFrame(stormFrame);
 			cancelAnimationFrame(swirFrame);
 			cancelAnimationFrame(lookFrame);
+			cancelAnimationFrame(spectatorFrame);
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			cancelAnimationFrame(frame);
 			observer.disconnect();

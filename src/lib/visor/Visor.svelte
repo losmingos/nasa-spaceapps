@@ -27,7 +27,6 @@
 	import type { XrMenuItem, XrMenuPage } from './xr-controls.js';
 	import type { VisorMessage } from '#lib/visor/optics.js';
 	import { createHost } from './share-client.js';
-	import { createMirror, type ShareMirror } from './share-mirror.js';
 	import { displayCode } from './share-protocol.js';
 
 	let canvas: HTMLCanvasElement;
@@ -46,8 +45,9 @@
 	let vrDigits = '';
 	let shareCode = '';
 	let shareStatus = '';
-	let shareHost: ReturnType<typeof createHost> | undefined;
-	let shareMirror: ShareMirror | undefined;
+	let shareHost = $state.raw<ReturnType<typeof createHost>>();
+	let shareSubtitle: string | undefined;
+	let subtitleTimer: ReturnType<typeof setTimeout>;
 	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
 	let noticeTimer: ReturnType<typeof setTimeout>;
@@ -89,10 +89,17 @@
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
 	let missionSpeaking = $state(false);
 	let pendingMissionLine: string | undefined;
+	function setShareSubtitle(text: string) {
+		shareSubtitle = text;
+		clearTimeout(subtitleTimer);
+		subtitleTimer = setTimeout(() => { shareSubtitle = undefined; },
+			Math.max(3000, Math.min(20_000, text.length * 65)));
+	}
 	function flushMissionLine() {
 		if (voiceInput || !pendingMissionLine || (voice && !['idle', 'locked'].includes(voice.status))) return;
 		const text = pendingMissionLine;
 		pendingMissionLine = undefined;
+		setShareSubtitle(text);
 		void missionVoice?.speak(text);
 	}
 	$effect(() => {
@@ -207,7 +214,16 @@
 	$effect(() => terrain?.setDust(ares02 ? 0 : mission?.dust ?? Number(storm)));
 	$effect(() => terrain?.setWind(voice?.telemetry.wind_ms ?? null));
 	$effect(() => terrain?.setDisplayMode(displayMode));
-	$effect(() => terrain?.setMissionView(nightfall?.terrain ?? (mission && missionTerrainView(mission))));
+	const terrainView = $derived(nightfall?.terrain ?? (mission && missionTerrainView(mission)));
+	$effect(() => terrain?.setMissionView(terrainView));
+	$effect(() => {
+		shareHost?.publishWorld({
+			type: 'world', mission: ares02 ? 'ares02' : ares01 ? 'ares01' : undefined,
+			stage: nightfall?.stage ?? mission?.cue.id,
+			view: terrainView, sol: sceneSol, dust: ares02 ? 0 : mission?.dust ?? Number(storm),
+			wind: voice?.telemetry.wind_ms ?? null, display: displayMode, flashlight: flashlightOn, mapZoom
+		});
+	});
 	$effect(() => {
 		if (!terrain) {
 			dangerRisk = 0;
@@ -359,8 +375,7 @@
 
 	function stopSharing(status = '') {
 		shareHost?.close();
-		shareMirror?.close();
-		shareHost = shareMirror = undefined;
+		shareHost = undefined;
 		shareCode = '';
 		shareStatus = status;
 	}
@@ -370,19 +385,14 @@
 			stopSharing('Transmisión detenida.');
 			return;
 		}
-		try {
-			shareStatus = 'Generando código…';
-			shareMirror = createMirror(() => stopSharing('No se pudo capturar la imagen del visor.'));
-			shareHost = createHost(shareMirror, (message, code) => {
-				if (code) {
-					shareCode = code;
-					shareStatus = message;
-				} else stopSharing(message);
-			});
-			void shareHost.start();
-		} catch {
-			stopSharing('Este navegador no pudo iniciar la captura de vídeo.');
-		}
+		shareStatus = 'Generando código…';
+		shareHost = createHost((message, code) => {
+			if (code) {
+				shareCode = code;
+				shareStatus = message;
+			} else stopSharing(message);
+		});
+		void shareHost.start();
 	}
 
 	function getVrMenu(): XrMenuPage {
@@ -560,7 +570,8 @@
 					getActions: getVrActions,
 					getVoiceStatus: () => missionSpeaking ? 'speaking'
 						: unlocking ? 'thinking' : voiceProblem ? 'unavailable' : voiceStatus,
-					getShareMirror: () => shareHost?.live ? shareMirror : undefined,
+					getShareHost: () => shareHost?.live ? shareHost : undefined,
+					getShareSubtitle: () => shareSubtitle,
 					getMissionScreen: () => missionScreen
 				});
 				inVR = scene.isInVR();
@@ -726,6 +737,9 @@
 		});
 		voice = sara.getState();
 		const unsubscribeVoice = sara.onState((state) => { voice = state; flushMissionLine(); terrain?.refresh(); });
+		const unsubscribeSubtitle = sara.onSubtitle(({ speaker, text }) => {
+			if (speaker === 'jarvis') setShareSubtitle(text);
+		});
 		now = Date.now();
 		const clockTimer = setInterval(() => { now = Date.now(); }, 5000);
 		async function load() {
@@ -768,6 +782,7 @@
 			stopSharing();
 			assistant = undefined;
 			unsubscribeVoice();
+			unsubscribeSubtitle();
 			unsubscribeAction();
 			sara.dispose();
 			missionVoice?.dispose();
@@ -775,6 +790,7 @@
 			clearTimeout(noticeTimer);
 			clearTimeout(oxygenAlertTimer);
 			clearTimeout(coldAlertTimer);
+			clearTimeout(subtitleTimer);
 			terrain?.dispose();
 			terrain = undefined;
 		};

@@ -11,7 +11,7 @@ Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de da
 - **ARES-02 · Nightfall Protocol**: travesía nocturna, avería eléctrica, reparación exterior y entrega de un módulo en Bravo con presupuesto de energía.
 - **SARA**: push-to-talk, STT, Claude con herramientas y TTS; acciones sobre mapa, infrarrojo, capa de peligro y linterna; modo guionizado de respaldo.
 - **VR**: WebXR, menús por controladores, HUD estéreo y cabina del rover.
-- **Vista compartida VR → PC**: WebRTC con código de sala, un espectador y sin audio (`/spectator`).
+- **Vista compartida VR → PC**: Render 3D local en el PC con pose y estado por WebSocket (`/spectator`).
 - **Panel de operador** (`/operator`) con canal de cues compartido para dirigir la demo.
 
 ## Stack
@@ -30,7 +30,7 @@ Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de da
 1. El navegador hace el trabajo pesado (render, estado de misión, telemetría); el servidor solo valida y proxya IA, cues y caché.
 2. Todas las páginas se prerenderizan; solo `/api/*` corre en el Worker.
 3. Las claves de IA nunca llegan al cliente.
-4. Los únicos estados compartidos son el canal de cues y la señalización de la vista compartida, por eso viven en Durable Objects.
+4. Los únicos estados compartidos son el canal de cues y las sesiones de la vista compartida, por eso viven en Durable Objects.
 5. La voz es una cadena: PTT → `/api/stt` → `/api/chat` → `/api/tts` → Web Audio con barge-in.
 
 ## Rutas
@@ -71,7 +71,7 @@ npm run build    # build + prerender + Worker
 npx wrangler deploy
 ```
 
-Variables opcionales: `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, `DEMO_TOKEN`, `VR_SHARE_ICE_SERVERS`, `JARVIS_RECORDING`. Sin claves, la app arranca y los endpoints devuelven `503`.
+Variables opcionales: `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, `DEMO_TOKEN`, `JARVIS_RECORDING`. Sin claves, la app arranca y los endpoints devuelven `503`.
 
 ## Seguridad
 
@@ -79,4 +79,4 @@ Token de demo (`?k=`, cabecera o cookie httpOnly), comparación en tiempo consta
 
 ## Límites
 
-SWIR, peligro, energía y oxígeno son simulaciones; MEDA es histórico; las posiciones de las lunas y el crepúsculo son aproximados; no hay suite de tests automatizada. `missions/vr-rehearsal/` es un nombre heredado para constantes compartidas. La vista compartida admite un espectador y puede requerir TURN.
+SWIR, peligro, energía y oxígeno son simulaciones; MEDA es histórico; las posiciones de las lunas y el crepúsculo son aproximados; no hay suite de tests automatizada. `missions/vr-rehearsal/` es un nombre heredado para constantes compartidas. La vista compartida admite un espectador y se prueba en local con `npm run cf:dev`.

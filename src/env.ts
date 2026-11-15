@@ -36,10 +36,6 @@ export const variables = defineEnvVars({
 		schema: optional,
 		description: 'Tunnel mode only: when set, /api/* requires x-demo-token (or ?k=) and is rate limited.'
 	},
-	VR_SHARE_ICE_SERVERS: {
-		schema: optional,
-		description: 'Optional JSON array of RTCIceServer entries for the VR mirror, including TURN if needed.'
-	},
 	JARVIS_RECORDING: {
 		schema: optional,
 		description: 'Set to 1 while recording: disables Vite HMR (read in vite.config.ts via process.env).'
