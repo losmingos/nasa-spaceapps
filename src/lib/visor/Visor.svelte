@@ -547,9 +547,13 @@ if (mission || nightfall || ares02) return;
 		// command zooms ×4 (VOICE_ZOOM_FACTOR) instead of ±0.5. Infrared follows the visor's own rule: free
 		// exploration only (same condition as the I key and the Y button).
 		const infraredAvailable = () => !mission && !nightfall && !ares02 && !ares01;
+		// Danger layer: same rule as its Relief / Danger / Infrared buttons (free exploration and ARES-01 before start).
+		const dangerAvailable = () => !mission && !nightfall && !ares02;
 		sara.setVisorStateProvider(() => ({
 			map_zoom: mapZoom, map_min_zoom: MAP_MIN_ZOOM, map_max_zoom: MAP_MAX_ZOOM,
-			infrared_on: displayMode === 'swir', infrared_available: infraredAvailable()
+			infrared_on: displayMode === 'swir', infrared_available: infraredAvailable(),
+			danger_on: displayMode === 'danger', danger_available: dangerAvailable(),
+			danger_risk: displayMode === 'danger' ? dangerRisk : null
 		}));
 		const unsubscribeAction = sara.onAction((action) => {
 			if (action.type === 'map_zoom') {
@@ -558,6 +562,9 @@ if (mission || nightfall || ares02) return;
 			} else if (action.type === 'infrared' && infraredAvailable()) {
 				if (action.on && displayMode !== 'swir') selectDisplayMode('swir');
 				else if (!action.on && displayMode === 'swir') selectDisplayMode(previousDisplayMode);
+			} else if (action.type === 'danger_layer' && dangerAvailable()) {
+				if (action.on && displayMode !== 'danger') selectDisplayMode('danger');
+				else if (!action.on && displayMode === 'danger') selectDisplayMode('visible');
 			}
 		});
 		voice = sara.getState();
