@@ -643,10 +643,10 @@ if (mission || nightfall || ares02) return;
 			{/if}
 			{#if inVR}
 				<div class="visor-map-controls">
-					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= 4}
-						onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
-					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= 0.5}
-						onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
+					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
+						onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
+					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
+						onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
 				</div>
 			{/if}
 			<div class="visor-suit-controls">
