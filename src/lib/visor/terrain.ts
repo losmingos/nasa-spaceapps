@@ -1,15 +1,15 @@
 import {
-	BufferAttribute, BufferGeometry, CanvasTexture, Color, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
+	BufferAttribute, BufferGeometry, CanvasTexture, Color, LinearFilter, DirectionalLight, FogExp2, HemisphereLight, MathUtils,
 	IcosahedronGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Mesh, MeshLambertMaterial, MeshStandardMaterial, Object3D, PCFShadowMap, SpotLight,
-	PerspectiveCamera, Quaternion, Raycaster, Scene, SRGBColorSpace,
+	PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, Quaternion, Raycaster, Scene, SRGBColorSpace,
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import {
-	buildVisorOptics, drawHudTime, drawSwirHud, dustColor, mountHeadLockedHud,
+	buildVisorOptics, dustColor,
 	SWIR_DEPTH_RESPONSE_GLSL, SWIR_DUST_TRANSMISSION, SWIR_NOISE_GLSL,
 	type SwirHudData, type VisorMessage, type VisorReadings
 } from './optics.js';
-import { createXrPointer, drawXrMenu, xrMenuIndex, xrStick, type XrMenuPage } from './xr-controls.js';
+import { createXrPointer, mountXrControls, xrStick } from './xr-controls.js';
 import type { Exertion } from '../jarvis/types.js';
 import { buildAres01Scene, type Ares01ModelUrls } from '../missions/ares01/scene.js';
 import { solarPosition } from './mars-time.js';
@@ -28,10 +28,8 @@ interface XrControls {
 	onTalkEnd: () => void;
 	onToggleSwir: () => void;
 	onToggleFlashlight: () => void;
-	onMenuOpen: () => void;
-	getMenu: () => XrMenuPage;
-	getAction: () => string | undefined;
-	getVoiceLabel: () => string;
+	visor: HTMLElement;
+	setClockInput: (name: string, value: string) => void;
 }
 
 export interface GeologyData {
@@ -1342,8 +1340,22 @@ export function mountTerrain(
 		if (document.pointerLockElement === canvas) document.exitPointerLock();
 		const hudCamera = new PerspectiveCamera();
 		xrOrigin.add(hudCamera);
-		const hud = mountHeadLockedHud(hudCamera);
-		const pointer = createXrPointer(xrOrigin, hud.plane);
+		const ui = mountXrControls(controls.visor, controls.setClockInput, controls.onTalkStart, controls.onTalkEnd);
+		const controlPlane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial());
+		controlPlane.visible = false;
+		controlPlane.position.z = -1.3;
+		hudCamera.add(controlPlane);
+		const uiTexture = new CanvasTexture(ui.canvas);
+		uiTexture.colorSpace = SRGBColorSpace;
+		uiTexture.minFilter = LinearFilter;
+		uiTexture.generateMipmaps = false;
+		const pointer = createXrPointer(xrOrigin, controlPlane);
+		const alignControls = () => {
+			const aspect = ui.canvas.width / ui.canvas.height;
+			const height = Math.min(1.65, 2.25 / aspect);
+			controlPlane.scale.set(height * aspect, height, 1);
+			controlPlane.updateWorldMatrix(true, false);
+		};
 		const headPosition = new Vector3();
 		const sessionEvents = new AbortController();
 		const eventOptions = { signal: sessionEvents.signal };
@@ -1351,46 +1363,33 @@ export function mountTerrain(
 		flashlight.castShadow = false;
 		hudCamera.add(flashlight, flashlight.target);
 		let lastHud = -Infinity;
-		let menuOpen = true;
-		let displayedMenu: XrMenuPage | undefined;
-		let talking = false;
 		let menuPressed = false;
 		let lightPressed = false;
 		let swirPressed = false;
 		let talkPressed = false;
-		const cancelTalk = () => {
-			if (!talking) return;
-			talking = false;
-			controls.onTalkEnd();
-		};
-		const setMenu = (show: boolean) => {
-			menuOpen = show;
-			displayedMenu = undefined;
-			if (show) {
-				controls.onMenuOpen();
-				velocityX = velocityZ = 0;
-			}
-			lastHud = -Infinity;
-		};
-		session.addEventListener('select', (event) => {
-			if (!menuOpen || session.visibilityState !== 'visible') return;
+		const eventPoint = (event: XRInputSourceEvent) => {
 			const space = renderer.xr.getReferenceSpace();
-			const point = space && pointer(event.frame, event.inputSource, space);
-			if (!point) return;
-			const id = displayedMenu?.items[xrMenuIndex(point.x, point.y)]?.id;
-			const item = controls.getMenu().items.find((control) => control.id === id);
-			if (!item || item.disabled) return;
-			displayedMenu = undefined;
-			item.run();
-			if (item.close) setMenu(false);
-			lastHud = -Infinity;
+			if (space && session.visibilityState === 'visible') return pointer(event.frame, event.inputSource, space);
+		};
+		session.addEventListener('selectstart', (event) => {
+			ui.start(eventPoint(event), event.inputSource);
+		}, eventOptions);
+		session.addEventListener('selectend', (event) => ui.end(event.inputSource), eventOptions);
+		session.addEventListener('select', (event) => {
+			const point = eventPoint(event);
+			if (point) {
+				ui.select(point, event.inputSource);
+				lastHud = -Infinity;
+			}
 		}, eventOptions);
 		session.addEventListener('inputsourceschange', (event) => {
-			if (event.removed.some((source) => source.handedness === 'right')) cancelTalk();
+			for (const source of event.removed) ui.end(source);
+			if (event.removed.some((source) => source.handedness === 'right')) ui.setGripTalking(false);
 		}, eventOptions);
 		session.addEventListener('visibilitychange', () => {
 			if (session.visibilityState !== 'visible') {
-				cancelTalk();
+				ui.setGripTalking(false);
+				ui.end();
 				sprintHeld = false;
 				previous = velocityX = velocityZ = 0;
 				reportExertion('resting');
@@ -1400,15 +1399,17 @@ export function mountTerrain(
 		const restoreDesktop = () => {
 			if (xrSession !== session) return;
 			sessionEvents.abort();
-			cancelTalk();
-			hud.dispose();
+			ui.setGripTalking(false);
+			ui.end();
+			uiTexture.dispose();
+			controlPlane.geometry.dispose();
+			controlPlane.material.dispose();
 			camera.add(flashlight, flashlight.target);
 			flashlight.castShadow = shadowWasEnabled;
 			xrOrigin.remove(hudCamera);
 			xrSession = undefined;
 			renderer.setAnimationLoop(null);
 			renderer.xr.enabled = false;
-			scene.background = null;
 			sprintHeld = false;
 			previous = velocityX = velocityZ = 0;
 			reportExertion('resting');
@@ -1418,8 +1419,7 @@ export function mountTerrain(
 		};
 		renderer.xr.enabled = true;
 		renderer.xr.setReferenceSpaceType('local-floor');
-		renderer.xr.setFramebufferScaleFactor(0.9);
-		scene.background = fog.color;
+		renderer.xr.setFramebufferScaleFactor(0.8);
 		renderer.setAnimationLoop((now, xrFrame) => {
 			if (!xrFrame) return;
 			const space = renderer.xr.getReferenceSpace();
@@ -1437,15 +1437,12 @@ export function mountTerrain(
 			const talkDown = right?.buttons[1]?.pressed ?? false;
 			const active = session.visibilityState === 'visible';
 			if (active) {
-				if (menuDown && !menuPressed) setMenu(!menuOpen);
+				if (menuDown && !menuPressed) ui.toggleScene();
 				if (lightDown && !lightPressed) controls.onToggleFlashlight();
 				if (swirDown && !swirPressed) controls.onToggleSwir();
-				if (talkDown && !talkPressed) {
-					talking = true;
-					controls.onTalkStart();
-				}
+				if (talkDown && !talkPressed) ui.setGripTalking(true);
 			}
-			if (!active || !talkDown) cancelTalk();
+			if (!active || !talkDown) ui.setGripTalking(false);
 			menuPressed = menuDown;
 			lightPressed = lightDown;
 			swirPressed = swirDown;
@@ -1457,10 +1454,10 @@ export function mountTerrain(
 			const headYaw = Math.atan2(-xrHeading.x, -xrHeading.z);
 			const leftStick = xrStick(left?.axes[2], left?.axes[3]);
 			const rightStick = xrStick(right?.axes[2], right?.axes[3]);
-			const moving = active && !menuOpen && canMove();
+			const moving = active && canMove();
 			const driving = !!missionView?.player?.driving;
 			const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
-			if (active && !menuOpen && !driving) {
+			if (active && !driving) {
 				// Pivot around the headset, including when the player steps away from the tracking origin.
 				const oldYaw = camera.rotation.y;
 				camera.rotation.y -= rightStick.x * dt * 1.15;
@@ -1484,39 +1481,26 @@ export function mountTerrain(
 			if (!reducedMotion.matches && (dust > 0 || drillMoving())) gustTime = (now - stormStarted) / 1000;
 			updateWorld(now / 1000);
 
-			if (now - lastHud >= (menuOpen ? 40 : 100)) {
+			if (now - lastHud >= 50) {
 				lastHud = now;
-				if (menuOpen) {
-					const points: Array<{ x: number; y: number }> = [];
-					for (const source of session.inputSources) {
-						const point = pointer(xrFrame, source, space);
-						if (point) points.push(point);
-					}
-					const page = controls.getMenu();
-					displayedMenu = page;
-					hud.redraw((context) => drawXrMenu(context, page, points));
-				} else {
-					drawMap(camera.rotation.y + headYaw);
-					const swir = readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection));
-					hud.redraw((context, width, height) => {
-						const message = getMessage();
-						const readings = getReadings();
-						context.drawImage(map, 40, height - 195, 146, 146);
-						drawHudTime(context, width, height - 28, getClock(), swir.active);
-						drawHudTime(context, width, height - 54,
-							readings.o2Percent.toFixed(1) + '% O₂  ·  ' + (readings.airTempC == null ? '—' : Math.round(readings.airTempC)) + ' °C', false);
-						drawHudTime(context, width, height - 85, message.title || getNotice(), false);
-						if (message.detail) drawHudTime(context, width, height - 108, message.detail, false);
-						const voiceLabel = controls.getVoiceLabel();
-						if (voiceLabel) drawHudTime(context, width, 64, 'SARA · ' + voiceLabel, false);
-						const action = controls.getAction();
-						if (getNotice() && message.title) drawHudTime(context, width, 92, getNotice(), false);
-						if (action) drawHudTime(context, width, height - 136, 'A opens controls · ' + action, false);
-						drawSwirHud(context, width, height, swir);
-					});
+				alignControls();
+				const points: Array<{ x: number; y: number }> = [];
+				for (const source of session.inputSources) {
+					const point = pointer(xrFrame, source, space);
+					if (point) points.push(point);
 				}
+				ui.draw(points);
+				alignControls();
+				uiTexture.needsUpdate = true;
+				drawMap(camera.rotation.y + headYaw);
+				optics.updateXrHud(readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)));
 			}
-			renderer.render(scene, xrCamera);
+			phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);
+			deimosWorld.set(moonPositions.deimos.east, moonPositions.deimos.up, -moonPositions.deimos.north);
+			const swir = displayMode === 'swir';
+			optics.renderXr(scene, xrCamera, controlPlane, uiTexture, sunDirectionWorld,
+				phobosWorld, moonPositions.phobos.angularRadius, deimosWorld, moonPositions.deimos.angularRadius,
+				twilight, daylight, swir ? dust * SWIR_DUST_TRANSMISSION : dust, gustTime, swir, windSpeed);
 		});
 		const starting = renderer.xr.setSession(session);
 		// Three.js restores the desktop framebuffer before resizing the canvas.

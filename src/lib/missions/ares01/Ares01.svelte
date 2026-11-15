@@ -1,9 +1,9 @@
 <script lang="ts">
+	import VisorIcon from '../../visor/VisorIcon.svelte';
 	import { onMount, tick } from 'svelte';
 	import { dialogueAt, DURATION, missionAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
-	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import { DETOUR_EXTRA, type Point } from './route.js';
 
 	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
@@ -79,31 +79,6 @@
 		}
 	}
 
-	export function getVrControls(): XrMenuItem[] {
-		if (!ready) return [];
-		if (!mode) return [
-			{ id: 'start', label: 'Start mission', run: () => start('interactive') },
-			{ id: 'demo', label: 'Watch demo · 3:30', run: () => start('demo') }
-		];
-
-		const items: XrMenuItem[] = paused ? [] : actions.map((action) => ({
-			id: action, label: actionLabels[action], run: () => perform(action), close: true
-		}));
-		if (!finished) items.push({
-			id: 'pause', label: paused ? 'Resume mission' : 'Pause mission',
-			run: togglePause, close: paused
-		});
-		if (testing && mode === 'interactive' && !finished) items.push({
-			id: 'speed', label: fastTravel ? 'Test speed · 4×' : 'Test speed · 1×',
-			run: () => { fastTravel = !fastTravel; }
-		});
-		items.push(
-			{ id: 'restart', label: 'Restart mission', run: () => start(mode) },
-			{ id: 'leave', label: 'Exit mission', run: () => start(undefined) }
-		);
-		return items;
-	}
-
 	function keyboard(event: KeyboardEvent) {
 		if (event.code === 'Escape' && menuOpen) {
 			menuOpen = false;
@@ -173,27 +148,32 @@
 <svelte:window onkeydown={keyboard} />
 
 <section class="mission-controls" aria-label="ARES-01 · Simulation">
-	{#if testing && mode === 'interactive' && !finished}
-		<button class="hud-action" aria-pressed={fastTravel} aria-keyshortcuts="T" onclick={() => {
-			fastTravel = !fastTravel;
-			focusScene();
-		}}>Test speed {fastTravel ? '4×' : '1×'} [T]</button>
-	{/if}
-	{#each actions as action, index (action)}
-		<button class="hud-action" disabled={paused} onclick={() => perform(action)}>
-			{actionLabels[action]} [{index === 0 ? 'E / 1' : '2'}]
-		</button>
-	{/each}
-	<button class="hud-action" bind:this={menuButton} aria-expanded={menuOpen} aria-controls="mission-options"
-		onclick={() => { menuOpen = !menuOpen; }}>{mode ? 'Mission' : 'ARES-01'}</button>
+	<div class="hud-actions mission-steps">
+		{#if testing && mode === 'interactive' && !finished}
+			<button class="hud-action" aria-pressed={fastTravel} aria-keyshortcuts="T" onclick={() => {
+				fastTravel = !fastTravel;
+				focusScene();
+			}}>Test speed {fastTravel ? '4×' : '1×'} {#if !immersive}[T]{/if}</button>
+		{/if}
+		{#each actions as action, index (action)}
+			<button class="hud-action" disabled={paused} onclick={() => perform(action)}>
+				{#if immersive}<VisorIcon name="action" />{/if}
+				{actionLabels[action]}{#if !immersive} [{index === 0 ? 'E / 1' : '2'}]{/if}
+			</button>
+		{/each}
+	</div>
+	<button class="hud-action mission-toggle" bind:this={menuButton} aria-label={mode ? 'Mission' : 'ARES-01'} aria-expanded={menuOpen} aria-controls="mission-options"
+		onclick={() => { menuOpen = !menuOpen; }}>
+		{#if immersive}<VisorIcon name="mission" />{:else}{mode ? 'Mission' : 'ARES-01'}{/if}
+	</button>
 
 	<div id="mission-options" class="mission-options t-panel-slide" data-open={menuOpen}
 		inert={!menuOpen} aria-hidden={!menuOpen}>
 		{#if !mode}
 			<span>The Last Sample · Simulation</span>
-			<p>WASD move · Arrow keys look · E / 1 / 2 act · Space talk</p>
+			<p>{immersive ? 'Left stick: move · Right stick: turn · Trigger: select · Hold right grip: talk' : 'WASD move · Arrow keys look · E / 1 / 2 act · Space talk'}</p>
 			<div class="hud-actions">
-				<button class="hud-action" disabled={!ready} onclick={() => start('interactive')}>Start mission [I]</button>
+				<button class="hud-action" disabled={!ready} onclick={() => start('interactive')}>Start mission{#if !immersive} [I]{/if}</button>
 				<button class="hud-action" disabled={!ready} onclick={() => start('demo')}>Watch demo · 3:30</button>
 			</div>
 		{:else if finished}
@@ -205,7 +185,7 @@
 			</div>
 		{:else}
 			<div class="hud-actions">
-				<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'} [P]</button>
+				<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'}{#if !immersive} [P]{/if}</button>
 				<button class="hud-action" onclick={() => start(mode)}>Restart</button>
 				<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
 			</div>

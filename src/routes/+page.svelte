@@ -7,16 +7,14 @@
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
-	import type { XrMenuItem, XrMenuPage } from '#lib/visor/xr-controls.js';
+	import VisorIcon from '#lib/visor/VisorIcon.svelte';
 	import './visor.css';
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
 	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
 	import { missionContext, missionMessage, missionModelUrls, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
 	import type { VisorMessage } from '#lib/visor/optics.js';
 
-	let aresControls: ReturnType<typeof Ares01>;
-	let vrPage: 'main' | 'mission' | 'scene' | 'sol' | 'time' | 'help' = 'main';
-	let vrDigits = '';
+	let visor: HTMLElement;
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
 	let messageText: HTMLSpanElement;
@@ -160,84 +158,6 @@
 		selectedSol = undefined;
 	}
 
-	function getVrMenu(): XrMenuPage {
-		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
-		if (vrPage === 'help') {
-			return {
-				title: 'Touch controls',
-				items: [back],
-				hint: 'Left stick: move or drive · Right stick: turn',
-				lines: [
-					'Left grip + move forwards: run',
-					'Right grip: hold to talk to SARA, release to send',
-					'Either trigger: select a highlighted control',
-					'A: open or close controls · B: flashlight · Y: SWIR'
-				]
-			};
-		}
-		if (vrPage === 'mission') {
-			return { title: 'ARES-01 · The Last Sample', items: [
-				...(aresControls?.getVrControls() ?? []).map((item) => ({
-					...item,
-					close: item.close || ['start', 'demo', 'restart', 'leave'].includes(item.id)
-				})), back
-			], hint: mission?.log && mission.cue.id === 'closed' ? mission.log.progress : undefined };
-		}
-
-		if (!mission && (vrPage === 'sol' || vrPage === 'time')) {
-			const editingSol = vrPage === 'sol';
-			const limit = editingSol ? 5 : 4;
-			const digits = vrDigits.padEnd(limit, '–');
-			const hours = Number(vrDigits.slice(0, 2));
-			const minutes = Number(vrDigits.slice(2));
-			const valid = editingSol ? !!vrDigits : vrDigits.length === 4 && hours < 24 && minutes < 60;
-			return {
-				title: editingSol ? 'Sol · ' + digits : 'LMST · ' + digits.slice(0, 2) + ':' + digits.slice(2),
-				items: [
-					...Array.from('1234567890', (digit) => ({
-						id: digit, label: digit, disabled: vrDigits.length >= limit,
-						run: () => { vrDigits += digit; }
-					})),
-					{ id: 'erase', label: 'Erase', disabled: !vrDigits, run: () => { vrDigits = vrDigits.slice(0, -1); } },
-					{ id: 'save', label: 'Apply', disabled: !valid, run: () => {
-						if (editingSol) setClock(Number(vrDigits), clock);
-						else setClock(sol, vrDigits.slice(0, 2) + ':' + vrDigits.slice(2));
-						vrPage = 'scene';
-					} }
-				],
-				hint: editingSol ? 'Enter a sol (0–99999)  ·  A: close' : 'Enter 24-hour time (HHMM)  ·  A: close'
-			};
-		}
-
-		if (!mission && vrPage === 'scene') {
-			const layers: Array<[TerrainDisplayMode, string]> = [
-				['visible', 'Relief'], ['geology', 'Geology'], ['slope', 'Slope'], ['swir', 'SWIR simulation']
-			];
-			return { title: 'Scene controls', items: [
-				...layers.map(([mode, label]) => ({
-					id: mode, label, active: displayMode === mode, disabled: mode === 'geology' && !geologyAvailable,
-					run: () => mode === 'swir' ? toggleSwir() : selectDisplayMode(mode)
-				})),
-				{ id: 'storm', label: 'Dust storm', active: storm, run: () => { storm = !storm; } },
-				{ id: 'sol', label: 'Sol · ' + sol, run: () => { vrDigits = ''; vrPage = 'sol'; } },
-				{ id: 'time', label: 'LMST · ' + clock, run: () => { vrDigits = ''; vrPage = 'time'; } },
-				{ id: 'live', label: 'Return to current time', run: resetClock }, back
-			] };
-		}
-
-		const missionItems = aresControls?.getVrControls() ?? [];
-		const actions = missionItems.filter((item) => item.close && item.id !== 'pause');
-		return { title: 'Jezero · Astronaut visor', items: [
-			...actions,
-			{ id: 'mission', label: mission ? 'Mission controls' : 'ARES-01', run: () => { vrPage = 'mission'; } },
-			{ id: 'flashlight', label: 'Flashlight', active: flashlightOn, run: toggleFlashlight },
-			{ id: 'scene', label: 'Scene controls', disabled: !!mission, run: () => { vrPage = 'scene'; } },
-			{ id: 'help', label: 'Touch controls', run: () => { vrPage = 'help'; } },
-			{ id: 'close', label: 'Return to visor', close: true, run: () => {} },
-			{ id: 'exit', label: 'Exit VR', run: () => { void toggleVR(); } }
-		], hint: 'Trigger: select  ·  A: close  ·  Hold right grip: SARA' };
-	}
-
 	async function toggleVR() {
 		const xr = navigator.xr;
 		const scene = terrain;
@@ -248,17 +168,17 @@
 			if (inVR) {
 				await scene.exitVR();
 			} else {
-				vrPage = 'main';
 				const entering = scene.enterVR(xr, {
 					onEnd: () => { inVR = false; },
 					onTalkStart: () => { void voiceDown('vr'); },
 					onTalkEnd: () => { if (voiceInput === 'vr') voiceUp(); },
 					onToggleSwir: () => { if (!mission) toggleSwir(); },
 					onToggleFlashlight: toggleFlashlight,
-					onMenuOpen: () => { vrPage = 'main'; },
-					getMenu: getVrMenu,
-					getAction: () => aresControls?.getVrControls().find((item) => item.close && item.id !== 'pause')?.label,
-					getVoiceLabel: () => voiceLabel
+					visor,
+					setClockInput: (name, value) => {
+						if (name === 'sol') setClock(Number(value), clock);
+						else setClock(sol, value);
+					}
 				});
 				missionVoice?.unlock();
 				void assistant?.unlock().catch((cause) => {
@@ -447,7 +367,7 @@
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
-<main class="visor">
+<main class="visor" bind:this={visor} class:immersive={inVR}>
 	<canvas class="terrain" bind:this={canvas} tabindex="0"
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
@@ -494,7 +414,7 @@
 
 		<div class="visor-controls">
 			{#if vrError}<p class="vr-error" role="alert">{vrError}</p>{/if}
-			<Ares01 bind:this={aresControls} ready={!!terrain} immersive={inVR} onview={(view) => {
+			<Ares01 ready={!!terrain} immersive={inVR} onview={(view) => {
 				mission = view;
 			}} ondialogue={playMissionDialogue}
 				onstart={() => { voiceInput = undefined; assistant?.reset(); assistant?.startMissionClock(); missionVoice?.unlock(); }}
@@ -502,40 +422,41 @@
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
 			{#if vrSupported}
-				<button type="button" class="hud-action" disabled={!terrain || vrBusy} onclick={toggleVR}>
-					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
+				<button type="button" class="hud-action visor-exit" aria-label={inVR ? 'Exit VR' : undefined} disabled={!terrain || vrBusy} onclick={toggleVR}>
+					{#if inVR}<VisorIcon name="exit" />{:else if vrBusy}Entering VR…{:else}Enter VR{/if}
 				</button>
 			{/if}
-			<button type="button" class="hud-action" aria-label="Zoom in on minimap" aria-keyshortcuts="Plus"
-				disabled={!terrain || mapZoom >= 4} onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>
-				Map +
-			</button>
-			<button type="button" class="hud-action" aria-label="Zoom out on minimap" aria-keyshortcuts="Minus"
-				disabled={!terrain || mapZoom <= 0.5} onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>
-				Map −
-			</button>
-			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
-				disabled={!terrain} onclick={toggleFlashlight}>
-				Flashlight <kbd>F</kbd>
-			</button>
-			<button type="button" class="hud-action voice-control"
-					aria-label="SARA. Hold to talk and release to send"
-					aria-keyshortcuts="Space"
-					data-recording={voiceStatus === 'recording'}
-					onpointerdown={(event) => {
-						if (event.button !== 0 || !event.isPrimary) return;
-						event.currentTarget.setPointerCapture(event.pointerId);
-						void voiceDown('pointer');
-					}}
-					onpointerup={() => { if (voiceInput === 'pointer') voiceUp(); }}
-					onlostpointercapture={() => { if (voiceInput === 'pointer') voiceUp(); }}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-						stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<rect x="9" y="3" width="6" height="12" rx="3" />
-						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
-					</svg>
-					<span>SARA</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
+			<div class="visor-map-controls">
+				<button type="button" class="hud-action" aria-label="Zoom in on minimap" aria-keyshortcuts="Plus"
+					disabled={!terrain || mapZoom >= 4} onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>
+					{#if inVR}<VisorIcon name="plus" />{:else}Map +{/if}
 				</button>
+				<button type="button" class="hud-action" aria-label="Zoom out on minimap" aria-keyshortcuts="Minus"
+					disabled={!terrain || mapZoom <= 0.5} onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>
+					{#if inVR}<VisorIcon name="minus" />{:else}Map −{/if}
+				</button>
+			</div>
+			<div class="visor-suit-controls">
+				<button type="button" class="hud-action" aria-label="Flashlight" aria-pressed={flashlightOn} aria-keyshortcuts="F"
+					disabled={!terrain} onclick={toggleFlashlight}>
+					{#if inVR}<VisorIcon name="flashlight" />{:else}Flashlight{/if} <kbd>{inVR ? 'B' : 'F'}</kbd>
+				</button>
+				<button type="button" class="hud-action voice-control"
+						aria-label="SARA. Hold to talk and release to send"
+						aria-keyshortcuts="Space"
+						data-recording={voiceStatus === 'recording'}
+						onpointerdown={(event) => {
+							if (event.button !== 0 || !event.isPrimary) return;
+							event.currentTarget.setPointerCapture(event.pointerId);
+							void voiceDown('pointer');
+						}}
+						onpointerup={() => { if (voiceInput === 'pointer') voiceUp(); }}
+						onlostpointercapture={() => { if (voiceInput === 'pointer') voiceUp(); }}>
+						<VisorIcon name="mic" />
+						<span>SARA</span><kbd>{inVR ? 'Hold grip' : 'Space'}</kbd>
+						{#if !inVR}<span class="touch-hint" aria-hidden="true">Hold</span>{/if}
+					</button>
+			</div>
 		</div>
 	</div>
 
@@ -546,11 +467,11 @@
 					<div class="control-section">
 						<h2>Mars time</h2>
 						<label>Sol (MSD)
-							<input type="number" min="0" max="99999" step="1" value={sol}
+							<input name="sol" type="number" min="0" max="99999" step="1" value={sol}
 								onchange={(event) => setClock(event.currentTarget.valueAsNumber, clock)} />
 						</label>
 						<label>Local time (LMST)
-							<input type="time" value={clock}
+							<input name="time" type="time" value={clock}
 								onchange={(event) => setClock(sol, event.currentTarget.value)} />
 						</label>
 						<button type="button" onclick={resetClock}>
@@ -571,7 +492,7 @@
 								onclick={() => selectDisplayMode('geology')}>Geology</button>
 							<button type="button" aria-pressed={displayMode === 'slope'} onclick={() => selectDisplayMode('slope')}>Slope</button>
 							<button type="button" aria-pressed={displayMode === 'swir'} aria-keyshortcuts="I"
-								onclick={() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir')}>SWIR sim. · I</button>
+								onclick={() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir')}>SWIR sim. · {inVR ? 'Y' : 'I'}</button>
 						</div>
 						<p class="layer-caption">
 							{#if displayMode === 'geology'}USGS SIM 3464 · regional alignment ±100–200 m
@@ -584,7 +505,7 @@
 			<button type="button" class="scene-controls-trigger" bind:this={controlsButton}
 				aria-expanded={controlsVisible} aria-controls="scene-controls-panel" aria-keyshortcuts="H"
 				onclick={() => { controlsVisible = !controlsVisible; }}>
-				Controls <kbd>H</kbd>
+				{#if inVR}<VisorIcon name="settings" />{/if} Controls <kbd>{inVR ? 'A' : 'H'}</kbd>
 			</button>
 		</div>
 	{/if}

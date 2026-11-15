@@ -119,6 +119,7 @@ body { margin: 0; background: #0b0d0e; }
 .voice-control[data-recording='true'] { color: #ffb4a1; border-color: currentColor; }
 .voice-control svg { width: 16px; height: 16px; }
 .voice-control kbd { font: inherit; font-size: .85em; color: var(--hud-label); }
+.visor.immersive .voice-control kbd { display: inline; }
 .touch-hint { display: none; font-size: .85em; color: var(--hud-label); }
 
 .mission-options {
@@ -381,3 +382,97 @@ body { margin: 0; background: #0b0d0e; }
 @media (prefers-reduced-motion: reduce) {
   .t-panel-slide { transition: none !important; }
 }
+
+/* The controls are painted from this layout into the immersive visor texture. */
+.visor.immersive .visor-controls { inset: 0; padding: 0; pointer-events: none; }
+.visor.immersive :is(.hud-action, .scene-controls-trigger) {
+	gap: 8px;
+	min-width: 50px;
+	min-height: 50px;
+	padding: 6px 14px;
+	border: 1px solid #a4dfc8;
+	border-radius: 28px;
+	background: #07130fbe;
+	color: #c6ffe5;
+	font: 500 15px/1.2 'IBM Plex Mono', ui-monospace, monospace;
+}
+.visor.immersive :is(.hud-action, .scene-controls-trigger)[aria-pressed='true'],
+.visor.immersive :is(.hud-action, .scene-controls-trigger)[aria-expanded='true'] {
+	background: #23483c;
+}
+.visor.immersive .hud-action:disabled { opacity: .45; }
+.visor.immersive .voice-control[data-recording='true'] { color: #ffb4a1; border-color: currentColor; }
+.visor.immersive .visor-icon { display: block; width: 22px; height: 22px; flex: none; }
+.visor.immersive kbd { font: 400 12px/1 'IBM Plex Mono', ui-monospace, monospace; color: #cbebe1; }
+.visor.immersive .visor-map-controls, .visor.immersive .visor-suit-controls {
+	position: absolute;
+	display: flex;
+	gap: 8px;
+	bottom: 3%;
+}
+
+.visor.immersive .visor-map-controls {
+	left: 24%;
+	gap: 0;
+	border: 1px solid #a4dfc866;
+	border-radius: 28px;
+	background: #07130f99;
+}
+.visor.immersive .visor-map-controls .hud-action {
+	min-width: 44px;
+	min-height: 44px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+}
+.visor.immersive .visor-map-controls .visor-icon { width: 16px; height: 16px; }
+.visor.immersive .visor-suit-controls { right: 24%; }
+.visor.immersive .mission-controls { display: contents; }
+.visor.immersive .mission-steps {
+	position: absolute;
+	inset-inline: 14%;
+	top: 21%;
+}
+.visor.immersive :is(.visor-exit, .mission-toggle) {
+	position: absolute;
+	top: 43%;
+	width: 52px;
+	height: 52px;
+	padding: 0;
+	border-radius: 26px;
+	border-color: #a4dfc899;
+	background: #07130fc9;
+}
+.visor.immersive .mission-toggle { left: 0; }
+.visor.immersive .visor-exit { right: 0; }
+.visor.immersive .mission-options {
+	inset: 43% auto auto 60px;
+	width: max-content;
+	max-width: calc(100% - 120px);
+	margin: 0;
+	max-height: 46%;
+	border: 1px solid #a4dfc8;
+	border-radius: 12px;
+	background: #07130fe8;
+	padding: 12px;
+}
+.visor:not(.immersive) .mission-steps { display: contents; }
+.visor.immersive .scene-controls { top: 6%; bottom: auto; left: 9%; right: auto; }
+.visor.immersive .scene-controls-panel {
+	top: calc(100% + 8px);
+	bottom: auto;
+	left: 0;
+	right: auto;
+	background: #07130fe8;
+	border-color: #a4dfc8;
+}
+.visor.immersive .scene-controls-trigger { display: inline-flex; align-items: center; }
+
+@media (max-width: 600px) {
+	.visor.immersive .visor-map-controls { left: 15%; }
+	.visor.immersive .visor-suit-controls { right: 15%; }
+	.visor.immersive .scene-controls { left: 3%; }
+	.visor.immersive :is(.hud-action, .scene-controls-trigger) { padding-inline: 10px; }
+}
+
+.visor:not(.immersive) :is(.visor-map-controls, .visor-suit-controls) { display: contents; }
