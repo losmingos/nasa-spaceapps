@@ -37,7 +37,7 @@ export interface VisorReadings {
 
 export type XrVoiceStatus = 'locked' | 'idle' | 'recording' | 'thinking' | 'speaking' | 'unavailable';
 
-interface XrHudControls {
+export interface XrHudControls {
 	showControlsHint: boolean;
 	actions: ReadonlyArray<{ hand: 'right' | 'left'; label: string }>;
 	voice?: XrVoiceStatus;
@@ -404,6 +404,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			viewOffset: { value: new Vector2() },
 			controls: { value: null },
 			controlFromEye: { value: new Matrix4() },
+			headFromEye: { value: new Matrix4() },
 			helmet: { value: helmetTexture },
 			helmetScale: { value: new Vector2() },
 			menuOpen: { value: false },
@@ -449,6 +450,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform vec2 viewOffset;
 			uniform sampler2D controls;
 			uniform mat4 controlFromEye;
+			uniform mat4 headFromEye;
 			uniform sampler2D helmet;
 			uniform vec2 helmetScale;
 			uniform bool menuOpen;
@@ -607,10 +609,12 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				float opticalPath = inversesqrt(max(0.42, 1.0 - 0.55 * r2));
 				vec3 solarTransmission = mix(exp(-vec3(0.48, 0.57, 0.72) * opticalPath),
 					vec3(exp(-0.57 * opticalPath)), swirMode);
-				transmitted *= solarTransmission;
-				transmitted *= 1.0 - 0.10 * smoothstep(0.35, 1.0, r2);
-
 				if (!cabinView) {
+					transmitted *= solarTransmission;
+					transmitted *= 1.0 - 0.10 * smoothstep(0.35, 1.0, r2);
+				}
+
+				if (!cabinView && !immersive) {
 					// A broad reflection catches the upper shoulder of the glass as the head turns.
 					vec2 glass = (p - sunInView) * vec2(clamp(aspect, 0.85, 1.9), 1.0);
 					float flare = exp(-dot(glass, glass) * 2.1) * reflection;
@@ -649,7 +653,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					if (direction.z < -0.0001 && point.z > 0.0) {
 						vec2 hit = point.xy - direction.xy * point.z / direction.z;
 						vec2 helmetUV = hit * helmetScale + 0.5;
-						if (!menuOpen && all(greaterThanEqual(helmetUV, vec2(0.0))) && all(lessThanEqual(helmetUV, vec2(1.0)))) {
+						if (!cabinView && !menuOpen && all(greaterThanEqual(helmetUV, vec2(0.0))) && all(lessThanEqual(helmetUV, vec2(1.0)))) {
 							vec4 hud = texture2D(helmet, helmetUV);
 							transmitted = mix(transmitted, hud.rgb, hud.a);
 						}
@@ -659,6 +663,40 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 							transmitted = mix(transmitted, ui.rgb, ui.a);
 						}
 					}
+				}
+				if (immersive && !cabinView) {
+					// Both eyes intersect the SAME head-relative shell. Never draw a separate
+					// screen-space oval per eye: Quest projections are asymmetric.
+					vec3 origin = headFromEye[3].xyz;
+					vec3 direction = mat3(headFromEye) * ray;
+					vec2 shell = (origin.xy + direction.xy * ((-0.62 - origin.z) / min(direction.z, -0.001))) / 0.62;
+					vec2 oval = (shell - vec2(0.0, 0.025)) / vec2(1.13, 0.94);
+					float radius = pow(pow(abs(oval.x), 2.6) + pow(abs(oval.y), 2.6), 1.0 / 2.6);
+					float edge = max(fwidth(radius), 0.001);
+					float seal = smoothstep(0.92 - edge, 0.92 + edge, radius);
+					float metal = smoothstep(0.947, 0.955, radius) * (1.0 - smoothstep(1.015, 1.025, radius));
+					float bevel = exp(-pow((radius - 0.96) / 0.008, 2.0));
+					float seam = exp(-pow((radius - 0.995) / 0.004, 2.0));
+					float illumination = 0.48 + 0.28 * clamp(oval.y, -1.0, 1.0) + 0.12 * daylight;
+					vec3 lining = vec3(0.025, 0.034, 0.038);
+					lining += vec3(0.004) * pow(0.5 + 0.5 * sin(atan(oval.y, oval.x) * 36.0), 10.0)
+						* smoothstep(1.03, 1.09, radius);
+					vec3 alloy = vec3(0.36, 0.41, 0.40) * illumination;
+					lining = mix(lining, alloy, metal) + vec3(0.19, 0.22, 0.20) * bevel;
+					lining *= 1.0 - seam * 0.65;
+					// Recessed fasteners on the side rails; a short amber registration mark.
+					vec2 bolt = vec2(abs(oval.x) - 0.969, abs(oval.y) - 0.26);
+					float screw = 1.0 - smoothstep(0.014, 0.018, length(bolt));
+					lining = mix(lining, vec3(0.25, 0.29, 0.28), screw);
+					lining *= 1.0 - screw * (1.0 - smoothstep(0.002, 0.004, abs(bolt.y))) * 0.7;
+					float mark = (1.0 - smoothstep(0.045, 0.05, abs(oval.x)))
+						* smoothstep(0.959, 0.964, oval.y) * (1.0 - smoothstep(0.978, 0.983, oval.y));
+					lining = mix(lining, vec3(0.72, 0.40, 0.13), mark);
+					float shoulder = exp(-pow((radius - 0.86) / 0.045, 2.0));
+					transmitted *= 1.0 - 0.20 * smoothstep(0.72, 0.93, radius);
+					transmitted += vec3(0.17, 0.23, 0.22) * shoulder * (0.04 + reflection * 0.15)
+						* smoothstep(-0.1, 0.8, oval.y);
+					transmitted = mix(transmitted, lining, seal);
 				}
 				gl_FragColor = vec4(transmitted, 1.0);
 				#include <colorspace_fragment>
@@ -671,6 +709,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	const renderEye = new PerspectiveCamera();
 	renderEye.matrixAutoUpdate = false;
 	const controlMatrix = new Matrix4();
+	const headMatrix = new Matrix4();
 
 	function setView(camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
 		phobos: Vector3, phobosElevation: number, phobosRadius: number,
@@ -759,6 +798,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			renderer.xr.updateCamera(camera);
 			const eyes = renderer.xr.getCamera().cameras;
 			controlMatrix.copy(controlPlane.matrixWorld).invert();
+			headMatrix.copy(controlPlane.parent!.matrixWorld).invert();
 			// Map the same stereo intersection onto a fixed-size, headset-relative display.
 			material.uniforms.helmetScale.value.set(controlPlane.scale.x / 1.9, controlPlane.scale.y / 1.425);
 			material.uniforms.menuOpen.value = menuOpen;
@@ -778,6 +818,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					material.uniforms.viewScale.value.set(1 / projection[0], 1 / projection[5]);
 					material.uniforms.viewOffset.value.set(projection[8] / projection[0], projection[9] / projection[5]);
 					material.uniforms.controlFromEye.value.multiplyMatrices(controlMatrix, eye.matrixWorld);
+					material.uniforms.headFromEye.value.multiplyMatrices(headMatrix, eye.matrixWorld);
 					eye.matrixWorld.decompose(eyePosition, worldRotation, eyeScale);
 					inverseRotation.copy(worldRotation).invert();
 					setView(camera, eyeSun.copy(sun).applyQuaternion(inverseRotation), Math.asin(sun.y),
