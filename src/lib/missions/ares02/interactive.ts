@@ -1,6 +1,6 @@
 import { distanceBetween, type Point } from '../ares01/route.js';
-import { forecast, routes, routeForecast, usableEnergy } from './ares02.js';
-import { alternative, alternativeLength, approachLength, directLength, approachNavigation, bravo, fault, handoff, startPoint } from './route.js';
+import { directRouteBudget, forecast, routeForecast, usableEnergy } from './ares02.js';
+import { directLength, faultProgress, plannedLength, plannedNavigation, bravo, handoff, startPoint } from './route.js';
 
 export type Stage = 'preflight' | 'outbound' | 'fault' | 'assessment' | 'diagnostic' | 'verified' | 'options'
 	| 'eva-prep' | 'service-walk' | 'panel-closed' | 'panel-open' | 'link-seated' | 'return-airlock' | 'airlock' | 'bus-check' | 'bus-verified'
@@ -9,29 +9,26 @@ export type Action = 'lights' | 'depart' | 'assess' | 'diagnose' | 'compare' | '
 	| 'suit-check' | 'service-exit' | 'open-panel' | 'reseat-link' | 'close-panel' | 'reboard' | 'test-bus'
 	| 'park' | 'collect' | 'exit' | 'deliver';
 
-const routeLength = alternativeLength;
-const firstLeg = distanceBetween(alternative[0], alternative[1]);
-const markers = [alternative[1], bravo];
-const plannedKwhPerMetre = routeForecast(routes[1]).total / routeLength;
+const directEnergy = routeForecast(directRouteBudget).total;
 const actionDelaySeconds = 1;
-const checkRadius = 4;
+const arrivalRadius = 4;
 
 export interface Run {
 	stage: Stage;
 	position: Point;
 	seconds: number;
 	stageAt: number;
-	leg: number;
 	driven: number;
 	degraded: boolean;
 	lights: boolean;
 	cargoSecured: boolean;
 	parkedAt?: Point;
 	serviceStop?: Point;
+	directRoute?: readonly [Point, Point];
 }
 
 export function startRun(): Run {
-	return { stage: 'preflight', position: startPoint, seconds: 0, stageAt: -actionDelaySeconds, leg: 0, driven: 0, degraded: false, lights: false, cargoSecured: false };
+	return { stage: 'preflight', position: startPoint, seconds: 0, stageAt: -actionDelaySeconds, driven: 0, degraded: false, lights: false, cargoSecured: false };
 }
 
 function enter(run: Run, stage: Stage): Run {
@@ -54,8 +51,8 @@ export function moving(run: Run) {
 }
 
 export function goal(run: Run): Point | undefined {
-	if (run.stage === 'outbound') return approachNavigation(run.position).ahead;
-	if (run.stage === 'drive') return markers[run.leg];
+	if (run.stage === 'outbound') return plannedNavigation(run.position).ahead;
+	if (run.stage === 'drive') return bravo;
 	if (run.stage === 'walk') return handoff;
 	if (run.serviceStop && run.stage === 'service-walk') return servicePoints(run.serviceStop).panel;
 	if (run.serviceStop && run.stage === 'return-airlock') return servicePoints(run.serviceStop).airlock;
@@ -63,37 +60,34 @@ export function goal(run: Run): Point | undefined {
 }
 
 export function routeRemaining(run: Run) {
-	if (run.stage === 'preflight' || run.stage === 'outbound') return approachLength - approachNavigation(run.position).progress + directLength;
+	if (run.stage === 'preflight' || run.stage === 'outbound') return plannedLength - plannedNavigation(run.position).progress;
 	if (['park', 'cargo', 'egress', 'walk', 'handoff', 'delivered'].includes(run.stage)) return 0;
-	if (!run.degraded) return directLength;
-	const target = markers[run.leg];
-	return distanceBetween(run.position, target) + (run.leg === 0 ? routeLength - firstLeg : 0);
+	return distanceBetween(run.degraded ? run.position : run.directRoute?.[0] ?? run.position, bravo);
 }
 
 export function driveBudget(run: Run) {
-	const available = usableEnergy - run.driven * plannedKwhPerMetre;
+	const routeLength = run.directRoute ? distanceBetween(...run.directRoute) : directLength;
+	const kWhPerMetre = directEnergy / routeLength;
+	const available = usableEnergy - run.driven * kWhPerMetre;
 	const remaining = routeRemaining(run);
-	return { available, remainingKm: remaining / 1000, ...forecast(available, remaining * plannedKwhPerMetre) };
+	return { available, remainingKm: remaining / 1000, ...forecast(available, remaining * kWhPerMetre) };
 }
 
 export function stepRun(run: Run, delta: number, position: Point): Run {
 	const next = { ...run, position, seconds: run.seconds + delta };
 	switch (run.stage) {
 		case 'outbound': {
-			const { progress, offset } = approachNavigation(position);
-			return progress >= approachLength - 1 && offset < 5 ? enter(next, 'fault') : next;
+			const { progress, offset } = plannedNavigation(position);
+			return progress >= faultProgress && offset < 5
+				? enter({ ...next, directRoute: [position, bravo] }, 'fault')
+				: next;
 		}
 		case 'diagnostic':
 			if (next.seconds < next.stageAt + 8) return next;
 			return enter(next, 'eva-prep');
 		case 'drive': {
 			next.driven += distanceBetween(run.position, position);
-			if (distanceBetween(position, markers[run.leg]) > checkRadius) return next;
-			if (run.leg === 0) {
-				next.leg++;
-				return next;
-			}
-			return enter(next, 'park');
+			return distanceBetween(position, bravo) <= arrivalRadius ? enter(next, 'park') : next;
 		}
 		case 'service-walk':
 		case 'return-airlock': {
@@ -121,7 +115,7 @@ export function actions(run: Run): readonly Action[] {
 		case 'bus-check': return ['test-bus'];
 		case 'bus-verified': return ['compare'];
 		case 'configured': return ['drive'];
-		case 'options': return routeForecast(routes[1]).viable ? ['configure'] : [];
+		case 'options': return routeForecast(directRouteBudget).viable ? ['configure'] : [];
 		case 'park': return ['park'];
 		case 'cargo': return ['collect'];
 		case 'egress': return ['exit'];

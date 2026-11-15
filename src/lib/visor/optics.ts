@@ -4,6 +4,7 @@ import {
 	PerspectiveCamera, type Object3D, type Scene, type WebGLRenderer
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import type { ShareMirror } from './share-mirror.js';
 
 const stormNight = new Color('#101017');
 const stormDusk = new Color('#67402f');
@@ -704,6 +705,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		`
 	});
 	const screen = new FullScreenQuad(material);
+	const compositeEye = () => screen.render(renderer);
 	const savedViewport = new Vector4();
 	const eyeScale = new Vector3();
 	const renderEye = new PerspectiveCamera();
@@ -791,7 +793,8 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		},
 		renderXr(scene: Scene, camera: PerspectiveCamera, controlPlane: Object3D, controlTexture: CanvasTexture, menuOpen: boolean,
 			sun: Vector3, phobos: Vector3, phobosRadius: number, deimos: Vector3, deimosRadius: number,
-			twilight: number, daylight: number, storm: number, gustTime: number, swir: boolean, windMps: number, cabinView: boolean) {
+			twilight: number, daylight: number, storm: number, gustTime: number, swir: boolean, windMps: number, cabinView: boolean,
+			mirror?: ShareMirror) {
 			// The XR manager binds the compositor framebuffer before running this callback.
 			const output = renderer.getRenderTarget();
 			if (!output) return;
@@ -842,6 +845,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					material.uniforms.terrain.value = xrTarget.texture;
 					material.uniforms.terrainDepth.value = xrTarget.depthTexture;
 					screen.render(renderer);
+					if (index === 0) mirror?.capture(renderer, width, height, compositeEye);
 				}
 			} finally {
 				renderer.setRenderTarget(output);

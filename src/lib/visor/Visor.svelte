@@ -26,6 +26,9 @@
 	import VisorIcon from './VisorIcon.svelte';
 	import type { XrMenuItem, XrMenuPage } from './xr-controls.js';
 	import type { VisorMessage } from '#lib/visor/optics.js';
+	import { createHost } from './share-client.js';
+	import { createMirror, type ShareMirror } from './share-mirror.js';
+	import { displayCode } from './share-protocol.js';
 
 	let canvas: HTMLCanvasElement;
 	let map: HTMLCanvasElement;
@@ -39,8 +42,12 @@
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
 	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
-	let vrPage: 'main' | 'mission' | 'missions' | 'settings' | 'map' | 'scene' | 'sol' | 'time' | 'help' = 'main';
+	let vrPage: 'main' | 'mission' | 'missions' | 'settings' | 'map' | 'scene' | 'sol' | 'time' | 'help' | 'share' = 'main';
 	let vrDigits = '';
+	let shareCode = '';
+	let shareStatus = '';
+	let shareHost: ReturnType<typeof createHost> | undefined;
+	let shareMirror: ShareMirror | undefined;
 	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
 	let noticeTimer: ReturnType<typeof setTimeout>;
@@ -350,14 +357,59 @@
 		if (!inVR) canvas.focus();
 	}
 
+	function stopSharing(status = '') {
+		shareHost?.close();
+		shareMirror?.close();
+		shareHost = shareMirror = undefined;
+		shareCode = '';
+		shareStatus = status;
+	}
+
+	function toggleSharing() {
+		if (shareHost) {
+			stopSharing('Transmisión detenida.');
+			return;
+		}
+		if (typeof RTCPeerConnection === 'undefined') {
+			shareStatus = 'Este navegador no admite vídeo WebRTC.';
+			return;
+		}
+		try {
+			shareStatus = 'Generando código…';
+			shareMirror = createMirror(() => stopSharing('No se pudo capturar la imagen del visor.'));
+			shareHost = createHost(shareMirror.stream, (message, code) => {
+				if (code) {
+					shareCode = code;
+					shareStatus = message;
+				} else stopSharing(message);
+			});
+			void shareHost.start();
+		} catch {
+			stopSharing('Este navegador no pudo iniciar la captura de vídeo.');
+		}
+	}
+
 	function getVrMenu(): XrMenuPage {
 		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
+		const share: XrMenuItem = { id: 'share', label: 'Compartir vista', run: () => { vrPage = 'share'; } };
+		if (vrPage === 'share') {
+			return {
+				title: shareCode ? `Código · ${displayCode(shareCode)}` : 'Compartir vista',
+				lines: [shareStatus, 'En el PC, abre /spectator en esta misma web.'].filter(Boolean),
+				items: [
+					{ id: 'toggle-share', label: shareHost ? 'Detener transmisión' : 'Crear código', run: toggleSharing },
+					{ id: 'back', label: 'Volver', run: () => { vrPage = 'settings'; } }
+				],
+				hint: 'Usa el gatillo para seleccionar'
+			};
+		}
 		if (briefing && missionScreen) {
 			return {
 				title: briefing.id + ' · ' + (missionComplete ? 'Mission complete' : briefing.title),
 				lines: [...(missionComplete ? briefing.debrief : briefing.briefing)],
 				items: [
 					...getMissionControls().map((item) => item.id === 'leave' ? { ...item, label: 'Back to briefing' } : item),
+					share,
 					{ id: 'exit-vr', label: 'Exit VR', run: () => { void toggleVR(); } }
 				],
 				hint: missionComplete ? 'Trigger: select' : 'A or trigger on Start mission'
@@ -388,6 +440,7 @@
 					? [{ id: 'scene', label: 'Scene controls', run: () => { vrPage = 'scene'; } }]
 					: []),
 				{ id: 'help', label: 'Controller help', run: () => { vrPage = 'help'; } },
+				share,
 				{ id: 'exit', label: 'Exit VR', run: () => { void toggleVR(); } }, back
 			] };
 		}
@@ -500,6 +553,7 @@
 					onEnd: () => {
 						inVR = false;
 						vrAudioPrepared = false;
+						stopSharing();
 					},
 					onTalkStart: () => { void voiceDown('vr'); },
 					onTalkEnd: () => { if (voiceInput === 'vr') voiceUp(); },
@@ -510,6 +564,7 @@
 					getActions: getVrActions,
 					getVoiceStatus: () => missionSpeaking ? 'speaking'
 						: unlocking ? 'thinking' : voiceProblem ? 'unavailable' : voiceStatus,
+					getShareMirror: () => shareHost?.live ? shareMirror : undefined,
 					getMissionScreen: () => missionScreen
 				});
 				inVR = scene.isInVR();
@@ -616,6 +671,7 @@
 	onMount(() => {
 		sceneQuery = location.search;
 		const request = new AbortController();
+		window.addEventListener('pagehide', () => stopSharing(), { signal: request.signal });
 		const params = new URLSearchParams(location.search);
 		const useBrowserVoice = params.get('tts') === 'browser';
 		void navigator.xr?.isSessionSupported('immersive-vr').then((supported) => {
@@ -713,6 +769,7 @@
 		void load();
 		return () => {
 			request.abort();
+			stopSharing();
 			assistant = undefined;
 			unsubscribeVoice();
 			unsubscribeAction();
