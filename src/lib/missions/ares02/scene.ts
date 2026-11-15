@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { Box3, BoxGeometry, CanvasTexture, Group, MathUtils, Mesh, MeshStandardMaterial, PointLight, Raycaster, SRGBColorSpace, Texture, Vector3, type Object3D } from 'three';
 import type { MissionSceneFactory, RoverService } from '../../visor/terrain.js';
+import { SEV_MODEL_SCALE } from '../ares01/scene.js';
 import { buildBravoStation } from './bravo-station.js';
 
 export const createNightfallScene: MissionSceneFactory = (ground, refresh, registerSwir) => {
@@ -36,6 +37,7 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh, regis
 				release(scene);
 				return;
 			}
+			scene.scale.multiplyScalar(SEV_MODEL_SCALE);
 			const bounds = new Box3().setFromObject(scene);
 			const center = bounds.getCenter(new Vector3());
 			scene.position.set(-center.x, -bounds.min.y, -center.z);
@@ -71,7 +73,7 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh, regis
 	group.add(station.group);
 	const box = new BoxGeometry(1, 1, 1);
 	const panel = new Group();
-	panel.position.set(1.8, 1.65, 1.35);
+	panel.position.set(1.8, 1.65, 1.35).multiplyScalar(SEV_MODEL_SCALE);
 	panel.rotation.y = Math.PI / 2;
 	panel.visible = false;
 	rover.add(panel);

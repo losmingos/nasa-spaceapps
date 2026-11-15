@@ -116,6 +116,8 @@ export interface VisorState {
 	danger_available: boolean;
 	/** Danger score at the astronaut's position, 0 (low) to 1 (high); null when the layer is off. */
 	danger_risk: number | null;
+	/** Helmet flashlight currently on (always available). */
+	flashlight_on: boolean;
 }
 
 export type MapZoomAction = 'in' | 'out' | 'reset' | 'set';
@@ -124,7 +126,8 @@ export type MapZoomAction = 'in' | 'out' | 'reset' | 'set';
 export type AssistantAction =
 	| { type: 'map_zoom'; action: MapZoomAction; /** Target zoom level, only for action 'set'. */ level?: number }
 	| { type: 'infrared'; on: boolean }
-	| { type: 'danger_layer'; on: boolean };
+	| { type: 'danger_layer'; on: boolean }
+	| { type: 'flashlight'; on: boolean };
 
 /** POST /api/tts — JSON { text } → audio/mpeg bytes (cached server-side by sha1(text)). */
 export interface TtsRequest {

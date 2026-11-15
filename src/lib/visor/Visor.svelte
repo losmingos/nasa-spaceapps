@@ -75,6 +75,7 @@
 		: undefined);
 	let sceneQuery = $state('');
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
+	let missionSpeaking = $state(false);
 	let pendingMissionLine: string | undefined;
 	function flushMissionLine() {
 		if (voiceInput || !pendingMissionLine || (voice && !['idle', 'locked'].includes(voice.status))) return;
@@ -100,8 +101,8 @@
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
 	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : systemAlert ?? dangerMessage ?? {
-		title: voiceLabel ? `SARA · ${voiceLabel}` : '',
-		kind: voiceProblem && !unlocking ? 'danger' : undefined
+		title: !inVR && voiceLabel ? `SARA · ${voiceLabel}` : '',
+		kind: !inVR && voiceProblem && !unlocking ? 'danger' : undefined
 	}));
 	const activeTime = $derived(nightfall?.time ?? mission?.time ?? 0);
 	const missionClock = $derived(`${Math.floor(activeTime / 60)}:${String(Math.floor(activeTime % 60)).padStart(2, '0')}`);
@@ -290,6 +291,15 @@
 		return (ares02 ? nightfallControls?.getVrControls() : aresControls?.getVrControls()) ?? [];
 	}
 
+	function getVrActions() {
+		if (missionScreen) return [];
+		return getMissionControls().filter(({ direct, disabled }) => direct && !disabled);
+	}
+
+	function setMissionSpeaking(speaking: boolean) {
+		missionSpeaking = speaking;
+	}
+
 	function runMissionScreenAction(id: 'start' | 'restart' | 'leave') {
 		getMissionControls().find((item) => item.id === id)?.run();
 	}
@@ -316,7 +326,7 @@
 	function openVrMission(id: keyof typeof missionBriefings) {
 		if (!terrain || ares01 || ares02) return;
 		terrain.loadMissionScene(id === 'ares02' ? createNightfallScene : createMissionScene);
-		missionVoice ??= createMissionVoice(new URLSearchParams(sceneQuery).get('tts') === 'browser');
+		missionVoice ??= createMissionVoice(new URLSearchParams(sceneQuery).get('tts') === 'browser', setMissionSpeaking);
 		missionVoice.unlock();
 		selectDisplayMode('visible');
 		vrMission = id;
@@ -375,7 +385,7 @@
 				lines: [
 					'Left grip + move forwards: run',
 					'Right grip: hold to talk to SARA, release to send',
-					'Either trigger: select a highlighted control',
+					'Triggers: use the action shown or select in menus',
 					'A: open or close controls · B: flashlight · Y: SWIR'
 				]
 			};
@@ -426,10 +436,7 @@
 			] };
 		}
 
-		const missionItems = getMissionControls();
-		const actions = missionItems.filter((item) => item.close && item.id !== 'pause');
 		return { title: 'Jezero · Astronaut visor', items: [
-			...actions,
 			ares01 || ares02
 				? { id: 'mission', label: 'Mission controls', run: () => { vrPage = 'mission'; } }
 				: { id: 'missions', label: 'Missions', run: () => { vrPage = 'missions'; } },
@@ -484,6 +491,9 @@
 					onToggleFlashlight: toggleFlashlight,
 					onMenuOpen: () => { vrPage = 'main'; },
 					getMenu: getVrMenu,
+					getActions: getVrActions,
+					getVoiceStatus: () => missionSpeaking ? 'speaking'
+						: unlocking ? 'thinking' : voiceProblem ? 'unavailable' : voiceStatus,
 					getMissionScreen: () => missionScreen
 				});
 				inVR = scene.isInVR();
@@ -595,7 +605,7 @@ if (mission || nightfall || ares02) return;
 		void navigator.xr?.isSessionSupported('immersive-vr').then((supported) => {
 			if (!request.signal.aborted) vrSupported = supported;
 		}).catch(() => {});
-		if (ares01 || ares02) missionVoice = createMissionVoice(useBrowserVoice);
+		if (ares01 || ares02) missionVoice = createMissionVoice(useBrowserVoice, setMissionSpeaking);
 		const sara = createAssistant({
 			mode: params.get('mode') === 'scripted' ? 'scripted' : 'live',
 			tts: useBrowserVoice ? 'browser' : 'elevenlabs',
@@ -629,7 +639,8 @@ if (mission || nightfall || ares02) return;
 			map_zoom: mapZoom, map_min_zoom: MAP_MIN_ZOOM, map_max_zoom: MAP_MAX_ZOOM,
 			infrared_on: displayMode === 'swir', infrared_available: infraredAvailable(),
 			danger_on: displayMode === 'danger', danger_available: dangerAvailable(),
-			danger_risk: displayMode === 'danger' ? dangerRisk : null
+			danger_risk: displayMode === 'danger' ? dangerRisk : null,
+			flashlight_on: flashlightOn
 		}));
 		const unsubscribeAction = sara.onAction((action) => {
 			if (action.type === 'map_zoom') {
@@ -641,6 +652,9 @@ if (mission || nightfall || ares02) return;
 			} else if (action.type === 'danger_layer' && dangerAvailable()) {
 				if (action.on && displayMode !== 'danger') selectDisplayMode('danger');
 				else if (!action.on && displayMode === 'danger') selectDisplayMode('visible');
+			} else if (action.type === 'flashlight') {
+				// Same toggle as the F key, the B button and the HUD button.
+				if (action.on !== flashlightOn) toggleFlashlight();
 			}
 		});
 		voice = sara.getState();

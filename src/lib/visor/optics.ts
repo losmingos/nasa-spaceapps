@@ -35,6 +35,64 @@ export interface VisorReadings {
 	airTempC: number | null;
 }
 
+export type XrVoiceStatus = 'locked' | 'idle' | 'recording' | 'thinking' | 'speaking' | 'unavailable';
+
+interface XrHudControls {
+	showControlsHint: boolean;
+	actions: ReadonlyArray<{ hand: 'right' | 'left'; label: string }>;
+	voice?: XrVoiceStatus;
+	time: number;
+}
+
+function drawVoiceIndicator(ctx: CanvasRenderingContext2D, x: number, y: number, status: XrVoiceStatus, time: number) {
+	const recording = status === 'recording';
+	const speaking = status === 'speaking';
+	const thinking = status === 'thinking';
+	const unavailable = status === 'unavailable';
+	const color = recording ? '#ffe0a6' : unavailable ? '#ffb4a1' : speaking ? '#e5fff5' : '#b5dfd4';
+
+	ctx.save();
+	ctx.translate(x, y);
+	ctx.strokeStyle = color;
+	ctx.fillStyle = color;
+	ctx.lineWidth = 2;
+	ctx.lineCap = 'round';
+	ctx.lineJoin = 'round';
+	ctx.beginPath();
+	ctx.moveTo(0, -4);
+	ctx.lineTo(5, -4);
+	ctx.lineTo(12, -10);
+	ctx.lineTo(12, 10);
+	ctx.lineTo(5, 4);
+	ctx.lineTo(0, 4);
+	ctx.closePath();
+	ctx.stroke();
+	if (unavailable) {
+		ctx.beginPath();
+		ctx.moveTo(17, -5);
+		ctx.lineTo(25, 5);
+		ctx.moveTo(25, -5);
+		ctx.lineTo(17, 5);
+		ctx.stroke();
+	} else if (speaking || recording || thinking) {
+		for (let index = 0; index < 3; index++) {
+			const barX = 18 + index * 5;
+			const beat = (1 + Math.sin(time * (speaking ? 15 : 9) - index * 1.4)) / 2;
+			const radius = thinking ? 1 : 2 + beat * 7;
+			ctx.globalAlpha = thinking ? 0.35 + beat * 0.65 : 1;
+			ctx.beginPath();
+			ctx.moveTo(barX, -radius);
+			ctx.lineTo(barX, radius);
+			ctx.stroke();
+		}
+	} else {
+		ctx.beginPath();
+		ctx.arc(12, 0, 7, -0.8, 0.8);
+		ctx.stroke();
+	}
+	ctx.restore();
+}
+
 
 export const SWIR_NOISE_GLSL = `
 	float swirHash(vec2 p) {
@@ -118,7 +176,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	let displayDirty = true;
 	let lastDisplayAt = 0;
 	const DISPLAY_REFRESH_MS = 400;
-	function drawHelmet(swir: SwirHudData, showControlsHint: boolean) {
+	function drawHelmet(swir: SwirHudData, controls: XrHudControls) {
 		const ctx = helmetContext;
 		const { width, height } = helmet;
 		ctx.clearRect(0, 0, width, height);
@@ -182,7 +240,42 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				ctx.fillText(text, width / 2, 130 + index * 36, 650);
 			});
 		}
-		if (showControlsHint) {
+		for (const [index, { hand, label }] of controls.actions.entries()) {
+			const y = 319 + index * 58;
+			const center = width / 2;
+			ctx.font = '600 26px system-ui';
+			const labelWidth = Math.min(ctx.measureText(label).width, 340);
+			const groupWidth = labelWidth + 144;
+			const x = center - groupWidth / 2;
+			panel(x, y, groupWidth, 49);
+			ctx.textAlign = 'left';
+			ctx.fillStyle = '#e5fff5';
+			ctx.fillText(label, x + 16, y + 25, 340);
+			const keyX = x + groupWidth - 112;
+			ctx.fillStyle = '#23483c';
+			ctx.beginPath();
+			ctx.roundRect(keyX, y + 8, 102, 33, 6);
+			ctx.fill();
+			ctx.textAlign = 'center';
+			ctx.font = '600 17px system-ui';
+			ctx.fillStyle = '#e5fff5';
+			ctx.fillText(hand === 'right' ? 'R TRIGGER' : 'L TRIGGER', keyX + 51, y + 25);
+		}
+		if (controls.voice) {
+			const x = width / 2 - 61;
+			const y = 471;
+			panel(x, y, 122, 42);
+			drawVoiceIndicator(ctx, x + 13, y + 21, controls.voice, controls.time);
+			ctx.fillStyle = '#23483c';
+			ctx.beginPath();
+			ctx.roundRect(x + 51, y + 7, 64, 28, 6);
+			ctx.fill();
+			ctx.font = '600 16px system-ui';
+			ctx.textAlign = 'center';
+			ctx.fillStyle = '#e5fff5';
+			ctx.fillText('R GRIP', x + 83, y + 21);
+		}
+		if (controls.showControlsHint) {
 			ctx.textAlign = 'center';
 			ctx.font = '500 18px system-ui';
 			ctx.lineWidth = 3;
@@ -654,8 +747,8 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			renderer.setRenderTarget(null);
 			screen.render(renderer);
 		},
-		updateXrHud(swir: SwirHudData, showControlsHint: boolean) {
-			drawHelmet(swir, showControlsHint);
+		updateXrHud(swir: SwirHudData, controls: XrHudControls) {
+			drawHelmet(swir, controls);
 		},
 		renderXr(scene: Scene, camera: PerspectiveCamera, controlPlane: Object3D, controlTexture: CanvasTexture, menuOpen: boolean,
 			sun: Vector3, phobos: Vector3, phobosRadius: number, deimos: Vector3, deimosRadius: number,

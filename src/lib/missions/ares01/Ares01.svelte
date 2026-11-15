@@ -88,7 +88,7 @@
 		];
 
 		const items: XrMenuItem[] = paused ? [] : actions.map((action) => ({
-			id: action, label: actionLabels[action], run: () => perform(action), close: true
+			id: action, label: actionLabels[action], run: () => perform(action), close: true, direct: true
 		}));
 		if (!finished) items.push({
 			id: 'pause', label: paused ? 'Resume mission' : 'Pause mission',
