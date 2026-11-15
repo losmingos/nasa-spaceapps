@@ -8,6 +8,8 @@
 	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
 	import '../../routes/visor.css';
 	let { ares01 = false, ares02 = false }: { ares01?: boolean; ares02?: boolean } = $props();
+	import MissionScreen from '#lib/missions/MissionScreen.svelte';
+	import { missionBriefings } from '#lib/missions/mission-briefings.js';
 	import Ares02 from '#lib/missions/ares02/Ares02.svelte';
 	import type { NightfallView } from '#lib/missions/ares02/visor.js';
 	import { createNightfallScene } from '#lib/missions/ares02/scene.js';
@@ -49,6 +51,11 @@
 
 	let mission = $state.raw<Ares01View>();
 	let nightfall = $state.raw<NightfallView>();
+	const briefing = $derived(ares02 ? missionBriefings.ares02 : ares01 ? missionBriefings.ares01 : undefined);
+	const missionComplete = $derived(mission?.cue.id === 'closed' || nightfall?.state === 'MISSION_CLOSED');
+	const missionScreen = $derived(briefing
+		? missionComplete ? 'complete' : !mission && !nightfall ? 'briefing' : undefined
+		: undefined);
 	let sceneQuery = $state('');
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
 	let pendingMissionLine: string | undefined;
@@ -180,6 +187,10 @@
 		return (ares02 ? nightfallControls?.getVrControls() : aresControls?.getVrControls()) ?? [];
 	}
 
+	function runMissionScreenAction(id: 'start' | 'restart' | 'leave') {
+		getMissionControls().find((item) => item.id === id)?.run();
+	}
+
 	function toggleFlashlight() {
 		flashlightOn = !flashlightOn;
 		terrain?.setFlashlight(flashlightOn);
@@ -196,6 +207,17 @@
 
 	function getVrMenu(): XrMenuPage {
 		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
+		if (briefing && missionScreen) {
+			return {
+				title: briefing.id + ' · ' + (missionComplete ? 'Mission complete' : briefing.title),
+				lines: [...(missionComplete ? briefing.debrief : briefing.briefing)],
+				items: [
+					...getMissionControls().map((item) => item.id === 'leave' ? { ...item, label: 'Back to briefing' } : item),
+					{ id: 'exit-vr', label: 'Exit VR', run: () => { void toggleVR(); } }
+				],
+				hint: 'Point and press trigger to select'
+			};
+		}
 		if (vrPage === 'help') {
 			return {
 				title: 'Touch controls',
@@ -211,12 +233,7 @@
 		}
 		if (vrPage === 'mission') {
 			if (ares02) return { title: 'ARES-02 · Nightfall Protocol', items: [...getMissionControls(), back] };
-			return { title: 'ARES-01 · The Last Sample', items: [
-				...(aresControls?.getVrControls() ?? []).map((item) => ({
-					...item,
-					close: item.close || ['start', 'restart', 'leave'].includes(item.id)
-				})), back
-			], hint: mission?.log && mission.cue.id === 'closed' ? mission.log.progress : undefined };
+			return { title: 'ARES-01 · The Last Sample', items: [...getMissionControls(), back] };
 		}
 
 		if (!mission && !nightfall && !ares02 && (vrPage === 'sol' || vrPage === 'time')) {
@@ -292,6 +309,7 @@
 					onToggleFlashlight: toggleFlashlight,
 					onMenuOpen: () => { vrPage = 'main'; },
 					getMenu: getVrMenu,
+					getMissionScreen: () => missionScreen,
 					getAction: () => getMissionControls().find((item) => item.close && item.id !== 'pause')?.label,
 					getVoiceLabel: () => voiceLabel
 				});
@@ -482,7 +500,7 @@ if (mission || nightfall || ares02) return;
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
 <main class="visor">
-	<canvas class="terrain" bind:this={canvas} tabindex="0"
+	<canvas class="terrain" bind:this={canvas} tabindex="0" inert={!!missionScreen && !inVR}
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
@@ -590,6 +608,18 @@ if (mission || nightfall || ares02) return;
 				</button>
 		</div>
 	</div>
+
+	{#if briefing && missionScreen && !inVR}
+		{#key missionScreen}
+			<MissionScreen
+				mission={briefing.id + ' · ' + (missionComplete ? briefing.title : 'Mission briefing')}
+				title={missionComplete ? 'Mission complete' : briefing.title}
+				paragraphs={missionComplete ? briefing.debrief : briefing.briefing}
+				complete={missionComplete} ready={!!terrain} unavailable={notice === 'error'}
+				onprimary={() => runMissionScreenAction(missionComplete ? 'restart' : 'start')}
+				onback={() => runMissionScreenAction('leave')} />
+		{/key}
+	{/if}
 
 	{#if !mission && !ares02}
 		<div class="scene-controls">

@@ -29,6 +29,7 @@ interface XrControls {
 	onToggleFlashlight: () => void;
 	onMenuOpen: () => void;
 	getMenu: () => XrMenuPage;
+	getMissionScreen: () => 'briefing' | 'complete' | undefined;
 	getAction: () => string | undefined;
 	getVoiceLabel: () => string;
 }
@@ -1480,6 +1481,7 @@ export function mountTerrain(
 		hudCamera.add(flashlight, flashlight.target);
 		let lastHud = -Infinity;
 		let menuOpen = true;
+		let missionScreen = controls.getMissionScreen();
 		let displayedMenu: XrMenuPage | undefined;
 		let talking = false;
 		let menuPressed = false;
@@ -1565,7 +1567,10 @@ export function mountTerrain(
 			const talkDown = right?.buttons[1]?.pressed ?? false;
 			const active = session.visibilityState === 'visible';
 			if (active) {
+				const nextScreen = controls.getMissionScreen();
 				if (menuDown && !menuPressed) setMenu(!menuOpen);
+				if (nextScreen && nextScreen !== missionScreen) setMenu(true);
+				missionScreen = nextScreen;
 				if (lightDown && !lightPressed) controls.onToggleFlashlight();
 				if (swirDown && !swirPressed) controls.onToggleSwir();
 				if (talkDown && !talkPressed) {
