@@ -118,53 +118,57 @@ export function installSwirMaterialResponse(material: SwirMaterial, albedo: numb
 }
 
 export function createSaltationGrains() {
-	// ponytail: 480 bounded streaks visualize near-field grains; full particulate optics stay in the dust shader.
 	const count = 480;
 	const random = seededRandom(0x51a7a710);
 	const positions = new Float32Array(count * 6);
-	const colors = new Float32Array(count * 6);
-	const alphas = new Float32Array(count * 2);
-	const offsets = Array.from({ length: count }, () => {
+	// Each endpoint shares the grain's offset. The trail, brightness and opacity are static.
+	const attributes = new Float32Array(count * 6);
+	for (let i = 0; i < count; i++) {
 		const radius = 0.5 + random() * 5.5;
 		const angle = random() * Math.PI * 2;
 		const bright = random() > 0.3;
 		const value = bright ? 0.72 + random() * 0.25 : 0.08 + random() * 0.12;
 		const alpha = bright ? 0.72 + random() * 0.22 : 0.18 + random() * 0.12;
 		const trail = 0.025 + random() * 0.11;
-		return { x: Math.cos(angle) * radius, y: (random() - 0.52) * 2.2, z: Math.sin(angle) * radius, trail, value, alpha };
-	});
-	for (let i = 0; i < count; i++) {
-		const { value, alpha } = offsets[i];
-		colors.set([value, value, value, value * 0.28, value * 0.28, value * 0.28], i * 6);
-		alphas[i * 2] = alpha;
-		alphas[i * 2 + 1] = alpha * 0.35;
+		const x = Math.cos(angle) * radius;
+		const y = (random() - 0.52) * 2.2;
+		const z = Math.sin(angle) * radius;
+		positions.set([x, y, z, x, y, z], i * 6);
+		attributes.set([0, value, alpha, trail, value * 0.28, alpha * 0.35], i * 6);
 	}
 	const geometry = new BufferGeometry();
-	const positionAttribute = new BufferAttribute(positions, 3);
-	geometry.setAttribute('position', positionAttribute);
-	geometry.setAttribute('color', new BufferAttribute(colors, 3));
-	geometry.setAttribute('alpha', new BufferAttribute(alphas, 1));
+	geometry.setAttribute('position', new BufferAttribute(positions, 3));
+	geometry.setAttribute('grain', new BufferAttribute(attributes, 3));
+	const uniforms = {
+		uSwir: { value: 0 },
+		uDrift: { value: 0 },
+		uWind: { value: new Vector3(0.94, 0, 0.34).normalize() }
+	};
 	const material = new ShaderMaterial({
-		uniforms: { uSwir: { value: 0 } },
+		uniforms,
 		vertexShader: `
-			attribute vec3 color;
-			attribute float alpha;
-			varying vec3 vColor;
+			uniform float uDrift;
+			uniform vec3 uWind;
+			attribute vec3 grain;
+			varying float vBrightness;
 			varying float vAlpha;
 			void main() {
-				vColor = color;
-				vAlpha = alpha;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+				vBrightness = grain.y;
+				vAlpha = grain.z;
+				vec3 offset = vec3(mod(position.x + uDrift + 6.0, 12.0) - 6.0, position.yz);
+				offset -= uWind * grain.x;
+				offset.y -= 0.004 * step(0.001, grain.x);
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(offset, 1.0);
 			}
 		`,
 		fragmentShader: `
 			uniform float uSwir;
-			varying vec3 vColor;
+			varying float vBrightness;
 			varying float vAlpha;
 			void main() {
 				if (vAlpha < 0.05) discard;
-				vec3 visible = mix(vec3(0.34, 0.18, 0.08), vec3(0.95, 0.58, 0.24), vColor.r);
-				vec3 swir = mix(vec3(0.62, 0.70, 0.76), vec3(1.0), vColor.r);
+				vec3 visible = mix(vec3(0.34, 0.18, 0.08), vec3(0.95, 0.58, 0.24), vBrightness);
+				vec3 swir = mix(vec3(0.62, 0.70, 0.76), vec3(1.0), vBrightness);
 				gl_FragColor = vec4(mix(visible, swir, uSwir), vAlpha * mix(0.55, 0.9, uSwir));
 			}
 		`,
@@ -175,28 +179,15 @@ export function createSaltationGrains() {
 	const object = new LineSegments(geometry, material);
 	object.frustumCulled = false;
 	object.visible = false;
-	const wind = new Vector3(0.94, 0, 0.34).normalize();
 	return {
 		object,
 		update(camera: Vector3, elapsed: number, windSpeed: number, active: boolean, swir = false) {
-			material.uniforms.uSwir.value = Number(swir);
 			object.visible = active;
 			if (!active) return;
-			const drift = elapsed * windSpeed;
-			for (let i = 0; i < count; i++) {
-				const grain = offsets[i];
-				const x = camera.x + ((grain.x + drift + 6) % 12 + 12) % 12 - 6;
-				const y = camera.y + grain.y;
-				const z = camera.z + grain.z;
-				const start = i * 6;
-				positions[start] = x;
-				positions[start + 1] = y;
-				positions[start + 2] = z;
-				positions[start + 3] = x - wind.x * grain.trail;
-				positions[start + 4] = y - 0.004;
-				positions[start + 5] = z - wind.z * grain.trail;
-			}
-			positionAttribute.needsUpdate = true;
+			object.position.copy(camera);
+			uniforms.uSwir.value = Number(swir);
+			// Keep the phase small so float precision holds even after a long session.
+			uniforms.uDrift.value = MathUtils.euclideanModulo(elapsed * windSpeed, 12);
 		},
 		dispose() {
 			geometry.dispose();
