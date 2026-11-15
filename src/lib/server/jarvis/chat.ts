@@ -216,7 +216,20 @@ const DANGER_TOOL: Anthropic.Tool = {
 	strict: true
 };
 
-const TOOLS: Anthropic.Tool[] = [MAP_TOOL, INFRARED_TOOL, DANGER_TOOL];
+const FLASHLIGHT_TOOL: Anthropic.Tool = {
+	name: 'set_flashlight',
+	description:
+		'Turn the helmet flashlight on or off. Use it only when the astronaut asks for the flashlight, torch, helmet light or "lights", or to switch it off.',
+	input_schema: {
+		type: 'object',
+		properties: { on: { type: 'boolean', description: 'true to turn the flashlight on, false to turn it off.' } },
+		required: ['on'],
+		additionalProperties: false
+	},
+	strict: true
+};
+
+const TOOLS: Anthropic.Tool[] = [MAP_TOOL, INFRARED_TOOL, DANGER_TOOL, FLASHLIGHT_TOOL];
 
 const MAP_CONFIRMATION: Record<MapZoomAction, string> = {
 	in: 'Copy, zooming the map in.',
@@ -231,6 +244,7 @@ function confirmation(action: AssistantAction, visor?: VisorState): string {
 		if (!action.on) return 'Copy, infrared off.';
 		return visor?.danger_on ? 'Copy, infrared on; the danger layer is off.' : 'Copy, infrared on.';
 	}
+	if (action.type === 'flashlight') return action.on ? 'Copy, flashlight on.' : 'Copy, flashlight off.';
 	if (action.type === 'danger_layer') {
 		if (!action.on) return 'Copy, danger layer off.';
 		return visor?.infrared_on ? 'Copy, danger layer on; infrared is off.' : 'Copy, danger layer on.';
@@ -243,6 +257,7 @@ function actionsFrom(content: Anthropic.ContentBlock[]): AssistantAction[] {
 	let map: AssistantAction | undefined;
 	let infrared: AssistantAction | undefined;
 	let danger: AssistantAction | undefined;
+	let flashlight: AssistantAction | undefined;
 	for (const block of content) {
 		if (block.type !== 'tool_use' || !isRecord(block.input)) continue;
 		if (block.name === MAP_TOOL.name && !map) {
@@ -258,6 +273,8 @@ function actionsFrom(content: Anthropic.ContentBlock[]): AssistantAction[] {
 			infrared = { type: 'infrared', on: block.input.on };
 		} else if (block.name === DANGER_TOOL.name && !danger && typeof block.input.on === 'boolean') {
 			danger = { type: 'danger_layer', on: block.input.on };
+		} else if (block.name === FLASHLIGHT_TOOL.name && !flashlight && typeof block.input.on === 'boolean') {
+			flashlight = { type: 'flashlight', on: block.input.on };
 		}
 	}
 	// The visor shows one view at a time: if both views were switched on, keep the last one requested.
@@ -267,7 +284,7 @@ function actionsFrom(content: Anthropic.ContentBlock[]): AssistantAction[] {
 		if (lastDanger > lastInfrared) infrared = undefined;
 		else danger = undefined;
 	}
-	return [map, infrared, danger].filter((a): a is AssistantAction => !!a);
+	return [map, infrared, danger, flashlight].filter((a): a is AssistantAction => !!a);
 }
 
 function cleanVisor(raw: unknown): VisorState | undefined {
@@ -282,7 +299,8 @@ function cleanVisor(raw: unknown): VisorState | undefined {
 		danger_available: raw.danger_available === true,
 		danger_risk: typeof raw.danger_risk === 'number' && Number.isFinite(raw.danger_risk)
 			? Math.round(Math.min(1, Math.max(0, raw.danger_risk)) * 100) / 100
-			: null
+			: null,
+		flashlight_on: raw.flashlight_on === true
 	};
 }
 
