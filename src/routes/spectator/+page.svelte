@@ -8,14 +8,16 @@
 	let status = $state('');
 	let active = $state(false);
 	let playing = $state(false);
+	let relaying = $state(false);
 	let video: HTMLVideoElement;
+	let canvas: HTMLCanvasElement;
 	let session: ReturnType<typeof createSpectator> | undefined;
 
 	function disconnect() {
 		session?.close();
 		session = undefined;
 		if (video) video.srcObject = null;
-		active = playing = false;
+		active = playing = relaying = false;
 	}
 
 	function connect(event: SubmitEvent) {
@@ -31,6 +33,16 @@
 		session = createSpectator(normalized, (stream) => {
 			video.srcObject = stream;
 			void video.play().catch(() => { status = 'Pulsa reproducir para ver la transmisión.'; });
+		}, (frame) => {
+			if (canvas.width !== frame.width) canvas.width = frame.width;
+			if (canvas.height !== frame.height) canvas.height = frame.height;
+			const context = canvas.getContext('2d');
+			if (!context) throw new Error('No se pudo mostrar la imagen.');
+			context.drawImage(frame, 0, 0);
+			if (!relaying) {
+				playing = relaying = true;
+				status = 'En directo';
+			}
 		}, (message, room) => {
 			if (!room) disconnect();
 			status = message;
@@ -75,8 +87,9 @@
 	<p class="status" role="status">{playing ? '● ' : ''}{status}</p>
 	<div class="screen" hidden={!active}>
 		<!-- svelte-ignore a11y_media_has_caption (video-only stream; the headset's subtitles are already in the image) -->
-		<video bind:this={video} autoplay muted playsinline controls onplaying={() => { playing = true; status = 'En directo'; }}
+		<video bind:this={video} hidden={relaying} autoplay muted playsinline controls onplaying={() => { playing = true; status = 'En directo'; }}
 			onwaiting={() => { playing = false; if (active) status = 'Esperando vídeo…'; }} aria-label="Vista de las gafas en directo"></video>
+		<canvas bind:this={canvas} hidden={!relaying} aria-label="Vista de las gafas en directo"></canvas>
 	</div>
 </main>
 
@@ -94,4 +107,6 @@
 	.status { min-height: 1.4em; }
 	.screen { border: 1px solid #47352c; border-radius: 10px; overflow: hidden; background: #090808; }
 	video { display: block; width: 100%; max-height: 76vh; min-height: 200px; }
+	canvas { display: block; width: 100%; max-height: 76vh; object-fit: contain; }
+	[hidden] { display: none; }
 </style>

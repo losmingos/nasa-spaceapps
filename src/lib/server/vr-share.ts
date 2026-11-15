@@ -23,6 +23,19 @@ export function newCode() {
 	return Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join('');
 }
 
+export function shareTransport() {
+	return dev ? { iceServers: iceServers() } : { relay: true };
+}
+
+export async function roomSocket(code: string, request: Request): Promise<Response> {
+	if (!dev) {
+		const { env } = await import('cloudflare:workers');
+		const namespace = env.VR_SHARE;
+		if (namespace) return namespace.get(namespace.idFromName(code)).fetch(request);
+	}
+	return new Response('La retransmisión requiere Cloudflare Workers.', { status: 503 });
+}
+
 export async function roomRequest(code: string, data: object, create = false): Promise<Response> {
 	let room: Pick<ShareRoom, 'fetch'> | undefined;
 	if (dev) {

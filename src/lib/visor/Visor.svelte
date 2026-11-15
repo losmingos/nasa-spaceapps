@@ -370,14 +370,10 @@
 			stopSharing('Transmisión detenida.');
 			return;
 		}
-		if (typeof RTCPeerConnection === 'undefined') {
-			shareStatus = 'Este navegador no admite vídeo WebRTC.';
-			return;
-		}
 		try {
 			shareStatus = 'Generando código…';
 			shareMirror = createMirror(() => stopSharing('No se pudo capturar la imagen del visor.'));
-			shareHost = createHost(shareMirror.stream, (message, code) => {
+			shareHost = createHost(shareMirror, (message, code) => {
 				if (code) {
 					shareCode = code;
 					shareStatus = message;

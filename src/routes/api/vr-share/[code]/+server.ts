@@ -1,10 +1,19 @@
 import { CODE_PATTERN } from '#lib/visor/share-protocol.js';
 import { isRecord, jsonError } from '#lib/server/http.js';
 import { rateLimit } from '#lib/server/ratelimit.js';
-import { iceServers, roomRequest } from '#lib/server/vr-share.js';
+import { roomRequest, roomSocket, shareTransport } from '#lib/server/vr-share.js';
 import type { RequestHandler } from './$types';
 
 export const prerender = false;
+
+export const GET: RequestHandler = ({ request, params, url }) => {
+	if (!CODE_PATTERN.test(params.code)) return jsonError(404, 'Código inválido.');
+	if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+		return jsonError(426, 'Se requiere una conexión WebSocket.');
+	}
+	if (request.headers.get('origin') !== url.origin) return jsonError(403, 'Origen no permitido.');
+	return roomSocket(params.code, request);
+};
 
 export const POST: RequestHandler = async ({ request, params, getClientAddress }) => {
 	const code = params.code;
@@ -41,5 +50,5 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress }
 	const res = await roomRequest(code, data);
 	if (!res.ok || data.action !== 'join') return res;
 	const { key } = await res.json() as { key: string };
-	return Response.json({ code, key, iceServers: iceServers() }, { headers: { 'cache-control': 'no-store' } });
+	return Response.json({ code, key, ...shareTransport() }, { headers: { 'cache-control': 'no-store' } });
 };

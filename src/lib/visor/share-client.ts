@@ -1,8 +1,9 @@
 import { resolve } from '$app/paths';
-import type { ShareState, ShareTicket, Signal } from './share-protocol.js';
+import type { ShareMirror } from './share-mirror.js';
+import { MAX_SHARE_FRAME, SHARE_SOCKET_PROTOCOL, type ShareState, type ShareTicket, type Signal } from './share-protocol.js';
 
 const endpoint = (code: string) => code ? resolve('/api/vr-share/[code]', { code }) : resolve('/api/vr-share');
-const NETWORK_ERROR = 'No se pudo enviar el vídeo. Comprueba que ambos dispositivos estén conectados a la misma red.';
+const NETWORK_ERROR = 'Se perdió la conexión con la transmisión. Vuelve a conectar con un código activo.';
 type Update = (message: string, code?: string) => void;
 
 class HttpError extends Error {
@@ -64,6 +65,7 @@ function connection(onFailure: (text: string) => void, onReady: () => void, role
 	let ended = false;
 	let ticket: ShareTicket | undefined;
 	let peer: RTCPeerConnection | undefined;
+	let socket: WebSocket | undefined;
 	let disconnectSince = 0;
 	let deadline = 0;
 	let timer: ReturnType<typeof setTimeout>;
@@ -79,6 +81,7 @@ function connection(onFailure: (text: string) => void, onReady: () => void, role
 		ended = true;
 		clearTimeout(timer);
 		closePeer();
+		socket?.close();
 		if (ticket) release(ticket, role === 'host' ? 'stop' : 'leave');
 		ticket = undefined;
 	}
@@ -94,6 +97,7 @@ function connection(onFailure: (text: string) => void, onReady: () => void, role
 	}
 	function openPeer(onDead: () => void) {
 		if (!ticket) throw new Error(NETWORK_ERROR);
+		if (typeof RTCPeerConnection === 'undefined') throw new HttpError(400, 'Este navegador no admite vídeo WebRTC.');
 		const pc = peer = new RTCPeerConnection({ iceServers: ticket.iceServers });
 		deadline = Date.now() + 22_000;
 		disconnectSince = 0;
@@ -106,6 +110,17 @@ function connection(onFailure: (text: string) => void, onReady: () => void, role
 			} else if (pc.connectionState === 'failed') onDead();
 		};
 		return pc;
+	}
+	function openRelay(receive: (data: unknown, ws: WebSocket) => void) {
+		if (!ticket) throw new Error(NETWORK_ERROR);
+		const url = new URL(endpoint(ticket.code), location.href);
+		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+		const ws = socket = new WebSocket(url, [SHARE_SOCKET_PROTOCOL, ticket.key]);
+		ws.binaryType = 'arraybuffer';
+		timer = setTimeout(() => fail(new Error(NETWORK_ERROR)), 10_000);
+		ws.onopen = () => clearTimeout(timer);
+		ws.onmessage = (event) => { if (!ended) receive(event.data, ws); };
+		ws.onclose = ws.onerror = () => fail(new Error(NETWORK_ERROR));
 	}
 	async function send<T = ShareState>(action: string, extra?: object): Promise<T> {
 		if (!ticket) throw new Error(NETWORK_ERROR);
@@ -128,14 +143,16 @@ function connection(onFailure: (text: string) => void, onReady: () => void, role
 		}
 		void run();
 	}
-	return { attach, close, closePeer, fail, openPeer, poll, send, get ended() { return ended; },
+	return { attach, close, closePeer, fail, openPeer, openRelay, poll, send, get ended() { return ended; },
 		get live() { return peer?.connectionState === 'connected'; } };
 }
 
-export function createHost(stream: MediaStream, update: Update) {
+export function createHost(mirror: ShareMirror, update: Update) {
 	let code: string | undefined;
 	let viewer: string | undefined;
 	let negotiating = false;
+	let relayLive = false;
+	let transmitting = false;
 	let peer: RTCPeerConnection | undefined;
 	const room = connection(update, () => update('Transmitiendo al PC', code), 'host');
 	function onDead() {
@@ -144,7 +161,7 @@ export function createHost(stream: MediaStream, update: Update) {
 		update('El PC perdió la conexión. Puede volver a entrar con el mismo código.', code);
 	}
 	return {
-		get live() { return room.live; },
+		get live() { return !room.ended && (relayLive || room.live); },
 		close: room.close,
 		async start() {
 			try {
@@ -152,6 +169,30 @@ export function createHost(stream: MediaStream, update: Update) {
 				if (!room.attach(ticket)) return;
 				code = ticket.code;
 				update('Esperando al PC', code);
+				if (ticket.relay) {
+					room.openRelay((data, ws) => {
+						if (data === 'ready' || data === 'waiting') {
+							relayLive = data === 'ready';
+							transmitting = false;
+							update(relayLive ? 'Conectando con el PC…' : 'Esperando al PC', code);
+						} else if (data === 'frame' && relayLive) {
+							mirror.requestFrame((frame) => {
+								if (!relayLive || ws.readyState !== WebSocket.OPEN) return;
+								if (frame.size > MAX_SHARE_FRAME) {
+									room.fail(new Error(NETWORK_ERROR));
+									return;
+								}
+								ws.send(frame);
+								if (!transmitting) {
+									transmitting = true;
+									update('Transmitiendo al PC', code);
+								}
+							});
+						}
+					});
+					return;
+				}
+				const stream = mirror.getStream();
 				room.poll(async (state) => {
 					if (state.viewer !== viewer) {
 						room.closePeer();
@@ -182,20 +223,56 @@ export function createHost(stream: MediaStream, update: Update) {
 	};
 }
 
-export function createSpectator(code: string, onVideo: (stream: MediaStream) => void, update: Update) {
+export function createSpectator(
+	code: string,
+	onVideo: (stream: MediaStream) => void,
+	onFrame: (frame: ImageBitmap) => void,
+	update: Update
+) {
 	const room = connection(update, () => update('En directo', code), 'view');
 	const onDead = () => room.fail(new Error(NETWORK_ERROR));
+	let frameTimeout: ReturnType<typeof setTimeout>;
+	function close() {
+		clearTimeout(frameTimeout);
+		room.close();
+	}
+	function relay() {
+		function requestFrame(ws: WebSocket) {
+			if (room.ended || ws.readyState !== WebSocket.OPEN) return;
+			frameTimeout = setTimeout(onDead, 15_000);
+			ws.send('frame');
+		}
+		frameTimeout = setTimeout(onDead, 15_000);
+		room.openRelay((data, ws) => {
+			if (data === 'ready') {
+				clearTimeout(frameTimeout);
+				update('Esperando vídeo…', code);
+				requestFrame(ws);
+			} else if (data instanceof ArrayBuffer) {
+				void createImageBitmap(new Blob([data], { type: 'image/jpeg' })).then((frame) => {
+					try {
+						if (room.ended) return;
+						clearTimeout(frameTimeout);
+						onFrame(frame);
+						requestFrame(ws);
+					} finally {
+						frame.close();
+					}
+				}).catch(onDead);
+			}
+		});
+	}
 	return {
-		close: room.close,
+		close,
 		async start() {
 			try {
-				if (typeof RTCPeerConnection === 'undefined') {
-					update('Este navegador no admite vídeo WebRTC.');
-					return;
-				}
 				update('Conectando con las gafas…', code);
 				const ticket = await request<ShareTicket>(code, { action: 'join' });
 				if (!room.attach(ticket)) return;
+				if (ticket.relay) {
+					relay();
+					return;
+				}
 				const pc = room.openPeer(onDead);
 				pc.ontrack = ({ track, streams }) => {
 					if (!room.ended && track.kind === 'video') onVideo(streams[0] ?? new MediaStream([track]));
