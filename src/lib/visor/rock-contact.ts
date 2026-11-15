@@ -12,13 +12,14 @@ const probe = new Raycaster(new Vector3(), new Vector3(0, -1, 0));
 const rockMesh = new Mesh();
 const hits: Intersection[] = [];
 
-export function createRockContact(geometry: BufferGeometry, matrix: Matrix4, exposedHeight: number) {
+export function createRockContact(geometry: BufferGeometry, matrix: Matrix4, exposedHeight: number, scale: number) {
 	if (!geometry.boundingBox) geometry.computeBoundingBox();
 	return {
 		geometry,
 		matrix: matrix.clone(),
 		bounds: new Box3().copy(geometry.boundingBox!).applyMatrix4(matrix),
-		stepable: exposedHeight <= maxStepHeight
+		stepable: exposedHeight <= maxStepHeight,
+		scale
 	};
 }
 

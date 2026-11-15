@@ -111,7 +111,7 @@
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) return;
 		if (!mode) {
-			if (event.code === 'KeyI' && ready) {
+			if (event.code === 'KeyM' && ready) {
 				event.preventDefault();
 				start('interactive');
 			}
