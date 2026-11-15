@@ -1,5 +1,5 @@
 import {
-	BoxGeometry, CanvasTexture, Color, DoubleSide, Group, Mesh, MeshBasicMaterial,
+	BoxGeometry, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial,
 	PlaneGeometry, SpotLight, SRGBColorSpace
 } from 'three';
 import type { VisorMessage } from './optics.js';
@@ -8,12 +8,14 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 	const group = new Group();
 	group.visible = false;
 	const box = new BoxGeometry(1, 1, 1);
-	const frame = new MeshBasicMaterial({ color: '#343e42' });
-	const trim = new MeshBasicMaterial({ color: '#121a1e' });
+	const frame = new MeshBasicMaterial({ color: '#909d9d', side: DoubleSide });
+	const trim = new MeshBasicMaterial({ color: '#273538', side: DoubleSide });
+	const liner = new MeshBasicMaterial({ color: '#586768', side: DoubleSide });
 	const hardware = new MeshBasicMaterial({ color: '#738487' });
 	const glass = new MeshBasicMaterial({
 		color: '#a5d7dc', transparent: true, opacity: 0.035, depthWrite: false, side: DoubleSide
 	});
+	const hull: BufferGeometry[] = [];
 	function part(material: MeshBasicMaterial, x: number, y: number, z: number, w: number, h: number, d: number) {
 		const mesh = new Mesh(box, material);
 		mesh.position.set(x, y, z);
@@ -22,38 +24,67 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 		return mesh;
 	}
 
-	// Driver eye is the origin. The hull, windows, instruments and lights all share the rover frame.
-	part(trim, 0, -1.14, 0.1, 2.5, 0.14, 3);
-	part(frame, 0, 0.84, 0.1, 2.5, 0.14, 3);
-	part(frame, 0, -0.91, -1.19, 2.5, 0.45, 0.15);
-	part(frame, 0, -0.13, 1.56, 2.5, 1.98, 0.15);
-	part(trim, 0, -0.70, -0.99, 2.45, 0.20, 0.57);
-	part(glass, 0, 0.17, -1.28, 2.4, 1.20, 0.012);
-	part(frame, 0, 0.73, -1.29, 2.48, 0.10, 0.09);
+	// Each level is an ellipse around the driver. The narrower crown and chin round
+	// the cabin in profile as well as in plan, and the glazing shares the hull seams.
+	type Ring = readonly [height: number, width: number, depth: number];
+	const floor: Ring = [-1.10, 0.97, 1.13];
+	const hip: Ring = [-0.79, 1.24, 1.43];
+	const sill: Ring = [-0.40, 1.31, 1.54];
+	const brow: Ring = [0.59, 1.18, 1.34];
+	const crown: Ring = [0.88, 0.85, 1.02];
+	const ceiling: Ring = [1.00, 0, 0];
+	function point([y, x, z]: Ring, angle: number) {
+		return [Math.sin(angle) * x, y, 0.11 - Math.cos(angle) * z];
+	}
+	function band(material: MeshBasicMaterial, low: Ring, high: Ring, start = -Math.PI, end = Math.PI) {
+		const positions: number[] = [];
+		const steps = Math.max(1, Math.ceil((end - start) / (Math.PI / 32)));
+		for (let i = 0; i < steps; i++) {
+			const from = start + (end - start) * i / steps;
+			const to = start + (end - start) * (i + 1) / steps;
+			const a = point(low, from), b = point(low, to);
+			const c = point(high, from), d = point(high, to);
+			positions.push(...a, ...b, ...c, ...c, ...b, ...d);
+		}
+		const geometry = new BufferGeometry();
+		geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+		hull.push(geometry);
+		group.add(new Mesh(geometry, material));
+	}
+	band(trim, [-1.10, 0, 0], floor);
+	band(liner, floor, hip);
+	band(liner, hip, sill);
+	band(liner, brow, crown);
+	band(frame, crown, ceiling);
+	const seams = [-1.91, -0.91, -0.46, 0.46, 0.91, 1.91];
+	for (let i = 1; i < seams.length; i++) band(glass, sill, brow, seams[i - 1], seams[i]);
+	for (const seam of seams) band(frame, sill, brow, seam - 0.024, seam + 0.024);
+	band(liner, sill, brow, 1.91, 2 * Math.PI - 1.91);
+
+	// Sloping dashboard follows the curved front of the cabin, below the window sill.
+	band(trim, [-0.76, 1.20, 1.33], [-0.59, 0.84, 0.76], -1.44, 1.44);
+	band(frame, [-0.79, 1.23, 1.41], [-0.76, 1.20, 1.33], -1.44, 1.44);
+	const hatch = part(trim, 0, -0.12, 1.43, 0.68, 1.10, 0.07);
+	hatch.rotation.x = -0.10;
 	for (const side of [-1, 1]) {
-		const x = side * 1.20;
-		part(frame, x, 0.13, -1.25, 0.13, 1.28, 0.16);
-		part(frame, x, 0.13, 0.60, 0.13, 1.28, 0.14);
-		part(frame, x, -0.85, 0.12, 0.14, 0.58, 2.88);
-		part(glass, x, 0.12, -0.35, 0.012, 1.25, 1.74);
-		part(trim, x, 0.04, 1.12, 0.14, 1.43, 0.87);
-		part(hardware, x * 0.94, -0.55, 1.00, 0.08, 0.25, 0.04);
+		const grab = part(hardware, side * 0.45, -0.15, 1.28, 0.045, 0.31, 0.055);
+		grab.rotation.z = side * 0.12;
 		const lamp = new SpotLight('#fff3df', 0, 100, Math.PI / 6, 0.6, 2);
 		lamp.position.set(side * 0.78, -0.94, -1.47);
 		lamp.target.position.set(side * 0.78, -5.25, -31.47);
 		group.add(lamp, lamp.target);
 	}
-	// Twin displays sit on the dashboard and stay there when the driver looks aside.
+	// The instrument display is fixed to the dashboard.
 	const panel = document.createElement('canvas');
 	panel.width = 640;
 	panel.height = 208;
 	const ctx = panel.getContext('2d')!;
 	const texture = new CanvasTexture(panel);
 	texture.colorSpace = SRGBColorSpace;
-	const display = new MeshBasicMaterial({ map: texture, color: new Color('#ffffff') });
+	const display = new MeshBasicMaterial({ map: texture });
 	const screen = new PlaneGeometry(1.39, 0.45);
 	const console = new Mesh(screen, display);
-	console.position.set(0, -0.34, -0.92);
+	console.position.set(0, -0.41, -0.92);
 	console.rotation.x = -0.32;
 	group.add(console);
 	for (let i = 0; i < 7; i++) {
@@ -76,9 +107,16 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 			lastUpdate = now;
 			ctx.fillStyle = '#102024';
 			ctx.fillRect(0, 0, 640, 208);
-			ctx.drawImage(map, 16, 22, 165, 165);
+			const mapRadius = 82.5;
+			ctx.save();
+			ctx.beginPath();
+			ctx.arc(16 + mapRadius, 22 + mapRadius, mapRadius, 0, Math.PI * 2);
+			ctx.clip();
+			ctx.drawImage(map, 16, 22, mapRadius * 2, mapRadius * 2);
+			ctx.restore();
 			ctx.strokeStyle = '#4d746f';
-			ctx.strokeRect(15, 21, 167, 167);
+			ctx.lineWidth = 2;
+			ctx.stroke();
 			ctx.fillStyle = '#bbf5df';
 			ctx.font = '16px monospace';
 			ctx.fillText('SEV / ROVER CABIN', 205, 27);
@@ -97,7 +135,8 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 		dispose() {
 			box.dispose();
 			screen.dispose();
-			for (const material of [frame, trim, hardware, glass, display]) material.dispose();
+			for (const geometry of hull) geometry.dispose();
+			for (const material of [frame, trim, liner, hardware, glass, display]) material.dispose();
 			texture.dispose();
 		}
 	};
