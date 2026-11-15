@@ -380,17 +380,16 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
 			}
 
-			vec3 scatterDust(vec3 background, vec3 ray, vec2 uv, float sunAngle) {
+			vec3 scatterDust(vec3 background, vec3 ray, vec3 direction, vec2 uv, float sunAngle) {
 				float depth = texture2D(terrainDepth, uv).r;
 				float near = cameraPlanes.x;
 				float far = cameraPlanes.y;
 				float distance = near * far / mix(far, near, depth) / -ray.z;
 				float extent = min(distance, 125.0);
-				vec3 direction = (eyeRotation * vec4(ray, 0.0)).xyz;
 				vec3 wind = vec3(0.94, 0.0, 0.34) * windMps * gustTime;
 				float glare = pow(max(0.0, sunAngle), 10.0) * twilight;
 				float transmission = 1.0;
-				vec3 scattered = vec3(0.0);
+				float scattered = 0.0;
 				for (int i = 0; i < 8; i++) {
 					float start = float(i) / 8.0;
 					float end = float(i + 1) / 8.0;
@@ -406,12 +405,11 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					float density = 0.004 + 0.022 * bank
 						+ groundLayer * (0.004 + 0.13 * gust * gust);
 					float opacity = 1.0 - exp(-density * stepLength);
-					vec3 litDust = dustColor * (0.60 + 0.47 * bank + 0.22 * glare
-						+ 0.28 * groundLayer * streak);
-					scattered += transmission * opacity * litDust;
+					float light = 0.60 + 0.47 * bank + 0.22 * glare + 0.28 * groundLayer * streak;
+					scattered += transmission * opacity * light;
 					transmission *= 1.0 - opacity;
 				}
-				return scattered + background * transmission;
+				return dustColor * scattered + background * transmission;
 			}
 
 			vec3 drawMoon(vec3 background, vec3 ray, vec3 direction, vec3 lightDirection,
@@ -435,8 +433,23 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				return mix(background, moon, disc * aboveHorizon * visibility);
 			}
 
+			float visorRim(vec2 p) {
+				// One continuous oval: no joined brow/cheek curves or squared corners.
+				// A slightly fuller ellipse preserves peripheral vision on wide screens.
+				vec2 aperture = vec2(1.025, 0.965);
+				vec2 oval = abs((p - vec2(0.0, 0.008)) / aperture);
+				float exponent = 2.4;
+				float radius = pow(pow(oval.x, exponent) + pow(oval.y, exponent), 1.0 / exponent);
+				// Normalize the implicit curve gradient for a consistent gasket thickness.
+				vec2 gradient = pow(max(oval, vec2(0.0001)), vec2(exponent - 1.0))
+					* pow(max(radius, 0.0001), 1.0 - exponent) / aperture;
+				return (radius - 1.0) / max(length(gradient / vec2(aspect, 1.0)), 0.001);
+			}
+
 			void main() {
 				vec2 p = imageUV * 2.0 - 1.0;
+				float rim = cabinView ? 0.0 : visorRim(p);
+				float padding = cabinView ? 0.0 : smoothstep(-0.012, 0.014, rim);
 				vec2 lens = p * vec2(1.0, 0.87);
 				float r2 = dot(lens, lens) / 1.7569;
 
@@ -446,8 +459,8 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				vec3 sceneColor = world.rgb / max(world.a, 0.001);
 				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale + viewOffset, -1.0));
 
-				vec3 worldRay = normalize((eyeRotation * vec4(ray, 0.0)).xyz);
-				float skyHeight = smoothstep(0.0, 0.55, worldRay.y);
+				vec3 worldRay = (eyeRotation * vec4(ray, 0.0)).xyz;
+				float skyHeight = smoothstep(0.0, 0.55, normalize(worldRay).y);
 				vec3 horizon = vec3(0.60, 0.39, 0.25);
 				vec3 zenith = vec3(0.32, 0.21, 0.17);
 				vec3 duskHorizon = vec3(0.38, 0.20, 0.16);
@@ -467,8 +480,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					+ 0.20 * twilight * pow(max(0.0, sunAngle), 12.0)), storm);
 				if (swirMode > 0.5) sky = vec3(dot(sky, vec3(0.2126, 0.7152, 0.0722)) * 0.55);
 				vec3 transmitted = mix(sky, sceneColor, world.a);
-				if (storm > 0.0 && swirMode < 0.5) {
-					transmitted = mix(transmitted, scatterDust(transmitted, ray, sampleUV, sunAngle), storm);
+				// The opaque gasket will replace these pixels in the final composite.
+				if (storm > 0.0 && swirMode < 0.5 && padding < 1.0) {
+					transmitted = mix(transmitted, scatterDust(transmitted, ray, worldRay, sampleUV, sunAngle), storm);
 				}
 				float skyPixel = 1.0 - world.a;
 				float moonVisibility = (1.0 - 0.78 * daylight) * (1.0 - 0.55 * storm);
@@ -510,17 +524,6 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					if (!immersive && swirMode < 0.5 && reflection > 0.001) ghost = emission(hudUV + displayPixel * vec2(2.4, -1.6));
 					float coupling = 0.78 - 0.18 * smoothstep(0.35, 1.0, r2);
 					transmitted += (ink * 0.72 + ghost * 0.045) * coupling;
-					// One continuous oval: no joined brow/cheek curves or squared corners.
-					// A slightly fuller ellipse preserves peripheral vision on wide screens.
-					vec2 aperture = vec2(1.025, 0.965);
-					vec2 oval = abs((p - vec2(0.0, 0.008)) / aperture);
-					float exponent = 2.4;
-					float radius = pow(pow(oval.x, exponent) + pow(oval.y, exponent), 1.0 / exponent);
-					// Normalize the implicit curve gradient for a consistent gasket thickness.
-					vec2 gradient = pow(max(oval, vec2(0.0001)), vec2(exponent - 1.0))
-						* pow(max(radius, 0.0001), 1.0 - exponent) / aperture;
-					float rim = (radius - 1.0) / max(length(gradient / vec2(aspect, 1.0)), 0.001);
-					float padding = smoothstep(-0.012, 0.014, rim);
 					float innerShadow = exp(-max(-rim, 0.0) * 33.0);
 					transmitted *= 1.0 - 0.28 * innerShadow;
 					float lip = exp(-pow((rim - 0.015) / 0.010, 2.0));

@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | [DTM del abanico deposicional de Jezero](https://www.uahirise.org/dtm/PSP_002387_1985), `DTEEC_002387_1985_003798_1985_A01.IMG` | Elevaciones del par estéreo HiRISE `PSP_002387_1985` y `PSP_003798_1985`, captado por Mars Reconnaissance Orbiter. El original tiene 1,00965 m por muestra. `static/terrain/jezero.bin` conserva una muestra de cada 16 filas y columnas, con una separación de 16,15 m. Las elevaciones se refieren al datum Mars 2000. | NASA/JPL-Caltech/Universidad de Arizona |
 | [Ortomosaico HiRISE de Jezero](https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/mars2020_trn/HiRISE/JEZ_hirise_soc_007_orthoMosaic_25cm_Ortho_blend120.tif), `JEZ_hirise_soc_007_orthoMosaic_25cm_Ortho_blend120.tif` | El mismo GeoTIFF monocromo de 25 cm por píxel que usa `jezero-viewer`. El visor carga `static/terrain/jezero-ortho.webp`, remuestreado a unos 3 m por píxel y teñido en el material. Las zonas sin datos conservan el color base de la malla. | NASA/JPL-Caltech/USGS/Universidad de Arizona |
+| [Mapa geológico USGS SIM 3464](https://doi.org/10.3133/sim3464), unidad `Aeb` | Sus polígonos de `Eolian bedform unit` delimitan zonas eólicas superpuestas en color ocre y usadas para reducir la velocidad de movimiento. La penalización `0,62×` es una regla de simulación, no una medición física. El mapa es regional (1:75 000), por lo que las zonas no describen cada parche de arena a escala de botas. | USGS Astrogeology Science Center; Sun y Stack (2020) |
 
 ## Regenerar los archivos
 

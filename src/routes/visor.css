@@ -108,6 +108,8 @@ body { margin: 0; background: #0b0d0e; }
 }
 .scene-controls-trigger kbd { margin-left: 5px; color: var(--hud-label); font: inherit; }
 .layer-caption { margin: 0; color: var(--hud-label); }
+.eolian-legend { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; }
+.eolian-legend i { width: 11px; height: 8px; border: 1px solid #ffd0ff; background: repeating-linear-gradient(135deg, #c35bce 0 2px, #ffd0ff 2px 3px); }
 
 .visor-controls {
 	position: absolute;
