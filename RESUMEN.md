@@ -11,6 +11,7 @@ Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de da
 - **ARES-02 · Nightfall Protocol**: travesía nocturna, avería eléctrica, reparación exterior y entrega de un módulo en Bravo con presupuesto de energía.
 - **SARA**: push-to-talk, STT, Claude con herramientas y TTS; acciones sobre mapa, infrarrojo, capa de peligro y linterna; modo guionizado de respaldo.
 - **VR**: WebXR, menús por controladores, HUD estéreo y cabina del rover.
+- **Vista compartida VR → PC**: WebRTC con código de sala, un espectador y sin audio (`/spectator`).
 - **Panel de operador** (`/operator`) con canal de cues compartido para dirigir la demo.
 
 ## Stack
@@ -20,7 +21,7 @@ Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de da
 | Frontend | Svelte 5 (runes) + SvelteKit 3 + Vite 8 + TypeScript 6 estricto |
 | 3D | Three.js 0.187 sobre WebGL 2 |
 | Voz | Groq Whisper `whisper-large-v3-turbo`, Anthropic `claude-haiku-5-5`, ElevenLabs `eleven_flash_v2_5` |
-| Backend | Cloudflare Workers (`adapter-cloudflare`), Durable Object `CueChannel`, Cache API |
+| Backend | Cloudflare Workers (`adapter-cloudflare`), Durable Objects `CueChannel` y `ShareRoom`, Cache API |
 | Datos | HiRISE DTM + ortofoto, USGS SIM 3464, MEDA |
 | Pruebas | `svelte-check` + build; recorridos manuales |
 
@@ -29,7 +30,7 @@ Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de da
 1. El navegador hace el trabajo pesado (render, estado de misión, telemetría); el servidor solo valida y proxya IA, cues y caché.
 2. Todas las páginas se prerenderizan; solo `/api/*` corre en el Worker.
 3. Las claves de IA nunca llegan al cliente.
-4. El único estado compartido es el canal de cues, por eso vive en un Durable Object.
+4. Los únicos estados compartidos son el canal de cues y la señalización de la vista compartida, por eso viven en Durable Objects.
 5. La voz es una cadena: PTT → `/api/stt` → `/api/chat` → `/api/tts` → Web Audio con barge-in.
 
 ## Rutas
@@ -39,16 +40,19 @@ Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de da
 | `/` | Exploración libre |
 | `/missions/ares01` | Misión ARES-01 |
 | `/missions/ares02` | Misión ARES-02 |
+| `/vr-test` | Entrada recomendada en Quest |
+| `/spectator` | Vista en directo del visor en el PC |
 | `/operator` | Panel de operador (solo cliente) |
 | `/api/stt`, `/api/chat`, `/api/tts` | Pipeline de SARA |
 | `/api/cue` | Cues del operador |
+| `/api/vr-share` | Salas de vista compartida |
 
 Parámetros: `?tts=browser`, `?mode=scripted`, `?remote=1`, `?test=1`, `?k=<token>`.
 
 ## Misiones
 
 - **ARES-01**: muestra a 70 m del rover, rodeo de +13 m, roca peligrosa de 6,4 m de radio y base a 2,4 km; acciones contextuales y diagnóstico del traje.
-- **ARES-02**: batería útil de 9,5 kWh con reserva de 9,15 kWh; ruta directa frente a ruta de bajo consumo; reparación exterior del módulo A y conducción degradada a 8 km/h.
+- **ARES-02**: batería útil de 9,5 kWh con reserva de 9,15 kWh; ruta planificada curva frente a ruta directa (la directa preserva la reserva); reparación exterior del módulo A y conducción degradada a 8 km/h.
 
 ## Datos y simulación
 
@@ -67,7 +71,7 @@ npm run build    # build + prerender + Worker
 npx wrangler deploy
 ```
 
-Variables opcionales: `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, `DEMO_TOKEN`, `JARVIS_RECORDING`. Sin claves, la app arranca y los endpoints devuelven `503`.
+Variables opcionales: `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, `DEMO_TOKEN`, `VR_SHARE_ICE_SERVERS`, `JARVIS_RECORDING`. Sin claves, la app arranca y los endpoints devuelven `503`.
 
 ## Seguridad
 
@@ -75,4 +79,4 @@ Token de demo (`?k=`, cabecera o cookie httpOnly), comparación en tiempo consta
 
 ## Límites
 
-SWIR, peligro, energía y oxígeno son simulaciones; MEDA es histórico; las posiciones de las lunas y el crepúsculo son aproximados; no hay suite de tests automatizada. `missions/vr-rehearsal/` es un nombre heredado para constantes compartidas.
+SWIR, peligro, energía y oxígeno son simulaciones; MEDA es histórico; las posiciones de las lunas y el crepúsculo son aproximados; no hay suite de tests automatizada. `missions/vr-rehearsal/` es un nombre heredado para constantes compartidas. La vista compartida admite un espectador y puede requerir TURN.
