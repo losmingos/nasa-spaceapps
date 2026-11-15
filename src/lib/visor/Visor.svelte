@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { asset, resolve } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { BUTTON_ZOOM_STEP, MAP_MAX_ZOOM, MAP_MIN_ZOOM, clampMapZoom, voiceMapZoom } from '#lib/jarvis/visor-control.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
@@ -36,7 +37,7 @@
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
 	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
-	let vrPage: 'main' | 'mission' | 'scene' | 'sol' | 'time' | 'help' = 'main';
+	let vrPage: 'main' | 'mission' | 'missions' | 'map' | 'scene' | 'sol' | 'time' | 'help' = 'main';
 	let vrDigits = '';
 	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
@@ -248,6 +249,16 @@
 		selectedSol = undefined;
 	}
 
+	function changeMapZoom(step: number) {
+		mapZoom = clampMapZoom(mapZoom + step);
+		terrain?.setMapZoom(mapZoom);
+	}
+
+	async function openVrMission(path: '/missions/ares01' | '/missions/ares02') {
+		await toggleVR();
+		if (!inVR) await goto(resolve(path) + sceneQuery);
+	}
+
 	function getVrMenu(): XrMenuPage {
 		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
 		if (briefing && missionScreen) {
@@ -258,8 +269,27 @@
 					...getMissionControls().map((item) => item.id === 'leave' ? { ...item, label: 'Back to briefing' } : item),
 					{ id: 'exit-vr', label: 'Exit VR', run: () => { void toggleVR(); } }
 				],
-				hint: 'Point and press trigger to select'
+				hint: missionComplete ? 'Point and press either trigger to select'
+					: 'Press A to start, or point at Start mission and press either trigger'
 			};
+		}
+		if (vrPage === 'missions') {
+			return {
+				title: 'Select a mission',
+				items: [
+					{ id: 'ares01', label: 'ARES-01 · The Last Sample', run: () => { void openVrMission('/missions/ares01'); } },
+					{ id: 'ares02', label: 'ARES-02 · Nightfall Protocol', run: () => { void openVrMission('/missions/ares02'); } },
+					back
+				],
+				hint: 'Select a mission, then choose Enter VR on its briefing page'
+			};
+		}
+		if (vrPage === 'map') {
+			return { title: 'Minimap', items: [
+				{ id: 'zoom-in', label: 'Zoom in', disabled: mapZoom >= MAP_MAX_ZOOM, run: () => changeMapZoom(BUTTON_ZOOM_STEP) },
+				{ id: 'zoom-out', label: 'Zoom out', disabled: mapZoom <= MAP_MIN_ZOOM, run: () => changeMapZoom(-BUTTON_ZOOM_STEP) },
+				back
+			] };
 		}
 		if (vrPage === 'help') {
 			return {
@@ -324,8 +354,11 @@
 		const actions = missionItems.filter((item) => item.close && item.id !== 'pause');
 		return { title: 'Jezero · Astronaut visor', items: [
 			...actions,
-			...(ares01 || ares02 ? [{ id: 'mission', label: mission || nightfall ? 'Mission controls' : ares02 ? 'ARES-02' : 'ARES-01', run: () => { vrPage = 'mission'; } }] : []),
+			ares01 || ares02
+				? { id: 'mission', label: 'Mission controls', run: () => { vrPage = 'mission'; } }
+				: { id: 'missions', label: 'Missions', run: () => { vrPage = 'missions'; } },
 			{ id: 'flashlight', label: 'Flashlight', active: flashlightOn, run: toggleFlashlight },
+			{ id: 'map', label: 'Minimap', run: () => { vrPage = 'map'; } },
 			{ id: 'scene', label: 'Scene controls', disabled: !!mission || !!nightfall || ares02, run: () => { vrPage = 'scene'; } },
 			{ id: 'help', label: 'Touch controls', run: () => { vrPage = 'help'; } },
 			{ id: 'close', label: 'Return to visor', close: true, run: () => {} },
@@ -669,9 +702,9 @@ if (mission || nightfall || ares02) return;
 			{#if inVR}
 				<div class="visor-map-controls">
 					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
-						onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
+						onclick={() => changeMapZoom(BUTTON_ZOOM_STEP)}><VisorIcon name="plus" /></button>
 					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
-						onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
+						onclick={() => changeMapZoom(-BUTTON_ZOOM_STEP)}><VisorIcon name="minus" /></button>
 				</div>
 			{/if}
 			<div class="visor-suit-controls">
@@ -754,9 +787,9 @@ if (mission || nightfall || ares02) return;
 						<h2>Map</h2>
 						<div class="layer-buttons" role="group" aria-label="Minimap zoom">
 							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
-								onclick={() => { mapZoom = clampMapZoom(mapZoom + BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}>Map +</button>
+							onclick={() => changeMapZoom(BUTTON_ZOOM_STEP)}>Map +</button>
 							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
-								onclick={() => { mapZoom = clampMapZoom(mapZoom - BUTTON_ZOOM_STEP); terrain?.setMapZoom(mapZoom); }}>Map −</button>
+							onclick={() => changeMapZoom(-BUTTON_ZOOM_STEP)}>Map −</button>
 						</div>
 					</div>
 					<div class="control-section">

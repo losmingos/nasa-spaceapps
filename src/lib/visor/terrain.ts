@@ -1656,6 +1656,13 @@ export function mountTerrain(
 		let lightPressed = false;
 		let swirPressed = false;
 		let talkPressed = false;
+		const runMenuItem = (item: XrMenuPage['items'][number] | undefined) => {
+			if (!item || item.disabled) return;
+			item.run();
+			if (item.close) setMenu(false);
+			displayedMenu = undefined;
+			lastHud = -Infinity;
+		};
 		const setMenu = (show: boolean) => {
 			menuOpen = show;
 			displayedMenu = undefined;
@@ -1679,11 +1686,7 @@ export function mountTerrain(
 			if (point) {
 				if (menuOpen) {
 					const item = displayedMenu && xrMenuItemAt(displayedMenu, point);
-					if (item && !item.disabled) {
-						item.run();
-						if (item.close) setMenu(false);
-						displayedMenu = undefined;
-					}
+					runMenuItem(item);
 				} else {
 					ui.select(point, event.inputSource);
 				}
@@ -1747,7 +1750,10 @@ export function mountTerrain(
 			if (active) {
 				const nextScreen = controls.getMissionScreen();
 				if (nextScreen && nextScreen !== missionScreen) setMenu(true);
-				else if (!nextScreen && menuDown && !menuPressed) setMenu(!menuOpen);
+				else if (menuDown && !menuPressed) {
+					if (!nextScreen) setMenu(!menuOpen);
+					else if (nextScreen === 'briefing') runMenuItem(displayedMenu?.items.find(({ id }) => id === 'start'));
+				}
 				missionScreen = nextScreen;
 				if (lightDown && !lightPressed) controls.onToggleFlashlight();
 				if (swirDown && !swirPressed) controls.onToggleSwir();
@@ -1809,12 +1815,17 @@ export function mountTerrain(
 				alignControls();
 				uiTexture.needsUpdate = true;
 				drawMap(driving ? roverYaw : camera.rotation.y + headYaw);
-				optics.updateXrHud(readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)));
+				if (!menuOpen) {
+					optics.updateXrHud(
+						readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)),
+						!!right
+					);
+				}
 			}
 			phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);
 			deimosWorld.set(moonPositions.deimos.east, moonPositions.deimos.up, -moonPositions.deimos.north);
 			const swir = displayMode === 'swir';
-			optics.renderXr(scene, xrCamera, controlPlane, uiTexture, sunDirectionWorld,
+			optics.renderXr(scene, xrCamera, controlPlane, uiTexture, menuOpen, sunDirectionWorld,
 				phobosWorld, moonPositions.phobos.angularRadius, deimosWorld, moonPositions.deimos.angularRadius,
 				twilight, daylight, swir ? 0 : dust, gustTime, swir, windSpeed, driving);
 		});

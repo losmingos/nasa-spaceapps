@@ -1,5 +1,5 @@
 import {
-	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, ShaderMaterial,
+	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, ShaderMaterial, SRGBColorSpace,
 	Quaternion, Vector2, Vector3, Vector4, WebGLRenderTarget,
 	PerspectiveCamera, type Object3D, type Scene, type WebGLRenderer
 } from 'three';
@@ -102,12 +102,87 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	const displayTexture = new CanvasTexture(display);
 	displayTexture.minFilter = LinearFilter;
 	displayTexture.generateMipmaps = false;
+	const helmet = document.createElement('canvas');
+	helmet.width = 1024;
+	helmet.height = 768;
+	const helmetContext = helmet.getContext('2d')!;
+	const helmetTexture = new CanvasTexture(helmet);
+	helmetTexture.colorSpace = SRGBColorSpace;
+	helmetTexture.minFilter = LinearFilter;
+	helmetTexture.generateMipmaps = false;
 	let displayWidth = 1;
 	let displayHeight = 1;
 	let displayDirty = true;
 	let lastDisplayAt = 0;
 	const DISPLAY_REFRESH_MS = 400;
-	function drawDisplay(swirOverride?: SwirHudData) {
+	function drawHelmet(swir: SwirHudData, showControlsHint: boolean) {
+		const ctx = helmetContext;
+		const { width, height } = helmet;
+		ctx.clearRect(0, 0, width, height);
+		const message = getMessage();
+		const readings = getReadings();
+		const panel = (x: number, y: number, w: number, h: number, border = '#65998c') => {
+			ctx.beginPath();
+			ctx.roundRect(x, y, w, h, 12);
+			ctx.fillStyle = '#071714eb';
+			ctx.fill();
+			ctx.lineWidth = 2;
+			ctx.strokeStyle = border;
+			ctx.stroke();
+		};
+
+		panel(90, 398, 258, 242);
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'middle';
+		ctx.font = '600 22px system-ui';
+		ctx.fillStyle = '#c6ffe5';
+		ctx.fillText('MAP', 106, 422);
+		ctx.drawImage(map, 125, 443, 188, 188);
+
+		const readouts = message.readouts ?? [
+			{ value: readings.o2Percent.toFixed(1), unit: '% O₂' },
+			{ value: readings.airTempC === null ? '—' : String(Math.round(readings.airTempC)), unit: '°C' }
+		];
+		const statusHeight = 49 + 36 * readouts.length;
+		const statusTop = 640 - statusHeight;
+		panel(676, statusTop, 258, statusHeight);
+		ctx.textAlign = 'right';
+		ctx.font = '22px monospace';
+		ctx.fillStyle = '#c6ffe5';
+		ctx.fillText(getClock(), 916, statusTop + 25, 222);
+		ctx.font = '26px monospace';
+		readouts.forEach(({ value, unit }, index) => {
+			ctx.fillText(`${value} ${unit}`, 916, statusTop + 60 + index * 36, 222);
+		});
+
+		const notice = getNotice();
+		if (notice || message.title || message.detail) {
+			const color = message.kind === 'danger' ? '#ffb4a1' : message.kind === 'warning' ? '#ffe0a6' : '#c6ffe5';
+			const lines = [
+				{ text: notice, color: '#ffe0a6', font: '22px system-ui' },
+				{ text: message.title, color, font: '600 29px system-ui' },
+				{ text: message.detail ?? '', color, font: '23px system-ui' }
+			].filter(({ text }) => text);
+			panel(168, 100, 688, 24 + lines.length * 36, color);
+			ctx.textAlign = 'center';
+			lines.forEach(({ text, color, font }, index) => {
+				ctx.fillStyle = color;
+				ctx.font = font;
+				ctx.fillText(text, width / 2, 130 + index * 36, 650);
+			});
+		}
+		if (showControlsHint) {
+			panel(414, 593, 196, 47);
+			ctx.textAlign = 'center';
+			ctx.font = '600 22px system-ui';
+			ctx.fillStyle = '#c6ffe5';
+			ctx.fillText('A · Controls', width / 2, 617);
+		}
+		drawSwirHud(ctx, width, height, swir, false);
+		helmetTexture.needsUpdate = true;
+	}
+
+	function drawDisplay() {
 		const w = displayWidth, h = displayHeight;
 		context.clearRect(0, 0, w, h);
 		const edge = Math.max(40, Math.min(180, w * 0.12));
@@ -177,7 +252,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		}
 		context.restore();
 
-		const swir = swirOverride ?? getSwir();
+		const swir = getSwir();
 		context.save();
 		drawHudTime(context, w, h - Math.max(40, h * 0.045), getClock(), swir.active);
 		context.restore();
@@ -223,6 +298,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			viewOffset: { value: new Vector2() },
 			controls: { value: null },
 			controlFromEye: { value: new Matrix4() },
+			helmet: { value: helmetTexture },
+			helmetScale: { value: new Vector2() },
+			menuOpen: { value: false },
 			immersive: { value: false },
 			twilight: { value: 1 },
 			daylight: { value: 1 },
@@ -265,6 +343,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform vec2 viewOffset;
 			uniform sampler2D controls;
 			uniform mat4 controlFromEye;
+			uniform sampler2D helmet;
+			uniform vec2 helmetScale;
+			uniform bool menuOpen;
 			uniform bool immersive;
 			uniform float twilight;
 			uniform float daylight;
@@ -423,10 +504,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					// Inner-surface projection: continuous barrel curvature, not tilted HTML cards.
 					vec2 hudUV = 0.5 + 0.5 * p * (1.0 + 0.085 * r2);
 					hudUV.y += 0.022 * p.x * p.x;
-					vec3 ink = emission(hudUV);
+					vec3 ink = immersive ? vec3(0.0) : emission(hudUV);
 					// Faint displaced reflection from the second surface of the laminated visor.
 					vec3 ghost = vec3(0.0);
-					if (swirMode < 0.5 && reflection > 0.001) ghost = emission(hudUV + displayPixel * vec2(2.4, -1.6));
+					if (!immersive && swirMode < 0.5 && reflection > 0.001) ghost = emission(hudUV + displayPixel * vec2(2.4, -1.6));
 					float coupling = 0.78 - 0.18 * smoothstep(0.35, 1.0, r2);
 					transmitted += (ink * 0.72 + ghost * 0.045) * coupling;
 					// One continuous oval: no joined brow/cheek curves or squared corners.
@@ -456,11 +537,18 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				if (immersive) {
 					vec3 point = controlFromEye[3].xyz;
 					vec3 direction = mat3(controlFromEye) * ray;
-					vec2 uv = (point.xy - direction.xy * point.z / min(-0.0001, direction.z)) + 0.5;
-					if (direction.z < 0.0 && point.z > 0.0 &&
-						all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
-						vec4 ui = texture2D(controls, uv);
-						transmitted = mix(transmitted, ui.rgb, ui.a);
+					if (direction.z < -0.0001 && point.z > 0.0) {
+						vec2 hit = point.xy - direction.xy * point.z / direction.z;
+						vec2 helmetUV = hit * helmetScale + 0.5;
+						if (!menuOpen && all(greaterThanEqual(helmetUV, vec2(0.0))) && all(lessThanEqual(helmetUV, vec2(1.0)))) {
+							vec4 hud = texture2D(helmet, helmetUV);
+							transmitted = mix(transmitted, hud.rgb, hud.a);
+						}
+						vec2 uv = hit + 0.5;
+						if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+							vec4 ui = texture2D(controls, uv);
+							transmitted = mix(transmitted, ui.rgb, ui.a);
+						}
 					}
 				}
 				gl_FragColor = vec4(transmitted, 1.0);
@@ -550,11 +638,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			renderer.setRenderTarget(null);
 			screen.render(renderer);
 		},
-		updateXrHud(swir: SwirHudData) {
-			drawDisplay(swir);
-			displayDirty = true;
+		updateXrHud(swir: SwirHudData, showControlsHint: boolean) {
+			drawHelmet(swir, showControlsHint);
 		},
-		renderXr(scene: Scene, camera: PerspectiveCamera, controlPlane: Object3D, controlTexture: CanvasTexture,
+		renderXr(scene: Scene, camera: PerspectiveCamera, controlPlane: Object3D, controlTexture: CanvasTexture, menuOpen: boolean,
 			sun: Vector3, phobos: Vector3, phobosRadius: number, deimos: Vector3, deimosRadius: number,
 			twilight: number, daylight: number, storm: number, gustTime: number, swir: boolean, windMps: number, cabinView: boolean) {
 			// The XR manager binds the compositor framebuffer before running this callback.
@@ -563,6 +650,9 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			renderer.xr.updateCamera(camera);
 			const eyes = renderer.xr.getCamera().cameras;
 			controlMatrix.copy(controlPlane.matrixWorld).invert();
+			// Map the same stereo intersection onto a fixed-size, headset-relative display.
+			material.uniforms.helmetScale.value.set(controlPlane.scale.x / 1.9, controlPlane.scale.y / 1.425);
+			material.uniforms.menuOpen.value = menuOpen;
 			const autoClear = renderer.autoClear;
 			const shadowAutoUpdate = renderer.shadowMap.autoUpdate;
 			renderer.xr.enabled = false;
@@ -615,6 +705,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		},
 		dispose() {
 			xrTarget.dispose();
+			helmetTexture.dispose();
 			displayTexture.dispose();
 			screen.dispose();
 			material.dispose();

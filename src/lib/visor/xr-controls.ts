@@ -285,13 +285,15 @@ function drawXrMenu(context: CanvasRenderingContext2D, page: XrMenuPage,
 		const x = left + (index % columns) * (buttonWidth + gap);
 		const y = top + Math.floor(index / columns) * (buttonHeight + gap);
 		const hovered = !item.disabled && pointers.some((point) => xrMenuIndex(point.x, point.y) === index);
-		context.fillStyle = hovered ? '#28625b' : item.active ? '#214e45' : '#142b2d';
+		const primary = item.id === 'start' && !item.disabled;
+		context.fillStyle = primary ? (hovered ? '#d7fff0' : '#a0e9cd')
+			: hovered ? '#28625b' : item.active ? '#214e45' : '#142b2d';
 		context.fillRect(x, y, buttonWidth, buttonHeight);
 		if (hovered || item.active) {
 			context.strokeStyle = '#a0ffda';
 			context.strokeRect(x, y, buttonWidth, buttonHeight);
 		}
-		context.fillStyle = item.disabled ? '#8aa19e' : '#f3fff9';
+		context.fillStyle = primary ? '#0a251c' : item.disabled ? '#8aa19e' : '#f3fff9';
 		context.font = '500 25px sans-serif';
 		context.fillText(item.label, x + 13, y + buttonHeight / 2, buttonWidth - 26);
 	});
