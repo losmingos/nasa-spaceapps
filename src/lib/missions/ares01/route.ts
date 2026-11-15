@@ -17,10 +17,14 @@ const detourOffset = Math.sqrt((20 + DETOUR_EXTRA / 2) ** 2 - 20 ** 2);
 export const HAZARD_RADIUS = 6.4;
 export const HAZARD: Point = { x: SAMPLE.x, z: SAMPLE.z + 27 };
 export const DIRECT = [SAMPLE, junction, rejoin, ROVER];
-export const DETOUR = [SAMPLE, junction, { x: SAMPLE.x + detourOffset, z: HAZARD.z }, rejoin, ROVER];
+const detourTurn: Point = { x: SAMPLE.x + detourOffset, z: HAZARD.z };
+export const DETOUR = [SAMPLE, junction, detourTurn, rejoin, ROVER];
 
-export const LOOSE_ROCK_DISTANCE = 31.8;
-export const LOOSE_ROCK = pointAlong(DETOUR, LOOSE_ROCK_DISTANCE);
+// The rover lies south of the obstacle. Allow a metre of clearance beyond its blocked area.
+export const HAZARD_CLEAR_Z = HAZARD.z + HAZARD_RADIUS + 1;
+export const DETOUR_CLEAR_DISTANCE = distanceBetween(SAMPLE, junction) + distanceBetween(junction, detourTurn)
+	+ distanceBetween(detourTurn, rejoin) * (HAZARD_CLEAR_Z - detourTurn.z) / (rejoin.z - detourTurn.z);
+export const DETOUR_WAYPOINT = pointAlong(DETOUR, DETOUR_CLEAR_DISTANCE + 1);
 
 export function distanceBetween(a: Point, b: Point) {
 	return Math.hypot(a.x - b.x, a.z - b.z);

@@ -1,4 +1,4 @@
-# Jarvis data: MEDA curves, MEDA snapshot and mission points
+# SARA data: MEDA curves, MEDA snapshot and mission points
 
 ## `meda-curves.json`: MEDA daily curves replayed at the scene's local time
 

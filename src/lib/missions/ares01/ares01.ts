@@ -1,4 +1,4 @@
-import { BASE, DETOUR, DETOUR_EXTRA, DIRECT, DIRECT_DISTANCE, distanceBetween, LOOSE_ROCK_DISTANCE, pointAlong, ROVER, SAMPLE, SAMPLING_KIT } from './route.js';
+import { BASE, DETOUR, DETOUR_EXTRA, DETOUR_CLEAR_DISTANCE, DIRECT, DIRECT_DISTANCE, distanceBetween, pointAlong, ROVER, SAMPLE, SAMPLING_KIT } from './route.js';
 
 export const DURATION = 178;
 export const SHELTER_AT = 123;
@@ -33,11 +33,11 @@ const cues: readonly Cue[] = [
 	{ at: 40, id: 'abort', state: 'EVA_ABORT', title: 'EVA ABORT — RETURN REQUIRED', text: 'Critical alert. Loss of visibility and terrain references is compromising the return. Abort sampling and return to the rover.' },
 	{ at: 44, id: 'prepare', state: 'RETURN_PREP', title: 'Secure the equipment', text: 'Drilling needs ten more minutes. The margin for a safe return is too small. Stop the drill and log your location and progress.' },
 	{ at: 65, id: 'return', state: 'RETURN_EVA', title: 'Return on foot', text: `Survey samples secured. The rover is ${DIRECT_DISTANCE} metres away. Follow the marked corridor.` },
-	{ at: HAZARD_AT, id: 'hazard', state: 'HAZARD_DETECTED', title: 'Unstable slope', text: 'Stop. The planned corridor crosses a slope covered in loose regolith, increasing the risk of a fall.' },
+	{ at: HAZARD_AT, id: 'hazard', state: 'HAZARD_DETECTED', title: 'Unstable slope', text: 'Stop. A large boulder blocks the planned corridor across the unstable slope.' },
 	{ at: 78, id: 'reroute', state: 'REROUTE', title: `Recommended detour · +${DETOUR_EXTRA} m`, text: `A surveyed alternate corridor avoids unstable ground and adds ${DETOUR_EXTRA} metres.` },
 	{ at: 82, id: 'reroute-accepted', state: 'REROUTE', title: 'Detour active', text: 'Route updated. Follow the alternate corridor to the waypoint.' },
-	{ at: TRIP_AT, id: 'trip', state: 'SUIT_DIAGNOSTIC', title: 'Loss of balance', text: 'A loose rock shifts under your boot as you take the detour.' },
-	{ at: 92, id: 'impact', state: 'SUIT_DIAGNOSTIC', title: 'Rock impact', text: 'The suit scrapes a rock edge. Stop moving.' },
+	{ at: TRIP_AT, id: 'trip', state: 'SUIT_DIAGNOSTIC', title: 'Loss of balance', text: 'You lose your balance just after clearing the boulder.' },
+	{ at: 92, id: 'impact', state: 'SUIT_DIAGNOSTIC', title: 'Suit impact', text: 'You hit the ground. Stop moving.' },
 	{ at: pressureCheckStart, id: 'pressure-check', state: 'SUIT_DIAGNOSTIC', title: 'SUIT INTEGRITY CHECK', text: 'The integrity sensor detected an anomaly. Checking the internal pressure trend.' },
 	{ at: 98, id: 'outer-damage', state: 'SUIT_DIAGNOSTIC', title: 'Possible outer-layer damage', text: 'The outer layer may be damaged. I am still checking pressure.' },
 	{ at: PRESSURE_STABLE_AT, id: 'pressure-stable', state: 'SUIT_DIAGNOSTIC', title: 'Internal pressure stable', text: 'No leak detected during the pressure check. Surface damage is possible. Limit movement in the affected area and proceed with caution.' },
@@ -79,7 +79,7 @@ export function missionAt(time: number, choice?: 'continue' | 'return', position
 	const junctionDistance = distanceBetween(SAMPLE, DIRECT[1]);
 	const distance = time < HAZARD_AT ? junctionDistance * Math.max(0, time - 65) / (HAZARD_AT - 65)
 		: time < 82 ? junctionDistance
-		: time < 106 ? junctionDistance + (LOOSE_ROCK_DISTANCE - junctionDistance) * Math.min(1, (time - 82) / (TRIP_AT - 82))
+		: time < 106 ? junctionDistance + (DETOUR_CLEAR_DISTANCE - junctionDistance) * Math.min(1, (time - 82) / (TRIP_AT - 82))
 		: routeLength - 18 * Math.max(0, SHELTER_AT - time) / (SHELTER_AT - 106);
 	const remaining = routeLength - distance;
 	const point = second >= DURATION ? BASE : second >= SHELTER_AT ? ROVER : pointAlong(route, distance);

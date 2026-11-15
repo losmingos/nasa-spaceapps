@@ -1,7 +1,8 @@
 <script lang="ts">
-	import VisorIcon from '../../visor/VisorIcon.svelte';
+	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import { onMount, tick } from 'svelte';
-	import { dialogueAt, DURATION, missionAt, type Ares01Dialogue } from './ares01.js';
+	import MissionControls from '../MissionControls.svelte';
+	import { dialogueAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
 	import { DETOUR_EXTRA, type Point } from './route.js';
@@ -17,10 +18,9 @@
 		getPosition: () => Point | undefined;
 	} = $props();
 
-	let mode = $state<'demo' | 'interactive'>();
+	let mode = $state<'interactive'>();
 	let menuOpen = $state(false);
-	let menuButton: HTMLButtonElement;
-	let time = $state(0);
+	let menuButton = $state<HTMLButtonElement>();
 	let paused = $state(false);
 	let testing = $state(false);
 	let fastTravel = $state(false);
@@ -28,8 +28,8 @@
 	let runId = $state(0);
 	let lastCue = '';
 	const player = $derived(mode === 'interactive' ? interactiveSnapshot(run) : undefined);
-	const snapshot = $derived(player ?? missionAt(time, time >= 25 ? 'continue' : undefined));
-	const elapsed = $derived(player ? run.elapsed : time);
+	const snapshot = $derived(interactiveSnapshot(run));
+	const elapsed = $derived(run.elapsed);
 	const finished = $derived(snapshot.cue.id === 'closed');
 	const actions = $derived(player ? availableActions(run) : []);
 	const actionLabels: Record<MissionAction, string> = {
@@ -49,7 +49,6 @@
 
 	function start(next: typeof mode) {
 		menuOpen = false;
-		time = 0;
 		mode = next;
 		paused = false;
 		fastTravel = false;
@@ -79,16 +78,40 @@
 		}
 	}
 
+	export function getVrControls(): XrMenuItem[] {
+		if (!ready) return [];
+		if (!mode) return [
+			{ id: 'start', label: 'Start mission', run: () => start('interactive') }
+		];
+
+		const items: XrMenuItem[] = paused ? [] : actions.map((action) => ({
+			id: action, label: actionLabels[action], run: () => perform(action), close: true
+		}));
+		if (!finished) items.push({
+			id: 'pause', label: paused ? 'Resume mission' : 'Pause mission',
+			run: togglePause, close: paused
+		});
+		if (testing && mode === 'interactive' && !finished) items.push({
+			id: 'speed', label: fastTravel ? 'Test speed · 4×' : 'Test speed · 1×',
+			run: () => { fastTravel = !fastTravel; }
+		});
+		items.push(
+			{ id: 'restart', label: 'Restart mission', run: () => start(mode) },
+			{ id: 'leave', label: 'Exit mission', run: () => start(undefined) }
+		);
+		return items;
+	}
+
 	function keyboard(event: KeyboardEvent) {
 		if (event.code === 'Escape' && menuOpen) {
 			menuOpen = false;
-			menuButton.focus();
+			menuButton?.focus();
 			return;
 		}
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
 			(event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) return;
 		if (!mode) {
-			if (event.code === 'KeyI' && ready) {
+			if (event.code === 'KeyM' && ready) {
 				event.preventDefault();
 				start('interactive');
 			}
@@ -125,8 +148,7 @@
 			const delta = Math.min((now - previous) / 1000, 0.25);
 			previous = now;
 			if (!mode || paused || finished || (document.hidden && !immersive)) return;
-			if (mode === 'demo') time = Math.min(DURATION, time + delta);
-			else run = stepInteractive(run, delta, getPosition() ?? run.position);
+			run = stepInteractive(run, delta, getPosition() ?? run.position);
 		}, 100);
 		return () => clearInterval(timer);
 	});
@@ -147,34 +169,16 @@
 
 <svelte:window onkeydown={keyboard} />
 
-<section class="mission-controls" aria-label="ARES-01 · Simulation">
-	<div class="hud-actions mission-steps">
-		{#if testing && mode === 'interactive' && !finished}
-			<button class="hud-action" aria-pressed={fastTravel} aria-keyshortcuts="T" onclick={() => {
-				fastTravel = !fastTravel;
-				focusScene();
-			}}>Test speed {fastTravel ? '4×' : '1×'} {#if !immersive}[T]{/if}</button>
-		{/if}
-		{#each actions as action, index (action)}
-			<button class="hud-action" disabled={paused} onclick={() => perform(action)}>
-				{#if immersive}<VisorIcon name="action" />{/if}
-				{actionLabels[action]}{#if !immersive} [{index === 0 ? 'E / 1' : '2'}]{/if}
-			</button>
-		{/each}
-	</div>
-	<button class="hud-action mission-toggle" bind:this={menuButton} aria-label={mode ? 'Mission' : 'ARES-01'} aria-expanded={menuOpen} aria-controls="mission-options"
-		onclick={() => { menuOpen = !menuOpen; }}>
-		{#if immersive}<VisorIcon name="mission" />{:else}{mode ? 'Mission' : 'ARES-01'}{/if}
-	</button>
-
-	<div id="mission-options" class="mission-options t-panel-slide" data-open={menuOpen}
-		inert={!menuOpen} aria-hidden={!menuOpen}>
+<MissionControls {immersive} id="mission-options" menuLabel="ARES-01" running={!!mode} open={menuOpen}
+	onmenu={() => { menuOpen = !menuOpen; }} bind:menubutton={menuButton}
+	{actions} {actionLabels} {paused} onact={perform}
+	testing={testing && mode === 'interactive' && !finished} fast={fastTravel}
+	ontest={() => { fastTravel = !fastTravel; focusScene(); }}>
 		{#if !mode}
 			<span>The Last Sample · Simulation</span>
 			<p>{immersive ? 'Left stick: move · Right stick: turn · Trigger: select · Hold right grip: talk' : 'WASD move · Arrow keys look · E / 1 / 2 act · Space talk'}</p>
 			<div class="hud-actions">
-				<button class="hud-action" disabled={!ready} onclick={() => start('interactive')}>Start mission{#if !immersive} [I]{/if}</button>
-				<button class="hud-action" disabled={!ready} onclick={() => start('demo')}>Watch demo · 3:30</button>
+				<button class="hud-action" disabled={!ready} onclick={() => start('interactive')}>Start mission{#if !immersive} [M]{/if}</button>
 			</div>
 		{:else if finished}
 			<p>Return to base complete. Three survey samples recovered. Main core not collected.</p>
@@ -190,5 +194,4 @@
 				<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
 			</div>
 		{/if}
-	</div>
-</section>
+</MissionControls>
