@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { asset, resolve } from '$app/paths';
 	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
@@ -44,10 +44,12 @@
 	let controlsButton = $state<HTMLButtonElement>();
 	let storm = $state(false);
 	let flashlightOn = $state(false);
+	let missionsOpen = $state(false);
 	let mapZoom = $state(1);
 	let displayMode = $state<TerrainDisplayMode>('visible');
+	let dangerRisk = $state(0);
+	let dangerMessage = $state<VisorMessage>();
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
-	let geologyAvailable = $state(false);
 
 	let mission = $state.raw<Ares01View>();
 	let nightfall = $state.raw<NightfallView>();
@@ -82,7 +84,7 @@
 		: '');
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
-	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : {
+	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : dangerMessage ?? {
 		title: voiceLabel ? `SARA · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
 	}));
@@ -127,6 +129,41 @@
 	$effect(() => terrain?.setWind(voice?.telemetry.wind_ms ?? null));
 	$effect(() => terrain?.setDisplayMode(displayMode));
 	$effect(() => terrain?.setMissionView(nightfall?.terrain ?? (mission && missionTerrainView(mission))));
+	$effect(() => {
+		if (displayMode !== 'danger' || !terrain) {
+			dangerRisk = 0;
+			dangerMessage = undefined;
+			return;
+		}
+		const scene = terrain;
+		let level: 'warning' | 'danger' | undefined;
+		let lastTitle = '';
+		let lastDetail = '';
+		const update = () => {
+			const position = scene.getPosition();
+			const score = scene.getDangerAt(position.x, position.z);
+			dangerRisk = score;
+			if (score >= (level === 'danger' ? 0.60 : 0.66)) level = 'danger';
+			else if (score >= (level === 'warning' ? 0.30 : 0.33)) level = 'warning';
+			else level = undefined;
+			const next: VisorMessage | undefined = level === 'danger'
+				? { title: 'Terrain danger', detail: `High risk ${Math.round(score * 100)}% — reroute or proceed with extreme caution.`, kind: 'danger' }
+				: level === 'warning'
+					? { title: 'Terrain caution', detail: `Moderate risk ${Math.round(score * 100)}% — loose soil, slope or rock proximity.`, kind: 'warning' }
+					: undefined;
+			const title = next?.title ?? '';
+			const detail = next?.detail ?? '';
+			if (title !== lastTitle || detail !== lastDetail) {
+				lastTitle = title;
+				lastDetail = detail;
+				dangerMessage = next;
+				untrack(() => scene.refresh());
+			}
+		};
+		update();
+		const timer = setInterval(update, 300);
+		return () => clearInterval(timer);
+	});
 
 	function playMissionDialogue(line: Ares01Dialogue, interactive: boolean) {
 		window.dispatchEvent(new CustomEvent<Ares01Dialogue>('ares01:dialogue', { detail: line }));
@@ -263,11 +300,11 @@
 
 		if (!mission && !nightfall && !ares02 && vrPage === 'scene') {
 			const layers: Array<[TerrainDisplayMode, string]> = [
-				['visible', 'Relief'], ['geology', 'Geology'], ['slope', 'Slope'], ['swir', 'SWIR simulation']
+				['visible', 'Relief'], ['danger', 'Danger calculation'], ['swir', 'Infrared simulation']
 			];
 			return { title: 'Scene controls', items: [
 				...layers.map(([mode, label]) => ({
-					id: mode, label, active: displayMode === mode, disabled: mode === 'geology' && !geologyAvailable,
+					id: mode, label, active: displayMode === mode,
 					run: () => mode === 'swir' ? toggleSwir() : selectDisplayMode(mode)
 				})),
 				{ id: 'storm', label: 'Dust storm', active: storm, run: () => { storm = !storm; } },
@@ -353,6 +390,10 @@
 		if (event.code === 'Escape' && controlsVisible) {
 			controlsVisible = false;
 			canvas.focus();
+			return;
+		}
+		if (event.code === 'Escape' && missionsOpen) {
+			missionsOpen = false;
 			return;
 		}
 		if (event.repeat || event.altKey || event.ctrlKey || event.metaKey ||
@@ -459,7 +500,7 @@ if (mission || nightfall || ares02) return;
 					// Terrain and DTM-derived slope remain available without the geology data.
 				}
 				if (request.signal.aborted) return;
-				geologyAvailable = !!geology?.features.length;
+				if (request.signal.aborted) return;
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), geology, showNotice,
 					() => current.text,
 					() => nightfall ? `ARES-02 · ${missionClock} · ${nightfall.localTime}${nightfall.paused ? " · PAUSED" : ""}` : mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
@@ -528,6 +569,10 @@ if (mission || nightfall || ares02) return;
 			<p class="error-help">Check that your browser supports WebGL 2, then reload.</p>
 		{/if}
 
+		{#if displayMode === 'swir' && !mission && !nightfall && !ares02}
+			<div class="swir-reticle" aria-hidden="true"></div>
+		{/if}
+
 		<div class="instruments sr-only" hidden={!terrain}>
 			<figure class="radar">
 				<div class="map-face" role="img" aria-label="Local terrain map with your position in the centre and an arrow showing your heading">
@@ -547,7 +592,6 @@ if (mission || nightfall || ares02) return;
 					<dd>{voice?.telemetry.air_temp_c == null ? '—' : Math.round(voice.telemetry.air_temp_c)}<span>°C</span></dd>
 				{/if}
 			</dl>
-			<p>{nightfall ? nightfall.localTime : `Sol ${sol}, ${clock} Jezero local mean solar time`}</p>
 		</div>
 
 		<div class="visor-controls">
@@ -567,23 +611,12 @@ if (mission || nightfall || ares02) return;
 				getPosition={() => terrain?.getPosition()}
 				focusScene={() => canvas.focus()} />
 			<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
-			{:else}
-				<a class="hud-action" href={resolve('/missions/ares01') + sceneQuery}>ARES-01 · The Last Sample</a>
-				<a class="hud-action" href={resolve('/missions/ares02') + sceneQuery}>ARES-02 · Nightfall Protocol</a>
 			{/if}
 			{#if vrSupported}
 				<button type="button" class="hud-action" disabled={!terrain || vrBusy} onclick={toggleVR}>
 					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
 				</button>
 			{/if}
-			<button type="button" class="hud-action" aria-label="Zoom in on minimap" aria-keyshortcuts="Plus"
-				disabled={!terrain || mapZoom >= 4} onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>
-				Map +
-			</button>
-			<button type="button" class="hud-action" aria-label="Zoom out on minimap" aria-keyshortcuts="Minus"
-				disabled={!terrain || mapZoom <= 0.5} onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>
-				Map −
-			</button>
 			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
 				disabled={!terrain} onclick={toggleFlashlight}>
 				{flashlightOn ? 'Flashlight on' : 'Flashlight'} <kbd>F</kbd>
@@ -621,6 +654,22 @@ if (mission || nightfall || ares02) return;
 		{/key}
 	{/if}
 
+	{#if !mission && !nightfall && !ares02}
+		<div class="mission-switch">
+			<button type="button" class="hud-action mission-trigger" aria-expanded={missionsOpen}
+				aria-controls="mission-menu" onclick={() => { missionsOpen = !missionsOpen; }}>
+				Missions
+			</button>
+			<div id="mission-menu" class="mission-options mission-menu" data-open={missionsOpen}
+				inert={!missionsOpen} aria-hidden={!missionsOpen}>
+				<a class="hud-action" href={resolve('/missions/ares01') + sceneQuery}
+					onclick={() => { missionsOpen = false; }}>ARES-01 · The Last Sample</a>
+				<a class="hud-action" href={resolve('/missions/ares02') + sceneQuery}
+					onclick={() => { missionsOpen = false; }}>ARES-02 · Nightfall Protocol</a>
+			</div>
+		</div>
+	{/if}
+
 	{#if !mission && !ares02}
 		<div class="scene-controls">
 			<section id="scene-controls-panel" class="scene-controls-panel" aria-label="Scene controls"
@@ -646,19 +695,27 @@ if (mission || nightfall || ares02) return;
 						</button>
 					</div>
 					<div class="control-section">
+						<h2>Map</h2>
+						<div class="layer-buttons" role="group" aria-label="Minimap zoom">
+							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= 4}
+								onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}>Map +</button>
+							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= 0.5}
+								onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}>Map −</button>
+						</div>
+					</div>
+					<div class="control-section">
 						<h2>Terrain layer</h2>
 						<div class="layer-buttons" role="group" aria-label="Choose a terrain view">
 							<button type="button" aria-pressed={displayMode === 'visible'} onclick={() => selectDisplayMode('visible')}>Relief</button>
-							<button type="button" aria-pressed={displayMode === 'geology'} disabled={!geologyAvailable}
-								onclick={() => selectDisplayMode('geology')}>Geology</button>
-							<button type="button" aria-pressed={displayMode === 'slope'} onclick={() => selectDisplayMode('slope')}>Slope</button>
+							<button type="button" aria-pressed={displayMode === 'danger'}
+								onclick={() => selectDisplayMode('danger')}>Danger calculation</button>
 							<button type="button" aria-pressed={displayMode === 'swir'} aria-keyshortcuts={ares01 ? undefined : "I"}
-								onclick={() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir')}>SWIR sim.{ares01 ? "" : " · I"}</button>
+								onclick={() => selectDisplayMode(displayMode === 'swir' ? previousDisplayMode : 'swir')}>Infrared simulation{ares01 ? "" : " · I"}</button>
 						</div>
 						<p class="layer-caption">
-							{#if displayMode === 'geology'}USGS SIM 3464 · regional alignment ±100–200 m
-							{:else if displayMode === 'slope'}DTM · green &lt;5° · amber 5–12° · red &gt;12°
-							{:else if displayMode === 'swir'}SIMULATED · 1.65 µm · dust ×0.15
+							{#if displayMode === 'danger'}Risk: soil consistency (SIM 3464 × HiRISE) · slope · relief · ground temp · dust
+								<span class="danger-readout" aria-live="polite">Current position: {Math.round(dangerRisk * 100)}% · {dangerRisk >= 0.66 ? 'High' : dangerRisk >= 0.33 ? 'Moderate' : 'Low'}</span>
+							{:else if displayMode === 'swir'}SIMULATED · 1.65 µm · dust-transparent
 							{:else}HiRISE orthophoto + relief{/if}
 						</p>
 					</div>
