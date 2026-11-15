@@ -68,3 +68,9 @@ Los CSV directos que alimentan la instantánea del sol 313 son: [temperatura ATS
 | Sedimentary outcrop | [Wildcat Ridge sampling mosaic](https://science.nasa.gov/resource/sample-collection-and-rock-analysis-at-wildcat-ridge/), NASA/JPL-Caltech/ASU/MSSS | Original ARES mesh inspired by fine-grained delta bedrock. The exposed ledge is approximately 1.4 × 0.9 m and rises about 0.35 m above the ground. The 5 cm abrasion patch follows the scale in the reference mosaic. |
 
 The rover source is also available in [NASA's 3D Resources repository](https://github.com/nasa/NASA-3D-Resources/tree/master/3D%20Models/Space%20Exploration%20Vehicle). See [NASA media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/) for NASA media and identifiers.
+
+## ARES-02 models
+
+| Asset | Provenance | Adaptation |
+| --- | --- | --- |
+| Bravo station pressure modules | [Habitat Demonstration Unit, part 1](https://science.nasa.gov/3d-resources/habitat-demonstration-unit/), NASA Langley Research Center / Advanced Concepts Lab. [NASA media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/) | The exterior mesh was rescaled and oriented for the Bravo approach, with new vertex colors replacing the original textures and markings. The bundled GLB has 2,264 triangles and occupies approximately 69 kB. The airlock facade, approach lights, antenna and solar arrays are original ARES geometry. |

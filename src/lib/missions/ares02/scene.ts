@@ -3,15 +3,16 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { Box3, BoxGeometry, CanvasTexture, Group, MathUtils, Mesh, MeshStandardMaterial, PointLight, Raycaster, SRGBColorSpace, Texture, Vector3, type Object3D } from 'three';
 import type { MissionSceneFactory, RoverService } from '../../visor/terrain.js';
-import { handoff } from './route.js';
+import { buildBravoStation } from './bravo-station.js';
 
-export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
+export const createNightfallScene: MissionSceneFactory = (ground, refresh, registerSwir) => {
 	const group = new Group();
 	group.visible = false;
 	const rover = new Group();
 	rover.visible = false;
 	group.add(rover);
 	let model: Object3D | undefined;
+	let habitat: Object3D | undefined;
 	let requested = false;
 	let disposed = false;
 	function release(object: Object3D) {
@@ -26,35 +27,48 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
 			}
 		});
 	}
-	function loadRover() {
+	function loadModels() {
 		if (requested) return;
 		requested = true;
-		new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-			.load(asset('models/missions/ares01/sev.glb'), ({ scene }) => {
-				if (disposed) {
-					release(scene);
-					return;
-				}
-				const bounds = new Box3().setFromObject(scene);
-				const center = bounds.getCenter(new Vector3());
-				scene.position.set(-center.x, -bounds.min.y, -center.z);
-				model = scene;
-				rover.add(scene);
-				// Locate the side skin above the running gear in the centered SEV mesh.
-				scene.updateMatrixWorld(true);
-				const section = panel.getWorldPosition(new Vector3());
-				const ray = new Raycaster(new Vector3(section.x + 4, section.y, section.z), new Vector3(-1, 0, 0));
-				const skin = ray.intersectObject(scene, true)[0];
-				if (skin) panel.position.x = rover.worldToLocal(skin.point.clone()).x + 0.025;
-				panel.visible = !!service;
-				refresh();
-			}, undefined, (error) => {
-				if (!disposed) console.warn('Could not load the rover model.', error);
-			});
+		const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+		loader.load(asset('models/missions/ares01/sev.glb'), ({ scene }) => {
+			if (disposed) {
+				release(scene);
+				return;
+			}
+			const bounds = new Box3().setFromObject(scene);
+			const center = bounds.getCenter(new Vector3());
+			scene.position.set(-center.x, -bounds.min.y, -center.z);
+			model = scene;
+			rover.add(scene);
+			// Locate the side skin above the running gear in the centered SEV mesh.
+			scene.updateMatrixWorld(true);
+			const section = panel.getWorldPosition(new Vector3());
+			const ray = new Raycaster(new Vector3(section.x + 4, section.y, section.z), new Vector3(-1, 0, 0));
+			const skin = ray.intersectObject(scene, true)[0];
+			if (skin) panel.position.x = rover.worldToLocal(skin.point.clone()).x + 0.025;
+			panel.visible = !!service;
+			refresh();
+		}, undefined, (error) => {
+			if (!disposed) console.warn('Could not load the rover model.', error);
+		});
+		loader.load(asset('models/missions/ares02/bravo-habitat.glb'), ({ scene }) => {
+			if (disposed) {
+				release(scene);
+				return;
+			}
+			habitat = scene;
+			registerSwir(scene, 0.68, 'BRAVO HABITAT');
+			station.habitat.add(scene);
+			refresh();
+		}, undefined, (error) => {
+			if (!disposed) console.warn('Could not load the Bravo habitat model.', error);
+		});
 	}
 
-	const station = new Group();
-	group.add(station);
+	const station = buildBravoStation(ground);
+	registerSwir(station.group, 0.62, 'BRAVO HARDWARE');
+	group.add(station.group);
 	const box = new BoxGeometry(1, 1, 1);
 	const panel = new Group();
 	panel.position.set(1.8, 1.65, 1.35);
@@ -153,36 +167,12 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
 		};
 		animationFrame = requestAnimationFrame(refreshService);
 	}
-	const housing = new MeshStandardMaterial({ color: '#9faba6', roughness: 0.82 });
-	const apron = new MeshStandardMaterial({ color: '#373e3e', roughness: 0.9 });
-	const light = new MeshStandardMaterial({ color: '#d8fff4', emissive: '#8bffd7', emissiveIntensity: 2 });
-	function part(material: MeshStandardMaterial, x: number, y: number, z: number, width: number, height: number, depth: number) {
-		const mesh = new Mesh(box, material);
-		mesh.position.set(x, y, z);
-		mesh.scale.set(width, height, depth);
-		station.add(mesh);
-	}
-	part(housing, 0, 1.65, 5.5, 8, 3.3, 8);
-	part(apron, 0, 1.1, 1.48, 2.2, 2.2, 0.2);
-	part(light, 0, 2.45, 1.38, 1.8, 0.12, 0.16);
-	part(light, -3.55, 2.45, 1.38, 0.18, 0.18, 0.14);
-	part(light, 3.55, 2.45, 1.38, 0.18, 0.18, 0.14);
-	part(apron, 0, 0.03, 0.1, 3.5, 0.08, 2.6);
-	const parkingLight = new PointLight('#e1fff1', 170, 42);
-	parkingLight.position.set(-3, 4, -13);
-	station.add(parkingLight);
-	const porchLight = new PointLight('#c8ffeb', 95, 32);
-	porchLight.position.set(0, 2.43, 0.95);
-	station.add(porchLight);
-	function reground() {
-		station.position.set(handoff.x, ground(handoff.x, handoff.z), handoff.z);
-	}
-	reground();
+	station.reground();
 	return {
-		group, reground,
+		group, reground: station.reground,
 		setView(active) {
 			group.visible = active;
-			if (active) loadRover();
+			if (active) loadModels();
 		},
 		setParkedRover(position, nextService) {
 			rover.visible = !!position;
@@ -198,9 +188,8 @@ export const createNightfallScene: MissionSceneFactory = (ground, refresh) => {
 			cancelAnimationFrame(animationFrame);
 			labelTexture.dispose();
 			for (const material of [cover, cavity, rail, moduleCase, indicator, label]) material.dispose();
-			housing.dispose();
-			apron.dispose();
-			light.dispose();
+			if (habitat) release(habitat);
+			station.dispose();
 		}
 	};
 };
