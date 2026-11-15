@@ -5,7 +5,7 @@ import {
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import {
-	buildVisorOptics, dustColor,
+	buildVisorOptics, dustColor, MINIMAP_COMPASS_RADIUS,
 	SWIR_DEPTH_RESPONSE_GLSL, SWIR_NOISE_GLSL,
 	type SwirHudData, type VisorMessage, type VisorReadings
 } from './optics.js';
@@ -1013,8 +1013,9 @@ export function mountTerrain(
 		routeMesh.geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
 	}
 
+	let missionScene: MissionScene | undefined;
 	const swirMissionMaterials = new Set<SwirMaterial>();
-	const missionScene = createMissionScene?.((x, z) => surfaceHeight(x, z), () => draw(), (root, albedo, surface) => {
+	function registerMissionSwir(root: Object3D, albedo: number, surface: string) {
 		root.traverse((object) => {
 			if (!(object instanceof Mesh)) return;
 			swirMissionTargets.add(object);
@@ -1027,8 +1028,13 @@ export function mountTerrain(
 				swirMaterialSetters.push(installSwirMaterialResponse(material, albedo));
 			}
 		});
-	});
-	if (missionScene) scene.add(missionScene.group);
+	}
+	function loadMissionScene(factory: MissionSceneFactory) {
+		if (missionScene) return;
+		missionScene = factory((x, z) => surfaceHeight(x, z), draw, registerMissionSwir);
+		scene.add(missionScene.group);
+		shadowDirty = true;
+	}
 	let missionView: MissionView | undefined;
 	const saltationGrains = createSaltationGrains();
 	scene.add(saltationGrains.object);
@@ -1199,7 +1205,8 @@ export function mountTerrain(
 		mapContext.strokeStyle = '#c6ffe5b8';
 		mapContext.lineWidth = 0.45;
 		mapContext.beginPath();
-		mapContext.arc(mapSize / 2, mapSize / 2, 44, 0, Math.PI * 2);
+		const compassRadius = MINIMAP_COMPASS_RADIUS * mapSize;
+		mapContext.arc(mapSize / 2, mapSize / 2, compassRadius, 0, Math.PI * 2);
 		mapContext.stroke();
 		for (let bearing = 0; bearing < 360; bearing += 15) {
 			const angle = bearing * Math.PI / 180;
@@ -1207,7 +1214,7 @@ export function mountTerrain(
 			const innerRadius = major ? 40.5 : 42.5;
 			mapContext.beginPath();
 			mapContext.moveTo(mapSize / 2 + Math.sin(angle) * innerRadius, mapSize / 2 - Math.cos(angle) * innerRadius);
-			mapContext.lineTo(mapSize / 2 + Math.sin(angle) * 44, mapSize / 2 - Math.cos(angle) * 44);
+			mapContext.lineTo(mapSize / 2 + Math.sin(angle) * compassRadius, mapSize / 2 - Math.cos(angle) * compassRadius);
 			mapContext.stroke();
 		}
 		mapContext.restore();
@@ -1218,17 +1225,19 @@ export function mountTerrain(
 		mapContext.strokeStyle = '#07130f';
 		mapContext.lineWidth = 1.5;
 		const scaleLabel = `${Math.round(scaleBarPixels * scale)} m`;
-		mapContext.strokeText(scaleLabel, 4, mapSize - 9);
-		mapContext.fillText(scaleLabel, 4, mapSize - 9);
+		const scaleX = xrSession ? 26 : 4;
+		const scaleY = mapSize - (xrSession ? 13 : 4);
+		mapContext.strokeText(scaleLabel, scaleX, scaleY - 5);
+		mapContext.fillText(scaleLabel, scaleX, scaleY - 5);
 		mapContext.strokeStyle = '#dfffee';
 		mapContext.lineWidth = 0.8;
 		mapContext.beginPath();
-		mapContext.moveTo(4, mapSize - 4);
-		mapContext.lineTo(4 + scaleBarPixels, mapSize - 4);
-		mapContext.moveTo(4, mapSize - 6);
-		mapContext.lineTo(4, mapSize - 2);
-		mapContext.moveTo(4 + scaleBarPixels, mapSize - 6);
-		mapContext.lineTo(4 + scaleBarPixels, mapSize - 2);
+		mapContext.moveTo(scaleX, scaleY);
+		mapContext.lineTo(scaleX + scaleBarPixels, scaleY);
+		mapContext.moveTo(scaleX, scaleY - 2);
+		mapContext.lineTo(scaleX, scaleY + 2);
+		mapContext.moveTo(scaleX + scaleBarPixels, scaleY - 2);
+		mapContext.lineTo(scaleX + scaleBarPixels, scaleY + 2);
 		mapContext.stroke();
 		mapContext.textAlign = 'center';
 		for (const [label, angle] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]] as const) {
@@ -1997,6 +2006,7 @@ export function mountTerrain(
 	}, options);
 	canvas.addEventListener('lostpointercapture', () => { drag = undefined; }, options);
 
+	if (createMissionScene) loadMissionScene(createMissionScene);
 	const observer = new ResizeObserver(resize);
 	observer.observe(canvas);
 	resize();
@@ -2118,6 +2128,7 @@ export function mountTerrain(
 		setStorm: (enabled: boolean) => setDust(Number(enabled)),
 		setDust,
 		setWind,
+		loadMissionScene,
 		setMissionView,
 		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
 		getHeading: () => compass(missionView?.inCabin ? roverYaw : camera.rotation.y),

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { asset, resolve } from '$app/paths';
-	import { goto } from '$app/navigation';
 	import { createAssistant, placesFrom, type Assistant, type AssistantState } from '#lib/jarvis/index.js';
 	import { BUTTON_ZOOM_STEP, MAP_MAX_ZOOM, MAP_MIN_ZOOM, clampMapZoom, voiceMapZoom } from '#lib/jarvis/visor-control.js';
 	import { createMissionVoice } from '#lib/jarvis/mission-voice.js';
@@ -9,7 +8,10 @@
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
 	import '../../routes/visor.css';
-	let { ares01 = false, ares02 = false }: { ares01?: boolean; ares02?: boolean } = $props();
+	let { ares01: routeAres01 = false, ares02: routeAres02 = false }: { ares01?: boolean; ares02?: boolean } = $props();
+	let vrMission = $state<keyof typeof missionBriefings>();
+	const ares01 = $derived(routeAres01 || vrMission === 'ares01');
+	const ares02 = $derived(routeAres02 || vrMission === 'ares02');
 	import MissionScreen from '#lib/missions/MissionScreen.svelte';
 	import { missionBriefings } from '#lib/missions/mission-briefings.js';
 	import Ares02 from '#lib/missions/ares02/Ares02.svelte';
@@ -33,7 +35,6 @@
 	let vrAudioPrepared = false;
 	let preparingVrAudio = $state(false);
 	let vrAudioNotice = $state('');
-	let visor: HTMLElement;
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
 	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
@@ -254,9 +255,17 @@
 		terrain?.setMapZoom(mapZoom);
 	}
 
-	async function openVrMission(path: '/missions/ares01' | '/missions/ares02') {
-		await toggleVR();
-		if (!inVR) await goto(resolve(path) + sceneQuery);
+	function openVrMission(id: keyof typeof missionBriefings) {
+		if (!terrain || ares01 || ares02) return;
+		terrain.loadMissionScene(id === 'ares02' ? createNightfallScene : createMissionScene);
+		missionVoice ??= createMissionVoice(new URLSearchParams(sceneQuery).get('tts') === 'browser');
+		missionVoice.unlock();
+		selectDisplayMode('visible');
+		vrMission = id;
+	}
+
+	function focusMissionScene() {
+		if (!inVR) canvas.focus();
 	}
 
 	function getVrMenu(): XrMenuPage {
@@ -276,11 +285,10 @@
 			return {
 				title: 'Select a mission',
 				items: [
-					{ id: 'ares01', label: 'ARES-01 · The Last Sample', run: () => { void openVrMission('/missions/ares01'); } },
-					{ id: 'ares02', label: 'ARES-02 · Nightfall Protocol', run: () => { void openVrMission('/missions/ares02'); } },
+					{ id: 'ares01', label: 'ARES-01 · The Last Sample', run: () => openVrMission('ares01') },
+					{ id: 'ares02', label: 'ARES-02 · Nightfall Protocol', run: () => openVrMission('ares02') },
 					back
-				],
-				hint: 'Select a mission, then choose Enter VR on its briefing page'
+				]
 			};
 		}
 		if (vrPage === 'map') {
@@ -629,7 +637,7 @@ if (mission || nightfall || ares02) return;
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
-<main class="visor" bind:this={visor} class:immersive={inVR}>
+<main class="visor" class:immersive={inVR}>
 	<canvas class="terrain" bind:this={canvas} tabindex="0" inert={!!missionScreen && !inVR}
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
@@ -690,8 +698,8 @@ if (mission || nightfall || ares02) return;
 				<Ares02 bind:this={nightfallControls} immersive={inVR} ready={!!terrain} onview={(view) => { nightfall = view; }}
 					ondialogue={playNightfallDialogue} onstart={startMission} onpause={pauseMission}
 					getPosition={() => terrain?.getPosition()} getHeading={() => terrain?.getHeading()}
-					focusScene={() => canvas.focus()} />
-				<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
+					focusScene={focusMissionScene} />
+				<a class="hud-action" data-sveltekit-reload={vrMission ? '' : undefined} href={resolve('/') + sceneQuery}>Free exploration</a>
 			{:else if ares01}
 			<Ares01 bind:this={aresControls} immersive={inVR} ready={!!terrain} onview={(view) => {
 				mission = view;
@@ -699,8 +707,8 @@ if (mission || nightfall || ares02) return;
 				onstart={startMission}
 				onpause={pauseMission}
 				getPosition={() => terrain?.getPosition()}
-				focusScene={() => canvas.focus()} />
-			<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
+				focusScene={focusMissionScene} />
+			<a class="hud-action" data-sveltekit-reload={vrMission ? '' : undefined} href={resolve('/') + sceneQuery}>Free exploration</a>
 			{/if}
 			{#if vrSupported}
 				<button type="button" class="hud-action visor-exit" aria-label={inVR ? 'Exit VR' : undefined} disabled={!terrain || vrBusy} onclick={toggleVR}>

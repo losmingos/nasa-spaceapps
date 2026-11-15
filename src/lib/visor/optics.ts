@@ -9,6 +9,9 @@ const stormNight = new Color('#101017');
 const stormDusk = new Color('#67402f');
 const stormDay = new Color('#a67755');
 
+// Fraction of the minimap's width from its center to the compass ring.
+export const MINIMAP_COMPASS_RADIUS = 44 / 96;
+
 export function dustColor(color: Color, twilight: number, daylight: number) {
 	return color.copy(stormNight).lerp(stormDusk, twilight).lerp(stormDay, daylight);
 }
@@ -131,13 +134,21 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			ctx.stroke();
 		};
 
-		panel(164, 408, 210, 194);
-		ctx.textAlign = 'left';
+		const mapSize = 170;
+		const mapX = 269;
+		const mapY = 519;
+		ctx.save();
+		ctx.beginPath();
+		ctx.arc(mapX, mapY, mapSize * MINIMAP_COMPASS_RADIUS, 0, Math.PI * 2);
+		ctx.clip();
+		ctx.fillStyle = '#071714eb';
+		ctx.fillRect(mapX - mapSize / 2, mapY - mapSize / 2, mapSize, mapSize);
+		ctx.drawImage(map, mapX - mapSize / 2, mapY - mapSize / 2, mapSize, mapSize);
+		ctx.restore();
+		ctx.strokeStyle = '#65998c';
+		ctx.lineWidth = 2;
+		ctx.stroke();
 		ctx.textBaseline = 'middle';
-		ctx.font = '600 22px system-ui';
-		ctx.fillStyle = '#c6ffe5';
-		ctx.fillText('MAP', 180, 432);
-		ctx.drawImage(map, 195, 448, 148, 148);
 
 		const readouts = message.readouts ?? [
 			{ value: readings.o2Percent.toFixed(1), unit: '% O₂' },
@@ -172,11 +183,13 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			});
 		}
 		if (showControlsHint) {
-			panel(414, 485, 196, 47);
 			ctx.textAlign = 'center';
-			ctx.font = '600 22px system-ui';
-			ctx.fillStyle = '#c6ffe5';
-			ctx.fillText('A · Controls', width / 2, 509);
+			ctx.font = '500 18px system-ui';
+			ctx.lineWidth = 3;
+			ctx.strokeStyle = '#071714eb';
+			ctx.fillStyle = '#b5dfd4';
+			ctx.strokeText('A · Controls', width / 2, 568);
+			ctx.fillText('A · Controls', width / 2, 568);
 		}
 		drawSwirHud(ctx, width, height, swir, false);
 		helmetTexture.needsUpdate = true;
