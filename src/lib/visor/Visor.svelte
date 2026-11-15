@@ -59,8 +59,11 @@
 	let dangerRisk = $state(0);
 	let dangerMessage = $state<VisorMessage>();
 	let systemAlert = $state<VisorMessage>();
-	let oxygenAlerted = false;
+	let oxygenAlertLevel = 0;
+	let oxygenAlertTimer: ReturnType<typeof setTimeout> | undefined;
+	const oxygenAlertTitles = ['Low oxygen', 'Critical oxygen', 'Oxygen emergency'];
 	let coldAlerted = false;
+	let coldAlertTimer: ReturnType<typeof setTimeout> | undefined;
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
 
 	let mission = $state.raw<Ares01View>();
@@ -129,25 +132,49 @@
 		const currentTemp = voice?.telemetry.air_temp_c;
 		if (typeof oxygen === 'number') {
 			if (oxygen >= 35) {
-				oxygenAlerted = false;
-				if (systemAlert?.title === 'Low oxygen') systemAlert = undefined;
+				oxygenAlertLevel = 0;
+				if (oxygenAlertTitles.includes(systemAlert?.title ?? '')) {
+					systemAlert = undefined;
+					clearTimeout(oxygenAlertTimer);
+					oxygenAlertTimer = undefined;
+				}
 			}
-			else if (oxygen < 30 && !oxygenAlerted) {
-				oxygenAlerted = true;
-				const text = `Oxygen reserve is below thirty percent. Current reserve: ${Math.round(oxygen)} percent. Return to the rover or habitat now.`;
-				systemAlert = { title: 'Low oxygen', detail: text, kind: 'danger' };
-				assistant?.announce(text);
+			else {
+				const level = oxygen < 15 ? 3 : oxygen < 20 ? 2 : oxygen < 30 ? 1 : 0;
+				if (level > oxygenAlertLevel) {
+					oxygenAlertLevel = level;
+					const title = level === 3 ? 'Oxygen emergency' : level === 2 ? 'Critical oxygen' : 'Low oxygen';
+					const text = level === 3
+						? `Oxygen emergency. Less than fifteen percent remains. Return to shelter immediately.`
+						: level === 2
+							? `Critical oxygen. Less than twenty percent remains. Return to shelter immediately.`
+							: `Low oxygen. Less than thirty percent remains. Return to the rover or habitat now.`;
+					systemAlert = { title, kind: 'danger' };
+					clearTimeout(oxygenAlertTimer);
+					oxygenAlertTimer = setTimeout(() => {
+						if (systemAlert?.title === title) systemAlert = undefined;
+						oxygenAlertTimer = undefined;
+					}, 6000);
+					assistant?.announce(text);
+				}
 			}
 		}
 		const extremeCold = currentTemp !== null && currentTemp !== undefined && currentTemp < -60;
 		if (!extremeCold && currentTemp !== null && currentTemp !== undefined) {
 			coldAlerted = false;
+			clearTimeout(coldAlertTimer);
+			coldAlertTimer = undefined;
 			if (systemAlert?.title === 'Cold approaching') systemAlert = undefined;
 		}
-		else if (!coldAlerted) {
+		else if (extremeCold && !coldAlerted) {
 			coldAlerted = true;
 			const text = `Cold approaching. Outside air temperature is below minus sixty degrees Celsius. Monitor suit heating and power.`;
-			if (!systemAlert || systemAlert.title !== 'Low oxygen') systemAlert = { title: 'Cold approaching', kind: 'warning' };
+			if (!oxygenAlertTitles.includes(systemAlert?.title ?? '')) systemAlert = { title: 'Cold approaching', kind: 'warning' };
+			clearTimeout(coldAlertTimer);
+			coldAlertTimer = setTimeout(() => {
+				if (systemAlert?.title === 'Cold approaching') systemAlert = undefined;
+				coldAlertTimer = undefined;
+			}, 6000);
 			assistant?.announce(text);
 		}
 	});
@@ -665,6 +692,8 @@ if (mission || nightfall || ares02) return;
 			missionVoice?.dispose();
 			clearInterval(clockTimer);
 			clearTimeout(noticeTimer);
+			clearTimeout(oxygenAlertTimer);
+			clearTimeout(coldAlertTimer);
 			terrain?.dispose();
 			terrain = undefined;
 		};
