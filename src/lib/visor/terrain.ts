@@ -38,6 +38,7 @@ interface XrControls {
 	setClockInput: (name: string, value: string) => void;
 	onMenuOpen: () => void;
 	getMenu: () => XrMenuPage;
+	getMissionScreen: () => 'briefing' | 'complete' | undefined;
 }
 
 export interface GeologyData {
@@ -1614,12 +1615,23 @@ export function mountTerrain(
 		flashlight.castShadow = false;
 		hudCamera.add(flashlight, flashlight.target);
 		let lastHud = -Infinity;
+		let missionScreen = controls.getMissionScreen();
 		let menuPressed = false;
-		let menuOpen = false;
+		let menuOpen = !!missionScreen;
 		let displayedMenu: XrMenuPage | undefined;
 		let lightPressed = false;
 		let swirPressed = false;
 		let talkPressed = false;
+		const setMenu = (show: boolean) => {
+			menuOpen = show;
+			displayedMenu = undefined;
+			lastHud = -Infinity;
+			if (show) {
+				ui.end();
+				velocityX = velocityZ = 0;
+				controls.onMenuOpen();
+			}
+		};
 		const eventPoint = (event: XRInputSourceEvent) => {
 			const space = renderer.xr.getReferenceSpace();
 			if (space && session.visibilityState === 'visible') return pointer(event.frame, event.inputSource, space);
@@ -1635,7 +1647,7 @@ export function mountTerrain(
 					const item = displayedMenu && xrMenuItemAt(displayedMenu, point);
 					if (item && !item.disabled) {
 						item.run();
-						if (item.close) menuOpen = false;
+						if (item.close) setMenu(false);
 						displayedMenu = undefined;
 					}
 				} else {
@@ -1699,12 +1711,10 @@ export function mountTerrain(
 			const talkDown = right?.buttons[1]?.pressed ?? false;
 			const active = session.visibilityState === 'visible';
 			if (active) {
-				if (menuDown && !menuPressed) {
-					menuOpen = !menuOpen;
-					displayedMenu = undefined;
-					lastHud = -Infinity;
-					if (menuOpen) controls.onMenuOpen();
-				}
+				const nextScreen = controls.getMissionScreen();
+				if (nextScreen && nextScreen !== missionScreen) setMenu(true);
+				else if (!nextScreen && menuDown && !menuPressed) setMenu(!menuOpen);
+				missionScreen = nextScreen;
 				if (lightDown && !lightPressed) controls.onToggleFlashlight();
 				if (swirDown && !swirPressed) controls.onToggleSwir();
 				if (talkDown && !talkPressed) ui.setGripTalking(true);

@@ -52,7 +52,10 @@
 		const next = act(run, action);
 		if (next === run) return;
 		run = next;
-		void tick().then(focusScene);
+		if (next.stage === 'delivered') {
+			open = false;
+			if (document.pointerLockElement) document.exitPointerLock();
+		} else void tick().then(focusScene);
 	}
 
 	function togglePause() {
@@ -80,7 +83,7 @@
 		if (!finished) items.push({ id: 'pause', label: paused ? 'Resume mission' : 'Pause mission', run: togglePause, close: paused });
 		items.push(
 			{ id: 'restart', label: 'Restart mission', run: () => start(true), close: true },
-			{ id: 'leave', label: 'Exit mission', run: () => start(false), close: true }
+			{ id: 'leave', label: 'Exit mission', run: () => start(false) }
 		);
 		return items;
 	}
@@ -136,22 +139,15 @@
 
 <svelte:window onkeydown={keyboard} />
 
-<MissionControls {immersive} id="nightfall-options" menuLabel="ARES-02" running={!!running} {open}
-	onmenu={() => { open = !open; }} bind:menubutton={menuButton}
-	actions={controls} actionLabels={labels} {paused} onact={perform}
-	testing={testing && running && !finished} {fast} ontest={toggleTestSpeed}>
-	{#if !running}
-		<span>Nightfall Protocol · Simulation</span>
-		<p>Deliver the spare module to Bravo. WASD to drive and walk · Arrow keys to look · E / 1 / 2 to act · Hold Space to talk to SARA in English.</p>
+{#if running && !finished}
+	<MissionControls {immersive} id="nightfall-options" menuLabel="ARES-02" running={!!running} {open}
+		onmenu={() => { open = !open; }} bind:menubutton={menuButton}
+		actions={controls} actionLabels={labels} {paused} onact={perform}
+		{testing} {fast} ontest={toggleTestSpeed}>
 		<div class="hud-actions">
-			<button class="hud-action" disabled={!ready} onclick={() => start(true)}>Start mission [I]</button>
-		</div>
-	{:else}
-		{#if finished}<p>{snapshot.text}</p>{/if}
-		<div class="hud-actions">
-			{#if !finished}<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'} [P]</button>{/if}
+			<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'}{#if !immersive} [P]{/if}</button>
 			<button class="hud-action" onclick={() => start(true)}>Restart</button>
 			<button class="hud-action" onclick={() => start(false)}>Exit</button>
 		</div>
-	{/if}
-</MissionControls>
+	</MissionControls>
+{/if}
