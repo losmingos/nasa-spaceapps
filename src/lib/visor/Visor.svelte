@@ -9,6 +9,8 @@
 	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
 	import '../../routes/visor.css';
 	let { ares01 = false, ares02 = false }: { ares01?: boolean; ares02?: boolean } = $props();
+	import MissionScreen from '#lib/missions/MissionScreen.svelte';
+	import { missionBriefings } from '#lib/missions/mission-briefings.js';
 	import Ares02 from '#lib/missions/ares02/Ares02.svelte';
 	import type { NightfallView } from '#lib/missions/ares02/visor.js';
 	import { createNightfallScene } from '#lib/missions/ares02/scene.js';
@@ -17,6 +19,7 @@
 	import Ares01 from '#lib/missions/ares01/Ares01.svelte';
 	import type { Ares01Dialogue } from '#lib/missions/ares01/ares01.js';
 	import { createMissionScene, missionContext, missionMessage, missionTerrainView, type Ares01View } from '#lib/missions/ares01/visor.js';
+	import VisorIcon from './VisorIcon.svelte';
 	import type { XrMenuItem, XrMenuPage } from './xr-controls.js';
 	import type { VisorMessage } from '#lib/visor/optics.js';
 
@@ -26,6 +29,7 @@
 	let terrain = $state<ReturnType<typeof mountTerrain>>();
 	let vrSupported = $state(false);
 	let vrBusy = $state(false);
+	let visor: HTMLElement;
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
 	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
@@ -52,6 +56,11 @@
 
 	let mission = $state.raw<Ares01View>();
 	let nightfall = $state.raw<NightfallView>();
+	const briefing = $derived(ares02 ? missionBriefings.ares02 : ares01 ? missionBriefings.ares01 : undefined);
+	const missionComplete = $derived(mission?.cue.id === 'closed' || nightfall?.state === 'MISSION_CLOSED');
+	const missionScreen = $derived(briefing
+		? missionComplete ? 'complete' : !mission && !nightfall ? 'briefing' : undefined
+		: undefined);
 	let sceneQuery = $state('');
 	let missionVoice: ReturnType<typeof createMissionVoice> | undefined;
 	let pendingMissionLine: string | undefined;
@@ -218,6 +227,10 @@
 		return (ares02 ? nightfallControls?.getVrControls() : aresControls?.getVrControls()) ?? [];
 	}
 
+	function runMissionScreenAction(id: 'start' | 'restart' | 'leave') {
+		getMissionControls().find((item) => item.id === id)?.run();
+	}
+
 	function toggleFlashlight() {
 		flashlightOn = !flashlightOn;
 		terrain?.setFlashlight(flashlightOn);
@@ -234,6 +247,17 @@
 
 	function getVrMenu(): XrMenuPage {
 		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
+		if (briefing && missionScreen) {
+			return {
+				title: briefing.id + ' · ' + (missionComplete ? 'Mission complete' : briefing.title),
+				lines: [...(missionComplete ? briefing.debrief : briefing.briefing)],
+				items: [
+					...getMissionControls().map((item) => item.id === 'leave' ? { ...item, label: 'Back to briefing' } : item),
+					{ id: 'exit-vr', label: 'Exit VR', run: () => { void toggleVR(); } }
+				],
+				hint: 'Point and press trigger to select'
+			};
+		}
 		if (vrPage === 'help') {
 			return {
 				title: 'Touch controls',
@@ -249,12 +273,7 @@
 		}
 		if (vrPage === 'mission') {
 			if (ares02) return { title: 'ARES-02 · Nightfall Protocol', items: [...getMissionControls(), back] };
-			return { title: 'ARES-01 · The Last Sample', items: [
-				...(aresControls?.getVrControls() ?? []).map((item) => ({
-					...item,
-					close: item.close || ['start', 'restart', 'leave'].includes(item.id)
-				})), back
-			], hint: mission?.log && mission.cue.id === 'closed' ? mission.log.progress : undefined };
+			return { title: 'ARES-01 · The Last Sample', items: [...getMissionControls(), back] };
 		}
 
 		if (!mission && !nightfall && !ares02 && (vrPage === 'sol' || vrPage === 'time')) {
@@ -330,8 +349,12 @@
 					onToggleFlashlight: toggleFlashlight,
 					onMenuOpen: () => { vrPage = 'main'; },
 					getMenu: getVrMenu,
-					getAction: () => getMissionControls().find((item) => item.close && item.id !== 'pause')?.label,
-					getVoiceLabel: () => voiceLabel
+					visor,
+					setClockInput: (name, value) => {
+						if (name === 'sol') setClock(Number(value), clock);
+						else setClock(sol, value);
+					},
+					getMissionScreen: () => missionScreen
 				});
 				missionVoice?.unlock();
 				void assistant?.unlock().catch((cause) => {
@@ -541,8 +564,8 @@ if (mission || nightfall || ares02) return;
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} onblur={voiceUp} />
 
-<main class="visor">
-	<canvas class="terrain" bind:this={canvas} tabindex="0"
+<main class="visor" bind:this={visor} class:immersive={inVR}>
+	<canvas class="terrain" bind:this={canvas} tabindex="0" inert={!!missionScreen && !inVR}
 		aria-label="First-person view of Jezero's western delta"
 		aria-describedby="scene-input"></canvas>
 	<p class="sr-only" id="scene-input">Click the scene or press Enter to capture the pointer.
@@ -614,34 +637,53 @@ if (mission || nightfall || ares02) return;
 			<a class="hud-action" href={resolve('/') + sceneQuery}>Free exploration</a>
 			{/if}
 			{#if vrSupported}
-				<button type="button" class="hud-action" disabled={!terrain || vrBusy} onclick={toggleVR}>
-					{inVR ? 'Exit VR' : vrBusy ? 'Entering VR…' : 'Enter VR'}
+				<button type="button" class="hud-action visor-exit" aria-label={inVR ? 'Exit VR' : undefined} disabled={!terrain || vrBusy} onclick={toggleVR}>
+					{#if inVR}<VisorIcon name="exit" />{:else if vrBusy}Entering VR…{:else}Enter VR{/if}
 				</button>
 			{/if}
-			<button type="button" class="hud-action" aria-pressed={flashlightOn} aria-keyshortcuts="F"
-				disabled={!terrain} onclick={toggleFlashlight}>
-				{flashlightOn ? 'Flashlight on' : 'Flashlight'} <kbd>F</kbd>
-			</button>
-			<button type="button" class="hud-action voice-control"
-					aria-label="SARA. Hold to talk and release to send"
-					aria-keyshortcuts="Space"
-					data-recording={voiceStatus === 'recording'}
-					onpointerdown={(event) => {
-						if (event.button !== 0 || !event.isPrimary) return;
-						event.currentTarget.setPointerCapture(event.pointerId);
-						void voiceDown('pointer');
-					}}
-					onpointerup={() => { if (voiceInput === 'pointer') voiceUp(); }}
-					onlostpointercapture={() => { if (voiceInput === 'pointer') voiceUp(); }}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-						stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<rect x="9" y="3" width="6" height="12" rx="3" />
-						<path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6" />
-					</svg>
-					<span>SARA</span><kbd>Space</kbd><span class="touch-hint" aria-hidden="true">Hold</span>
+			{#if inVR}
+				<div class="visor-map-controls">
+					<button type="button" class="hud-action" aria-label="Zoom in on minimap" disabled={!terrain || mapZoom >= 4}
+						onclick={() => { mapZoom = Math.min(4, mapZoom + 0.5); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="plus" /></button>
+					<button type="button" class="hud-action" aria-label="Zoom out on minimap" disabled={!terrain || mapZoom <= 0.5}
+						onclick={() => { mapZoom = Math.max(0.5, mapZoom - 0.5); terrain?.setMapZoom(mapZoom); }}><VisorIcon name="minus" /></button>
+				</div>
+			{/if}
+			<div class="visor-suit-controls">
+				<button type="button" class="hud-action" aria-label="Flashlight" aria-pressed={flashlightOn} aria-keyshortcuts="F"
+					disabled={!terrain} onclick={toggleFlashlight}>
+					{#if inVR}<VisorIcon name="flashlight" />{:else}{flashlightOn ? 'Flashlight on' : 'Flashlight'}{/if} <kbd>{inVR ? 'B' : 'F'}</kbd>
 				</button>
+				<button type="button" class="hud-action voice-control"
+						aria-label="SARA. Hold to talk and release to send"
+						aria-keyshortcuts="Space"
+						data-recording={voiceStatus === 'recording'}
+						onpointerdown={(event) => {
+							if (event.button !== 0 || !event.isPrimary) return;
+							event.currentTarget.setPointerCapture(event.pointerId);
+							void voiceDown('pointer');
+						}}
+						onpointerup={() => { if (voiceInput === 'pointer') voiceUp(); }}
+						onlostpointercapture={() => { if (voiceInput === 'pointer') voiceUp(); }}>
+						<VisorIcon name="mic" />
+						<span>SARA</span><kbd>{inVR ? 'Hold grip' : 'Space'}</kbd>
+						{#if !inVR}<span class="touch-hint" aria-hidden="true">Hold</span>{/if}
+					</button>
+			</div>
 		</div>
 	</div>
+
+	{#if briefing && missionScreen && !inVR}
+		{#key missionScreen}
+			<MissionScreen
+				mission={briefing.id + ' · ' + (missionComplete ? briefing.title : 'Mission briefing')}
+				title={missionComplete ? 'Mission complete' : briefing.title}
+				paragraphs={missionComplete ? briefing.debrief : briefing.briefing}
+				complete={missionComplete} ready={!!terrain} unavailable={notice === 'error'}
+				onprimary={() => runMissionScreenAction(missionComplete ? 'restart' : 'start')}
+				onback={() => runMissionScreenAction('leave')} />
+		{/key}
+	{/if}
 
 	{#if !mission && !nightfall && !ares02}
 		<div class="mission-switch">
@@ -666,11 +708,11 @@ if (mission || nightfall || ares02) return;
 					<div class="control-section">
 						<h2>Mars time</h2>
 						<label>Sol (MSD)
-							<input type="number" min="0" max="99999" step="1" value={sol}
+							<input name="sol" type="number" min="0" max="99999" step="1" value={sol}
 								onchange={(event) => setClock(event.currentTarget.valueAsNumber, clock)} />
 						</label>
 						<label>Local time (LMST)
-							<input type="time" value={clock}
+							<input name="time" type="time" value={clock}
 								onchange={(event) => setClock(sol, event.currentTarget.value)} />
 						</label>
 						<button type="button" onclick={() => { now = Date.now(); selectedSol = undefined; }}>
@@ -712,7 +754,7 @@ if (mission || nightfall || ares02) return;
 			<button type="button" class="scene-controls-trigger" bind:this={controlsButton}
 				aria-expanded={controlsVisible} aria-controls="scene-controls-panel" aria-keyshortcuts="H"
 				onclick={() => { controlsVisible = !controlsVisible; }}>
-				Controls <kbd>H</kbd>
+				{#if inVR}<VisorIcon name="settings" />{/if} Controls{#if !inVR} <kbd>H</kbd>{/if}
 			</button>
 		</div>
 	{/if}

@@ -1,8 +1,7 @@
 import {
-	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, ShaderMaterial,
-	SRGBColorSpace,
-	Vector2, Vector3, WebGLRenderTarget,
-	type Camera, type PerspectiveCamera, type Scene, type WebGLRenderer
+	CanvasTexture, Color, DepthTexture, LinearFilter, HalfFloatType, Matrix4, ShaderMaterial,
+	Quaternion, Vector2, Vector3, Vector4, WebGLRenderTarget,
+	PerspectiveCamera, type Object3D, type Scene, type WebGLRenderer
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
@@ -94,38 +93,6 @@ export function drawSwirHud(context: CanvasRenderingContext2D, width: number, he
 	context.restore();
 }
 
-export function mountHeadLockedHud(camera: Camera) {
-	const canvas = document.createElement('canvas');
-	canvas.width = 1024;
-	canvas.height = 512;
-	const context = canvas.getContext('2d')!;
-	const texture = new CanvasTexture(canvas);
-	texture.colorSpace = SRGBColorSpace;
-	texture.minFilter = LinearFilter;
-	texture.generateMipmaps = false;
-	const geometry = new PlaneGeometry(1.7, 0.85);
-	const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
-		fog: false, toneMapped: false });
-	const plane = new Mesh(geometry, material);
-	plane.position.set(0, -0.04, -1.8);
-	plane.renderOrder = 999;
-	camera.add(plane);
-	return {
-		plane,
-		redraw(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void) {
-			context.clearRect(0, 0, canvas.width, canvas.height);
-			paint(context, canvas.width, canvas.height);
-			texture.needsUpdate = true;
-		},
-		dispose() {
-			camera.remove(plane);
-			geometry.dispose();
-			material.dispose();
-			texture.dispose();
-		}
-	};
-}
-
 export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement,
 	getNotice: () => string, getClock: () => string, getMessage: () => VisorMessage, getSwir: () => SwirHudData,
 	getReadings: () => VisorReadings) {
@@ -140,7 +107,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 	let displayDirty = true;
 	let lastDisplayAt = 0;
 	const DISPLAY_REFRESH_MS = 400;
-	function drawDisplay() {
+	function drawDisplay(swirOverride?: SwirHudData) {
 		const w = displayWidth, h = displayHeight;
 		context.clearRect(0, 0, w, h);
 		const edge = Math.max(40, Math.min(180, w * 0.12));
@@ -210,7 +177,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		}
 		context.restore();
 
-		const swir = getSwir();
+		const swir = swirOverride ?? getSwir();
 		context.save();
 		drawHudTime(context, w, h - Math.max(40, h * 0.045), getClock(), swir.active);
 		context.restore();
@@ -225,6 +192,13 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		depthTexture: new DepthTexture(1, 1)
 	});
 	const size = new Vector2();
+	const xrTarget = new WebGLRenderTarget(1, 1, { type: HalfFloatType, depthTexture: new DepthTexture(1, 1) });
+	const worldRotation = new Quaternion();
+	const inverseRotation = new Quaternion();
+	const eyePosition = new Vector3();
+	const eyeSun = new Vector3();
+	const eyePhobos = new Vector3();
+	const eyeDeimos = new Vector3();
 	const material = new ShaderMaterial({
 		depthTest: false,
 		depthWrite: false,
@@ -246,6 +220,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			phobosRadius: { value: 0 },
 			deimosRadius: { value: 0 },
 			viewScale: { value: new Vector2() },
+			viewOffset: { value: new Vector2() },
+			controls: { value: null },
+			controlFromEye: { value: new Matrix4() },
+			immersive: { value: false },
 			twilight: { value: 1 },
 			daylight: { value: 1 },
 			storm: { value: 0 },
@@ -284,6 +262,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			uniform float phobosRadius;
 			uniform float deimosRadius;
 			uniform vec2 viewScale;
+			uniform vec2 viewOffset;
+			uniform sampler2D controls;
+			uniform mat4 controlFromEye;
+			uniform bool immersive;
 			uniform float twilight;
 			uniform float daylight;
 			uniform float storm;
@@ -378,10 +360,10 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				float r2 = dot(lens, lens) / 1.7569;
 
 				// Inverse radial mapping. Preserve central scale and compress peripheral rays.
-				vec2 sampleUV = 0.5 + 0.5 * p * (0.965 + 0.034 * r2);
+				vec2 sampleUV = immersive ? imageUV : 0.5 + 0.5 * p * (0.965 + 0.034 * r2);
 				vec4 world = texture2D(terrain, sampleUV);
 				vec3 sceneColor = world.rgb / max(world.a, 0.001);
-				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale, -1.0));
+				vec3 ray = normalize(vec3((sampleUV * 2.0 - 1.0) * viewScale + viewOffset, -1.0));
 
 				vec3 worldRay = normalize((eyeRotation * vec4(ray, 0.0)).xyz);
 				float skyHeight = smoothstep(0.0, 0.55, worldRay.y);
@@ -428,48 +410,58 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 				transmitted *= 1.0 - 0.10 * smoothstep(0.35, 1.0, r2);
 
 				if (!cabinView) {
-				// A broad reflection catches the upper shoulder of the glass as the head turns.
-				vec2 glass = (p - sunInView) * vec2(clamp(aspect, 0.85, 1.9), 1.0);
-				float flare = exp(-dot(glass, glass) * 2.1) * reflection;
-				float grazing = 0.18 + 0.82 * smoothstep(0.18, 1.0, r2);
-				float arcY = 1.13 - 0.40 * (p.x + 0.16) * (p.x + 0.16);
-				float arc = exp(-pow((p.y - arcY) / 0.14, 2.0));
-				float sideLight = smoothstep(0.05, 0.98, abs(p.x)) * smoothstep(-0.65, 0.9, p.y);
-				vec3 coatedGlass = mix(vec3(0.54, 0.38, 0.23), vec3(0.24), swirMode);
-				transmitted += coatedGlass * (flare * grazing * 0.55
-					+ arc * sideLight * (0.06 + reflection * 0.5));
-				// Inner-surface projection: continuous barrel curvature, not tilted HTML cards.
-				vec2 hudUV = 0.5 + 0.5 * p * (1.0 + 0.085 * r2);
-				hudUV.y += 0.022 * p.x * p.x;
-				vec3 ink = emission(hudUV);
-				// Faint displaced reflection from the second surface of the laminated visor.
-				vec3 ghost = vec3(0.0);
-				if (swirMode < 0.5 && reflection > 0.001) ghost = emission(hudUV + displayPixel * vec2(2.4, -1.6));
-				float coupling = 0.78 - 0.18 * smoothstep(0.35, 1.0, r2);
-				transmitted += (ink * 0.72 + ghost * 0.045) * coupling;
-				// One continuous oval: no joined brow/cheek curves or squared corners.
-				// A slightly fuller ellipse preserves peripheral vision on wide screens.
-				vec2 aperture = vec2(1.025, 0.965);
-				vec2 oval = abs((p - vec2(0.0, 0.008)) / aperture);
-				float exponent = 2.4;
-				float radius = pow(pow(oval.x, exponent) + pow(oval.y, exponent), 1.0 / exponent);
-				// Normalize the implicit curve gradient for a consistent gasket thickness.
-				vec2 gradient = pow(max(oval, vec2(0.0001)), vec2(exponent - 1.0))
-					* pow(max(radius, 0.0001), 1.0 - exponent) / aperture;
-				float rim = (radius - 1.0) / max(length(gradient / vec2(aspect, 1.0)), 0.001);
-				float padding = smoothstep(-0.012, 0.014, rim);
-				float innerShadow = exp(-max(-rim, 0.0) * 33.0);
-				transmitted *= 1.0 - 0.28 * innerShadow;
-				float lip = exp(-pow((rim - 0.015) / 0.010, 2.0));
-				float groove = exp(-pow((rim - 0.037) / 0.008, 2.0));
-				float rubber = exp(-pow((rim - 0.057) / 0.031, 2.0));
-				float light = 0.44 + 0.56 * exp(-abs(p.x - sunInView.x) * 1.6);
-				light *= mix(0.7, 1.0, smoothstep(-1.0, 1.0, p.y));
-				vec3 lining = vec3(0.012, 0.011, 0.010);
-				lining += light * (vec3(0.082, 0.066, 0.052) * lip
-					+ vec3(0.029, 0.025, 0.019) * rubber);
-				lining *= 1.0 - 0.48 * groove;
-				transmitted = mix(transmitted, lining, padding);
+					// A broad reflection catches the upper shoulder of the glass as the head turns.
+					vec2 glass = (p - sunInView) * vec2(clamp(aspect, 0.85, 1.9), 1.0);
+					float flare = exp(-dot(glass, glass) * 2.1) * reflection;
+					float grazing = 0.18 + 0.82 * smoothstep(0.18, 1.0, r2);
+					float arcY = 1.13 - 0.40 * (p.x + 0.16) * (p.x + 0.16);
+					float arc = exp(-pow((p.y - arcY) / 0.14, 2.0));
+					float sideLight = smoothstep(0.05, 0.98, abs(p.x)) * smoothstep(-0.65, 0.9, p.y);
+					vec3 coatedGlass = mix(vec3(0.54, 0.38, 0.23), vec3(0.24), swirMode);
+					transmitted += coatedGlass * (flare * grazing * 0.55
+						+ arc * sideLight * (0.06 + reflection * 0.5));
+					// Inner-surface projection: continuous barrel curvature, not tilted HTML cards.
+					vec2 hudUV = 0.5 + 0.5 * p * (1.0 + 0.085 * r2);
+					hudUV.y += 0.022 * p.x * p.x;
+					vec3 ink = emission(hudUV);
+					// Faint displaced reflection from the second surface of the laminated visor.
+					vec3 ghost = vec3(0.0);
+					if (swirMode < 0.5 && reflection > 0.001) ghost = emission(hudUV + displayPixel * vec2(2.4, -1.6));
+					float coupling = 0.78 - 0.18 * smoothstep(0.35, 1.0, r2);
+					transmitted += (ink * 0.72 + ghost * 0.045) * coupling;
+					// One continuous oval: no joined brow/cheek curves or squared corners.
+					// A slightly fuller ellipse preserves peripheral vision on wide screens.
+					vec2 aperture = vec2(1.025, 0.965);
+					vec2 oval = abs((p - vec2(0.0, 0.008)) / aperture);
+					float exponent = 2.4;
+					float radius = pow(pow(oval.x, exponent) + pow(oval.y, exponent), 1.0 / exponent);
+					// Normalize the implicit curve gradient for a consistent gasket thickness.
+					vec2 gradient = pow(max(oval, vec2(0.0001)), vec2(exponent - 1.0))
+						* pow(max(radius, 0.0001), 1.0 - exponent) / aperture;
+					float rim = (radius - 1.0) / max(length(gradient / vec2(aspect, 1.0)), 0.001);
+					float padding = smoothstep(-0.012, 0.014, rim);
+					float innerShadow = exp(-max(-rim, 0.0) * 33.0);
+					transmitted *= 1.0 - 0.28 * innerShadow;
+					float lip = exp(-pow((rim - 0.015) / 0.010, 2.0));
+					float groove = exp(-pow((rim - 0.037) / 0.008, 2.0));
+					float rubber = exp(-pow((rim - 0.057) / 0.031, 2.0));
+					float light = 0.44 + 0.56 * exp(-abs(p.x - sunInView.x) * 1.6);
+					light *= mix(0.7, 1.0, smoothstep(-1.0, 1.0, p.y));
+					vec3 lining = vec3(0.012, 0.011, 0.010);
+					lining += light * (vec3(0.082, 0.066, 0.052) * lip
+						+ vec3(0.029, 0.025, 0.019) * rubber);
+					lining *= 1.0 - 0.48 * groove;
+					transmitted = mix(transmitted, lining, padding);
+				}
+				if (immersive) {
+					vec3 point = controlFromEye[3].xyz;
+					vec3 direction = mat3(controlFromEye) * ray;
+					vec2 uv = (point.xy - direction.xy * point.z / min(-0.0001, direction.z)) + 0.5;
+					if (direction.z < 0.0 && point.z > 0.0 &&
+						all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+						vec4 ui = texture2D(controls, uv);
+						transmitted = mix(transmitted, ui.rgb, ui.a);
+					}
 				}
 				gl_FragColor = vec4(transmitted, 1.0);
 				#include <colorspace_fragment>
@@ -477,6 +469,44 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 		`
 	});
 	const screen = new FullScreenQuad(material);
+	const savedViewport = new Vector4();
+	const eyeScale = new Vector3();
+	const renderEye = new PerspectiveCamera();
+	renderEye.matrixAutoUpdate = false;
+	const controlMatrix = new Matrix4();
+
+	function setView(camera: PerspectiveCamera, sun: Vector3, sunElevation: number,
+		phobos: Vector3, phobosElevation: number, phobosRadius: number,
+		deimos: Vector3, deimosElevation: number, deimosRadius: number,
+		twilight: number, daylight: number, storm: number, gustTime: number, swir: boolean, windMps: number) {
+		material.uniforms.sunDirection.value.copy(sun);
+		material.uniforms.sunElevation.value = sunElevation;
+		material.uniforms.phobosDirection.value.copy(phobos);
+		material.uniforms.deimosDirection.value.copy(deimos);
+		material.uniforms.moonLightDirection.value.copy(sun);
+		material.uniforms.phobosElevation.value = phobosElevation;
+		material.uniforms.deimosElevation.value = deimosElevation;
+		material.uniforms.phobosRadius.value = Math.max(phobosRadius, 0.00065);
+		// Deimos is sub-pixel in many VR views; this display floor keeps its point visible.
+		material.uniforms.deimosRadius.value = Math.max(deimosRadius, 0.00065);
+		material.uniforms.sunInView.value.set(Math.max(-1.1, Math.min(1.1, sun.x * 1.4)), 0.99);
+		material.uniforms.twilight.value = twilight;
+		material.uniforms.daylight.value = daylight;
+		material.uniforms.storm.value = storm;
+		material.uniforms.swirMode.value = Number(swir);
+		material.uniforms.swirTime.value = performance.now() / 1000;
+		material.uniforms.windMps.value = windMps;
+		material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
+		material.uniforms.eyeRotation.value.makeRotationFromQuaternion(worldRotation);
+		if (storm > 0) {
+			material.uniforms.gustTime.value = gustTime;
+			if (swir) material.uniforms.dustColor.value.set('#777777');
+			else dustColor(material.uniforms.dustColor.value, twilight, daylight);
+			material.uniforms.eyePosition.value.copy(eyePosition);
+		}
+		material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0))
+			* (1 - 0.85 * storm);
+	}
 
 	return {
 		resize(width: number, height: number) {
@@ -508,43 +538,83 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 					lastDisplayAt = displayNow;
 				}
 			}
+			material.uniforms.viewOffset.value.set(0, 0);
 			const height = Math.tan(camera.fov * Math.PI / 360);
 			material.uniforms.viewScale.value.set(height * camera.aspect, height);
-			material.uniforms.sunDirection.value.copy(sun);
-			material.uniforms.sunElevation.value = sunElevation;
-			material.uniforms.phobosDirection.value.copy(phobos);
-			material.uniforms.deimosDirection.value.copy(deimos);
-			material.uniforms.moonLightDirection.value.copy(sun);
-			material.uniforms.phobosElevation.value = phobosElevation;
-			material.uniforms.deimosElevation.value = deimosElevation;
-			material.uniforms.phobosRadius.value = Math.max(phobosRadius, 0.00065);
-			// Deimos is sub-pixel in many VR views; this display floor keeps its point visible.
-			material.uniforms.deimosRadius.value = Math.max(deimosRadius, 0.00065);
-			material.uniforms.sunInView.value.set(Math.max(-1.1, Math.min(1.1, sun.x * 1.4)), 0.99);
-			material.uniforms.twilight.value = twilight;
-			material.uniforms.daylight.value = daylight;
-			material.uniforms.storm.value = storm;
-			material.uniforms.swirMode.value = Number(swir);
-			material.uniforms.swirTime.value = performance.now() / 1000;
-			material.uniforms.windMps.value = windMps;
-			material.uniforms.cameraPlanes.value.set(camera.near, camera.far);
-			material.uniforms.eyeRotation.value.makeRotationFromQuaternion(camera.quaternion);
-			if (storm > 0) {
-				material.uniforms.gustTime.value = gustTime;
-				if (swir) material.uniforms.dustColor.value.set('#777777');
-				else dustColor(material.uniforms.dustColor.value, twilight, daylight);
-				material.uniforms.eyePosition.value.copy(camera.position);
-			}
-			material.uniforms.reflection.value = twilight * (0.065 + 0.26 * Math.max(-sun.z, 0))
-				* (1 - 0.85 * storm);
-			material.uniforms.terrain.value = target.texture;
-			material.uniforms.terrainDepth.value = target.depthTexture;
+			camera.getWorldQuaternion(worldRotation);
+			camera.getWorldPosition(eyePosition);
+			setView(camera, sun, sunElevation, phobos, phobosElevation, phobosRadius, deimos, deimosElevation,
+				deimosRadius, twilight, daylight, storm, gustTime, swir, windMps);
 			renderer.setRenderTarget(target);
 			renderer.render(scene, camera);
 			renderer.setRenderTarget(null);
 			screen.render(renderer);
 		},
+		updateXrHud(swir: SwirHudData) {
+			drawDisplay(swir);
+			displayDirty = true;
+		},
+		renderXr(scene: Scene, camera: PerspectiveCamera, controlPlane: Object3D, controlTexture: CanvasTexture,
+			sun: Vector3, phobos: Vector3, phobosRadius: number, deimos: Vector3, deimosRadius: number,
+			twilight: number, daylight: number, storm: number, gustTime: number, swir: boolean, windMps: number, cabinView: boolean) {
+			// The XR manager binds the compositor framebuffer before running this callback.
+			const output = renderer.getRenderTarget();
+			if (!output) return;
+			renderer.xr.updateCamera(camera);
+			const eyes = renderer.xr.getCamera().cameras;
+			controlMatrix.copy(controlPlane.matrixWorld).invert();
+			const autoClear = renderer.autoClear;
+			const shadowAutoUpdate = renderer.shadowMap.autoUpdate;
+			renderer.xr.enabled = false;
+			material.uniforms.immersive.value = true;
+			material.uniforms.cabinView.value = cabinView;
+			material.uniforms.controls.value = controlTexture;
+			try {
+				for (const [index, eye] of eyes.entries()) {
+					const { x, y, z: width, w: height } = eye.viewport;
+					xrTarget.setSize(width, height);
+					material.uniforms.displayPixel.value.set(1 / width, 1 / height);
+					material.uniforms.aspect.value = width / height;
+					const projection = eye.projectionMatrix.elements;
+					material.uniforms.viewScale.value.set(1 / projection[0], 1 / projection[5]);
+					material.uniforms.viewOffset.value.set(projection[8] / projection[0], projection[9] / projection[5]);
+					material.uniforms.controlFromEye.value.multiplyMatrices(controlMatrix, eye.matrixWorld);
+					eye.matrixWorld.decompose(eyePosition, worldRotation, eyeScale);
+					inverseRotation.copy(worldRotation).invert();
+					setView(camera, eyeSun.copy(sun).applyQuaternion(inverseRotation), Math.asin(sun.y),
+						eyePhobos.copy(phobos).applyQuaternion(inverseRotation), phobos.y, phobosRadius,
+						eyeDeimos.copy(deimos).applyQuaternion(inverseRotation), deimos.y, deimosRadius,
+						twilight, daylight, storm, gustTime, swir, windMps);
+					renderer.shadowMap.autoUpdate = shadowAutoUpdate && index === 0;
+					renderer.autoClear = true;
+					renderer.setRenderTarget(xrTarget);
+					renderEye.matrix.copy(eye.matrixWorld);
+					renderEye.matrixWorldNeedsUpdate = true;
+					renderEye.projectionMatrix.copy(eye.projectionMatrix);
+					renderEye.projectionMatrixInverse.copy(eye.projectionMatrixInverse);
+					renderEye.layers.mask = eye.layers.mask;
+					renderer.render(scene, renderEye);
+					renderer.autoClear = false;
+					const previousViewport = savedViewport.copy(output.viewport);
+					output.viewport.set(x, y, width, height);
+					renderer.setRenderTarget(output);
+					output.viewport.copy(previousViewport);
+					material.uniforms.terrain.value = xrTarget.texture;
+					material.uniforms.terrainDepth.value = xrTarget.depthTexture;
+					screen.render(renderer);
+				}
+			} finally {
+				renderer.setRenderTarget(output);
+				renderer.xr.enabled = true;
+				renderer.autoClear = autoClear;
+				renderer.shadowMap.autoUpdate = shadowAutoUpdate;
+				material.uniforms.immersive.value = false;
+				material.uniforms.terrain.value = target.texture;
+				material.uniforms.terrainDepth.value = target.depthTexture;
+			}
+		},
 		dispose() {
+			xrTarget.dispose();
 			displayTexture.dispose();
 			screen.dispose();
 			material.dispose();

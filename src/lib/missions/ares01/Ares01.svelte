@@ -1,10 +1,10 @@
 <script lang="ts">
+	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import { onMount, tick } from 'svelte';
 	import MissionControls from '../MissionControls.svelte';
 	import { dialogueAt, type Ares01Dialogue } from './ares01.js';
 	import { actInteractive, availableActions, interactiveSnapshot, startInteractive, stepInteractive, type MissionAction } from './interactive.js';
 	import type { Ares01View } from './visor.js';
-	import type { XrMenuItem } from '../../visor/xr-controls.js';
 	import { DETOUR_EXTRA, type Point } from './route.js';
 
 	let { ready, immersive, onview, ondialogue, onstart, onpause, focusScene, getPosition }: {
@@ -66,7 +66,10 @@
 		const next = actInteractive(run, action);
 		if (next === run) return;
 		run = next;
-		void tick().then(focusScene);
+		if (next.phase === 'closed') {
+			menuOpen = false;
+			if (document.pointerLockElement) document.exitPointerLock();
+		} else void tick().then(focusScene);
 	}
 
 	function togglePause() {
@@ -81,7 +84,7 @@
 	export function getVrControls(): XrMenuItem[] {
 		if (!ready) return [];
 		if (!mode) return [
-			{ id: 'start', label: 'Start mission', run: () => start('interactive') }
+			{ id: 'start', label: 'Start mission', run: () => start('interactive'), close: true }
 		];
 
 		const items: XrMenuItem[] = paused ? [] : actions.map((action) => ({
@@ -96,7 +99,7 @@
 			run: () => { fastTravel = !fastTravel; }
 		});
 		items.push(
-			{ id: 'restart', label: 'Restart mission', run: () => start(mode) },
+			{ id: 'restart', label: 'Restart mission', run: () => start(mode), close: true },
 			{ id: 'leave', label: 'Exit mission', run: () => start(undefined) }
 		);
 		return items;
@@ -169,29 +172,16 @@
 
 <svelte:window onkeydown={keyboard} />
 
-<MissionControls id="mission-options" menuLabel="ARES-01" running={!!mode} open={menuOpen}
-	onmenu={() => { menuOpen = !menuOpen; }} bind:menubutton={menuButton}
-	{actions} {actionLabels} {paused} onact={perform}
-	testing={testing && mode === 'interactive' && !finished} fast={fastTravel}
-	ontest={() => { fastTravel = !fastTravel; focusScene(); }}>
-		{#if !mode}
-			<span>The Last Sample · Simulation</span>
-			<p>WASD move · Arrow keys look · E / 1 / 2 act · Space talk</p>
-			<div class="hud-actions">
-				<button class="hud-action" disabled={!ready} onclick={() => start('interactive')}>Start mission [I]</button>
-			</div>
-		{:else if finished}
-			<p>Return to base complete. Three survey samples recovered. Main core not collected.</p>
-			{#if snapshot.log}<p>{snapshot.log.strata}. {snapshot.log.progress}.</p>{/if}
-			<div class="hud-actions">
-				<button class="hud-action" onclick={() => start(mode)}>Restart</button>
-				<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
-			</div>
-		{:else}
-			<div class="hud-actions">
-				<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'} [P]</button>
-				<button class="hud-action" onclick={() => start(mode)}>Restart</button>
-				<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
-			</div>
-		{/if}
-</MissionControls>
+{#if mode && !finished}
+	<MissionControls {immersive} id="mission-options" menuLabel="ARES-01" running={!!mode} open={menuOpen}
+		onmenu={() => { menuOpen = !menuOpen; }} bind:menubutton={menuButton}
+		{actions} {actionLabels} {paused} onact={perform}
+		testing={testing && mode === 'interactive'} fast={fastTravel}
+		ontest={() => { fastTravel = !fastTravel; focusScene(); }}>
+		<div class="hud-actions">
+			<button class="hud-action" onclick={togglePause}>{paused ? 'Resume' : 'Pause'}{#if !immersive} [P]{/if}</button>
+			<button class="hud-action" onclick={() => start(mode)}>Restart</button>
+			<button class="hud-action" onclick={() => start(undefined)}>Exit</button>
+		</div>
+	</MissionControls>
+{/if}
