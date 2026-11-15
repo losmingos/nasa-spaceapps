@@ -8,10 +8,14 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 	const group = new Group();
 	group.visible = false;
 	const box = new BoxGeometry(1, 1, 1);
-	const frame = new MeshBasicMaterial({ color: '#909d9d', side: DoubleSide });
-	const trim = new MeshBasicMaterial({ color: '#273538', side: DoubleSide });
-	const liner = new MeshBasicMaterial({ color: '#586768', side: DoubleSide });
-	const hardware = new MeshBasicMaterial({ color: '#738487' });
+	const frame = new MeshBasicMaterial({ color: '#b7bcb3', side: DoubleSide });
+	const trim = new MeshBasicMaterial({ color: '#182326', side: DoubleSide });
+	const liner = new MeshBasicMaterial({ color: '#687471', side: DoubleSide });
+	const hardware = new MeshBasicMaterial({ color: '#899995' });
+	const upholstery = new MeshBasicMaterial({ color: '#303d3e' });
+	const recess = new MeshBasicMaterial({ color: '#0a1317' });
+	const amber = new MeshBasicMaterial({ color: '#dca262' });
+	const light = new MeshBasicMaterial({ color: '#c6e5dc' });
 	const glass = new MeshBasicMaterial({
 		color: '#a5d7dc', transparent: true, opacity: 0.035, depthWrite: false, side: DoubleSide
 	});
@@ -56,6 +60,10 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 	band(liner, hip, sill);
 	band(liner, brow, crown);
 	band(frame, crown, ceiling);
+	// Recessed window gaskets, continuous sill and overhead task-light diffusers.
+	band(trim, [-0.43, 1.29, 1.52], [-0.37, 1.30, 1.52]);
+	band(trim, [0.55, 1.17, 1.33], [0.61, 1.17, 1.33]);
+	band(light, [0.77, 0.95, 1.12], [0.79, 0.93, 1.10], -1.55, 1.55);
 	const seams = [-1.91, -0.91, -0.46, 0.46, 0.91, 1.91];
 	for (let i = 1; i < seams.length; i++) band(glass, sill, brow, seams[i - 1], seams[i]);
 	for (const seam of seams) band(frame, sill, brow, seam - 0.024, seam + 0.024);
@@ -66,6 +74,32 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 	band(frame, [-0.79, 1.23, 1.41], [-0.76, 1.20, 1.33], -1.44, 1.44);
 	const hatch = part(trim, 0, -0.12, 1.43, 0.68, 1.10, 0.07);
 	hatch.rotation.x = -0.10;
+	part(liner, 0, -0.12, 1.375, 0.56, 0.96, 0.035).rotation.x = -0.10;
+	part(amber, 0, 0.30, 1.30, 0.22, 0.035, 0.025);
+	part(hardware, 0.19, -0.14, 1.28, 0.035, 0.20, 0.06);
+	// A low seat and two side consoles leave the forward view and footwell clear.
+	part(trim, 0, -0.93, 0.30, 0.62, 0.27, 0.69);
+	part(upholstery, 0, -0.76, 0.27, 0.58, 0.12, 0.63);
+	part(upholstery, 0, -0.40, 0.62, 0.58, 0.67, 0.12).rotation.x = -0.12;
+	part(upholstery, 0, 0.03, 0.68, 0.32, 0.22, 0.13);
+	for (const side of [-1, 1]) {
+		part(trim, side * 0.68, -0.77, -0.12, 0.29, 0.38, 0.86);
+		part(liner, side * 0.68, -0.56, -0.12, 0.30, 0.045, 0.87);
+		part(upholstery, side * 0.48, -0.49, 0.28, 0.13, 0.09, 0.40);
+		part(recess, side * 0.68, -0.53, -0.35, 0.21, 0.025, 0.29);
+		part(hardware, side * 0.68, -0.44, -0.33, 0.035, 0.17, 0.035).rotation.x = -0.18;
+		part(trim, side * 0.68, -0.35, -0.35, 0.085, 0.065, 0.10);
+		part(amber, side * 0.68, -0.315, -0.35, 0.035, 0.008, 0.035);
+		// Ribbed floor plates and wall equipment lockers are actual cabin geometry.
+		part(recess, side * 0.38, -1.085, -0.48, 0.29, 0.015, 0.66);
+		for (let i = 0; i < 9; i++) {
+			part(hardware, side * 0.38, -1.073, -0.75 + i * 0.065, 0.25, 0.009, 0.015);
+		}
+		part(trim, side * 0.87, -0.53, 0.73, 0.32, 0.48, 0.38);
+		part(liner, side * 0.87, -0.51, 0.52, 0.27, 0.39, 0.025);
+		part(hardware, side * 0.87, -0.39, 0.49, 0.12, 0.025, 0.035);
+		part(light, side * 0.83, -0.90, -0.10, 0.012, 0.025, 0.61);
+	}
 	for (const side of [-1, 1]) {
 		const grab = part(hardware, side * 0.45, -0.15, 1.28, 0.045, 0.31, 0.055);
 		grab.rotation.z = side * 0.12;
@@ -84,9 +118,19 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 	const display = new MeshBasicMaterial({ map: texture });
 	const screen = new PlaneGeometry(1.39, 0.45);
 	const console = new Mesh(screen, display);
+	const bezel = part(recess, 0, -0.41, -0.95, 1.47, 0.53, 0.065);
+	bezel.rotation.x = -0.32;
 	console.position.set(0, -0.41, -0.92);
 	console.rotation.x = -0.32;
 	group.add(console);
+	for (const side of [-1, 1]) {
+		for (let i = 0; i < 5; i++) {
+			part(recess, side * (0.81 + i * 0.035), -0.54, -0.96, 0.014, 0.018, 0.13);
+		}
+		for (const y of [-0.62, -0.20]) {
+			part(hardware, side * 0.715, y, -0.92 + (y + 0.41) * -0.33, 0.012, 0.012, 0.008);
+		}
+	}
 	for (let i = 0; i < 7; i++) {
 		part(i === 0 ? hardware : frame, -0.39 + i * 0.13, -0.63, -0.78, 0.075, 0.035, 0.08);
 	}
@@ -105,8 +149,11 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 		update(now: number, message: VisorMessage, speed: number, heading: number, lights: number, clock: string) {
 			if (now - lastUpdate < 0.08) return;
 			lastUpdate = now;
-			ctx.fillStyle = '#102024';
+			ctx.fillStyle = '#0a171c';
 			ctx.fillRect(0, 0, 640, 208);
+			ctx.fillStyle = '#172d32';
+			ctx.fillRect(192, 18, 1, 172);
+			ctx.fillRect(205, 128, 418, 1);
 			const mapRadius = 82.5;
 			ctx.save();
 			ctx.beginPath();
@@ -119,9 +166,9 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 			ctx.stroke();
 			ctx.fillStyle = '#bbf5df';
 			ctx.font = '16px monospace';
-			ctx.fillText('SEV / ROVER CABIN', 205, 27);
+			ctx.fillText('SEV / NAVIGATION', 205, 27);
 			ctx.fillText(`HEADING ${heading}°   LAMPS ${lights ? 'ON' : 'OFF'}`, 205, 56);
-			ctx.font = '29px monospace';
+			ctx.font = 'bold 34px monospace';
 			ctx.fillText(`${Math.round(speed)} km/h`, 205, 94);
 			ctx.font = '15px monospace';
 			ctx.fillText(clock, 205, 119, 418);
@@ -136,7 +183,7 @@ export function buildRoverCabin(map: HTMLCanvasElement) {
 			box.dispose();
 			screen.dispose();
 			for (const geometry of hull) geometry.dispose();
-			for (const material of [frame, trim, liner, hardware, glass, display]) material.dispose();
+			for (const material of [frame, trim, liner, hardware, glass, display, upholstery, recess, amber, light]) material.dispose();
 			texture.dispose();
 		}
 	};
