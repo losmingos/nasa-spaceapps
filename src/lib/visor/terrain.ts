@@ -7,10 +7,10 @@ import {
 import {
 	buildVisorOptics, dustColor, MINIMAP_COMPASS_RADIUS,
 	SWIR_DEPTH_RESPONSE_GLSL, SWIR_NOISE_GLSL,
-	type SwirHudData, type VisorMessage, type VisorReadings
+	type SwirHudData, type VisorMessage, type VisorReadings, type XrVoiceStatus
 } from './optics.js';
 import { buildRoverCabin } from './rover-cabin.js';
-import { createXrPointer, mountXrControls, xrMenuItemAt, xrStick, type XrMenuPage } from './xr-controls.js';
+import { createXrPointer, mountXrControls, xrMenuItemAt, xrStick, type XrMenuItem, type XrMenuPage } from './xr-controls.js';
 import type { Exertion } from '../jarvis/types.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
@@ -39,6 +39,8 @@ interface XrControls {
 	onToggleFlashlight: () => void;
 	onMenuOpen: () => void;
 	getMenu: () => XrMenuPage;
+	getActions: () => XrMenuItem[];
+	getVoiceStatus: () => XrVoiceStatus;
 	getMissionScreen: () => 'briefing' | 'complete' | undefined;
 }
 
@@ -741,7 +743,7 @@ export function mountTerrain(
 	// Valid ground near the base of the western delta, facing its escarpment.
 	const spawnX = width * 0.263;
 	const spawnZ = length * 0.166;
-	const eyeHeight = 1.68;
+	const eyeHeight = 1.65;
 	camera.position.set(spawnX, surfaceHeight(spawnX, spawnZ) + eyeHeight, spawnZ);
 	// Suit-mounted torch, attached to the camera so it follows the astronaut's view.
 	const flashlight = new SpotLight('#ffe3b5', 0, 32, Math.PI / 5, 0.55, 2);
@@ -1753,6 +1755,9 @@ export function mountTerrain(
 		let menuPressed = false;
 		let menuOpen = !!missionScreen;
 		let displayedMenu: XrMenuPage | undefined;
+		let displayedActions: Array<{ hand: 'right' | 'left'; item: XrMenuItem }> = [];
+		const triggerPresses = new Map<XRInputSource, XrMenuItem | 'menu'>();
+		let standingHeadY: number | undefined;
 		let lightPressed = false;
 		let swirPressed = false;
 		let talkPressed = false;
@@ -1773,6 +1778,8 @@ export function mountTerrain(
 		const setMenu = (show: boolean) => {
 			menuOpen = show;
 			displayedMenu = undefined;
+			displayedActions = [];
+			triggerPresses.clear();
 			lastHud = -Infinity;
 			if (show) {
 				velocityX = velocityZ = 0;
@@ -1783,16 +1790,36 @@ export function mountTerrain(
 			const space = renderer.xr.getReferenceSpace();
 			if (space && session.visibilityState === 'visible') return pointer(event.frame, event.inputSource, space);
 		};
+		session.addEventListener('selectstart', ({ inputSource }) => {
+			if (session.visibilityState !== 'visible') return;
+			const action = menuOpen ? 'menu' : displayedActions.find(({ hand }) => hand === inputSource.handedness)?.item;
+			if (action) triggerPresses.set(inputSource, action);
+		}, eventOptions);
 		session.addEventListener('select', (event) => {
-			if (!menuOpen || !displayedMenu) return;
-			const point = eventPoint(event);
-			if (point) runMenuItem(xrMenuItemAt(displayedMenu, point));
+			const press = triggerPresses.get(event.inputSource);
+			if (!press || session.visibilityState !== 'visible') return;
+			if (menuOpen && press === 'menu' && displayedMenu) {
+				const point = eventPoint(event);
+				if (point) runMenuItem(xrMenuItemAt(displayedMenu, point));
+			} else if (!menuOpen && press !== 'menu') {
+				const current = controls.getActions().find(({ id }) => id === press.id);
+				if (current) {
+					current.run();
+					displayedActions = [];
+					lastHud = -Infinity;
+				}
+			}
+		}, eventOptions);
+		session.addEventListener('selectend', ({ inputSource }) => {
+			triggerPresses.delete(inputSource);
 		}, eventOptions);
 		session.addEventListener('inputsourceschange', (event) => {
+			for (const source of event.removed) triggerPresses.delete(source);
 			if (event.removed.some((source) => source.handedness === 'right')) setTalking(false);
 		}, eventOptions);
 		session.addEventListener('visibilitychange', () => {
 			if (session.visibilityState !== 'visible') {
+				triggerPresses.clear();
 				setTalking(false);
 				sprintHeld = false;
 				previous = velocityX = velocityZ = 0;
@@ -1858,6 +1885,7 @@ export function mountTerrain(
 			talkPressed = talkDown;
 
 			const { orientation, position } = pose.transform;
+			standingHeadY ??= position.y;
 			worldToEye.set(orientation.x, orientation.y, orientation.z, orientation.w);
 			xrHeading.set(0, 0, -1).applyQuaternion(worldToEye);
 			const headYaw = Math.atan2(-xrHeading.x, -xrHeading.z);
@@ -1882,7 +1910,8 @@ export function mountTerrain(
 			if (!missionView || missionView.player) {
 				move(now, moving ? -leftStick.y : 0, moving ? leftStick.x : 0, yaw, true);
 			} else previous = now;
-			xrOrigin.position.set(camera.position.x, camera.position.y - (driving ? position.y : eyeHeight), camera.position.z);
+			// Calibrate the virtual standing height once and keep tracked crouching and standing motion.
+			xrOrigin.position.set(camera.position.x, camera.position.y - (driving ? position.y : standingHeadY), camera.position.z);
 			xrOrigin.rotation.y = camera.rotation.y;
 			hudCamera.position.set(position.x, position.y, position.z);
 			hudCamera.quaternion.copy(worldToEye);
@@ -1904,9 +1933,19 @@ export function mountTerrain(
 				}
 				drawMap(driving ? roverYaw : camera.rotation.y + headYaw);
 				if (!menuOpen) {
+					const hands: Array<'right' | 'left'> = [];
+					if (right) hands.push('right');
+					if (left) hands.push('left');
+					displayedActions = controls.getActions().slice(0, hands.length)
+						.map((item, index) => ({ hand: hands[index], item }));
 					optics.updateXrHud(
 						readSwir(hudCamera.getWorldPosition(headPosition), hudCamera.getWorldDirection(swirDirection)),
-						!!right
+						{
+							showControlsHint: !!right,
+							actions: displayedActions.map(({ hand, item }) => ({ hand, label: item.label })),
+							voice: right ? controls.getVoiceStatus() : undefined,
+							time: reducedMotion.matches ? 0 : now / 1000
+						}
 					);
 				}
 			}

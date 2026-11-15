@@ -78,7 +78,7 @@
 		if (!ready) return [];
 		if (!running) return [{ id: 'start', label: 'Start mission', run: () => start(true), close: true }];
 		const items: XrMenuItem[] = paused ? [] : controls.map((action) => ({
-			id: action, label: labels[action], run: () => perform(action), close: true
+			id: action, label: labels[action], run: () => perform(action), close: true, direct: true
 		}));
 		if (!finished) items.push({ id: 'pause', label: paused ? 'Resume mission' : 'Pause mission', run: togglePause, close: paused });
 		items.push(

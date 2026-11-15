@@ -6,6 +6,9 @@ import { ABRASION_HEIGHT, buildOutcrop } from './outcrop.js';
 import { buildSamplingKit } from './sampling-kit.js';
 import { BASE, HAZARD, HAZARD_RADIUS, ROVER, SAMPLING_KIT, type Point } from './route.js';
 
+// The shared SEV mesh is 5.907 m long. NASA's surface concept is 14.7 ft long.
+export const SEV_MODEL_SCALE = (14.7 * 0.3048) / 5.907;
+
 export interface Ares01ModelUrls {
 	rover: string;
 	drill: string;
@@ -79,6 +82,7 @@ export function buildAres01Scene(
 		}
 
 		load(modelUrls.rover, (model) => {
+			model.scale.multiplyScalar(SEV_MODEL_SCALE);
 			const bounds = new Box3().setFromObject(model);
 			const center = bounds.getCenter(new Vector3());
 			model.position.set(-center.x, -bounds.min.y, -center.z);

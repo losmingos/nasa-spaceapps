@@ -7,6 +7,7 @@ export interface XrMenuItem {
 	disabled?: boolean;
 	active?: boolean;
 	close?: boolean;
+	direct?: boolean;
 }
 
 export interface XrMenuPage {

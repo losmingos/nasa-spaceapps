@@ -67,6 +67,7 @@ export function missionTerrainView(mission: Ares01View): MissionView {
 		route: mission.player?.route ?? (mission.time >= SHELTER_AT ? [ROVER, BASE] : mission.route),
 		baseRoute,
 		inCabin: baseRoute,
+		cabinTransition: baseRoute ? ROVER : undefined,
 		headlamps: baseRoute ? 1 : undefined,
 		map: baseRoute ? baseMap : evaMap,
 		mapObjectiveLabel: baseRoute ? 'BASE' : 'SAMPLE',

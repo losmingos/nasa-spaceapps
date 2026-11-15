@@ -2,7 +2,7 @@ import { tts } from './api.js';
 import { AudioEngine, type Playable } from './audio.js';
 
 /** Mission lines have fixed text and never go through the conversational model. */
-export function createMissionVoice(useBrowserVoice: boolean) {
+export function createMissionVoice(useBrowserVoice: boolean, onSpeaking: (speaking: boolean) => void) {
 	const audio = new AudioEngine();
 	let request: AbortController | undefined;
 	let turnId = 0;
@@ -12,6 +12,7 @@ export function createMissionVoice(useBrowserVoice: boolean) {
 		request?.abort();
 		request = undefined;
 		audio.cancel(turnId);
+		onSpeaking(false);
 	}
 
 	async function speak(text: string) {
@@ -31,7 +32,13 @@ export function createMissionVoice(useBrowserVoice: boolean) {
 				// A missing token, backend or audio response falls back to the OS browser voice.
 			}
 		}
-		if (!controller.signal.aborted) await audio.play({ turnId: id, priority: 'high', playable });
+		if (controller.signal.aborted) return;
+		onSpeaking(true);
+		try {
+			await audio.play({ turnId: id, priority: 'high', playable });
+		} finally {
+			if (request === controller) onSpeaking(false);
+		}
 	}
 
 	return {
