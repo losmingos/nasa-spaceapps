@@ -10,9 +10,9 @@ El casco muestra la hora solar media local de Jezero. Pulsa **H** y abre **Cambi
 
 ## Meta Quest 2
 
-Abre la portada en el navegador de las Quest por HTTPS y pulsa **Enter VR**. Mira a tu alrededor moviendo el visor, camina con el joystick izquierdo y mantén pulsado el gatillo derecho para hablar con SARA.
+Abre `/vr-test` en el navegador de las Quest por HTTPS y pulsa **Enter VR**. Mira a tu alrededor moviendo el visor, camina con el joystick izquierdo y mantén pulsado el gatillo derecho para hablar con SARA.
 
-Para probar desde el PC por USB, activa el modo desarrollador en el visor y acepta la depuración USB. Con Vite en el puerto 5173, ejecuta `adb reverse tcp:5173 tcp:5173` y abre `http://localhost:5173/` en el navegador de las Quest.
+Para probar desde el PC por USB, activa el modo desarrollador en el visor y acepta la depuración USB. Con Vite en el puerto 5173, ejecuta `adb reverse tcp:5173 tcp:5173` y abre `http://localhost:5173/vr-test` en el navegador de las Quest.
 
 Para compartir la vista, abre el menú con **A** y entra en **Visor settings → Compartir vista → Crear código**. En el PC, abre `/spectator` en el mismo servidor e introduce el código. Si las gafas usan `adb reverse` en el puerto 5173, la página en el PC es `http://localhost:5173/spectator`. Se transmite la vista de un ojo con los efectos del visor y el HUD, sin audio. Puedes detenerla desde el mismo menú o salir de VR.
 
