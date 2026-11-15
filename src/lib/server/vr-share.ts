@@ -11,7 +11,7 @@ export async function roomRequest(code: string, request: Request): Promise<Respo
 		const namespace = env.VR_SHARE;
 		if (namespace) return namespace.get(namespace.idFromName(code)).fetch(request);
 	}
-	return Response.json({ error: 'La vista compartida requiere Cloudflare Workers. Para probarla en local, usa npm run cf:dev.' },
+	return Response.json({ error: 'View sharing requires Cloudflare Workers. To try it locally, run npm run cf:dev.' },
 		{ status: 503 });
 }
 

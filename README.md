@@ -1,87 +1,85 @@
-# Explorador de Jezero
+# ARES · SARA and the Jezero Explorer
 
-Visor 3D del delta occidental de Jezero. Ejecuta `npm ci` y `npm run dev` y abre la URL que muestra Vite. El visor requiere WebGL 2 y carga la cuadrícula incluida en el repositorio.
+ARES recreates an astronaut's fieldwork on Mars in a browser and on Meta Quest 2. Explore the western delta of Jezero Crater, where NASA's Perseverance rover has collected samples. We chose the delta because it once fed an ancient lake and its sediments may preserve signs of past life. The science objective in the first mission is to collect a sediment core.
 
-Al cargar apareces a pie en el delta. Haz clic en la escena (o pulsa **Intro** con el visor enfocado) para girar con el ratón y usa **WASD** para caminar. Pulsa **Esc** para liberar el ratón. También puedes arrastrar sobre el visor o usar las flechas para mirar. El minimapa muestra el relieve local y tu rumbo. El oxígeno y la temperatura son valores simulados.
+SARA, named after Spanish astronaut Sara García Alonso, is the voice assistant in the visor. It answers questions about the mission, gives directions back to the rover when position data is available, and recommends when to end a spacewalk. The project explores how a crew could rehearse emergencies and get immediate, hands-free guidance during a communications delay while retaining the final decision.
 
-En equipos de escritorio compatibles, el visor carga el terreno de mayor resolución en segundo plano y lo aplica si todavía no has empezado a explorar.
+Built by Los Mingos for NASA Space Apps Challenge Madrid. [Hosted demo](https://sara.alvarov.workers.dev/)
 
-El casco muestra la hora solar media local de Jezero. Pulsa **H** y abre **Cambiar hora** para explorar otro sol u otra hora. **Volver a la hora actual** reanuda el reloj en directo.
+## Missions
 
-## Meta Quest 2
+- **ARES-01 · The Last Sample.** A dust storm intensifies while the astronaut is drilling. Secure the equipment, return to the pressurized rover and take a surveyed detour around unstable ground. The rover is initially 70 m from the sample site, and the detour adds 13 m. From the rover, the route back to base is 2.4 km.
+- **ARES-02 · Nightfall Protocol.** Drive a replacement module to Bravo Station at night. A battery fault forces you to secure the rover, inspect the exterior battery bay, recover degraded drive and choose a route that preserves the emergency energy reserve.
+- **Free exploration.** Walk across the delta, change the local Mars time and inspect terrain using the map, terrain hazard layer and simulated short-wave infrared (SWIR) mode.
 
-Abre `/vr-test` en el navegador de las Quest por HTTPS y pulsa **Enter VR**. Mira a tu alrededor moviendo el visor, camina con el joystick izquierdo y mantén pulsado el gatillo derecho para hablar con SARA.
+Hold push-to-talk to ask SARA about your next action, weather or mission telemetry, or to request the flashlight, SWIR mode, hazard layer or a map zoom adjustment. SARA uses the current scene state and draws on documented Apollo surface procedures, ISS EVA experience and NEEMO communication-delay studies for the ARES-01 guidance. [ARES-01 flight rules and sources](src/lib/server/jarvis/flight-rules.md)
 
-Para probar desde el PC por USB, activa el modo desarrollador en el visor y acepta la depuración USB. Con Vite en el puerto 5173, ejecuta `adb reverse tcp:5173 tcp:5173` y abre `http://localhost:5173/vr-test` en el navegador de las Quest.
+## Run locally
 
-Para compartir la vista, abre el menú con **A** y entra en **Visor settings → Compartir vista → Crear código**. En el PC, abre `/spectator` en ese mismo despliegue e introduce el código. El PC renderiza la vista 3D en primera persona a partir de la pose de las gafas y el estado de la escena. La vista incluye la misión, el HUD, los menús y los subtítulos de SARA. Puedes detenerla desde el mismo menú o salir de VR.
-
-Se admite un espectador por código. El Durable Object retransmite los datos por WebSocket y prioriza la pose más reciente mientras entrega los cambios de misión en orden. El PC puede entrar en pantalla completa y escuchar el comando del micrófono mientras se mantiene pulsado el botón de voz, además de las respuestas de SARA. Para probar la vista compartida en local, usa `npm run cf:dev`. Con `DEMO_TOKEN` configurado, las gafas necesitan el enlace de acceso habitual y al PC le basta con el código de sala.
-
-## Despliegue en Cloudflare Workers
-
-En **Settings → Build**, usa la raíz del repositorio, `npm run build` como comando de compilación y `npx wrangler deploy` como comando de despliegue (no cambian).
-
-La compilación usa `@sveltejs/adapter-cloudflare`. Las páginas siguen pre-generadas como recursos estáticos y las rutas `/api/*` se ejecutan en el Worker. La salida va a `.svelte-kit/cloudflare`, donde `wrangler.jsonc` apunta el worker y los recursos. `scripts/cf-postbuild.js` exporta los Durable Objects `CueChannel` para el operador y `ShareRoom` para conectar el visor con el PC.
-
-**Secretos del Worker:** se configuran en el panel de Workers (Settings → Variables and Secrets) o con `npx wrangler secret put <NOMBRE>`:
-
-| Nombre | Para qué |
-|---|---|
-| `ANTHROPIC_API_KEY` | Claude Haiku 5.5 (`/api/chat`). Conviene poner un tope de gasto en la consola de Anthropic. |
-| `GROQ_API_KEY` | Whisper (`/api/stt`) |
-| `ELEVENLABS_API_KEY` | Voz de SARA (`/api/tts`) |
-| `ELEVENLABS_VOICE_ID` | ID de una voz predefinida |
-| `DEMO_TOKEN` | **Obligatorio en la URL pública.** Sin él, cualquiera puede gastar los créditos. Abre las páginas con `?k=<token>`. |
-| `ELEVENLABS_MODEL_ID` | Opcional (por defecto `eleven_flash_v2_5`) |
-
-**Probar en local como en Workers:** copia `.env` a `.dev.vars` (está fuera de git) y ejecuta `npm run cf:dev`. Para desarrollar, `npm run dev` sigue funcionando igual: los cues van en memoria y la caché de voz se guarda en disco.
-
-## Datos del terreno
-
-[DTM HiRISE del delta de Jezero](https://www.uahirise.org/dtm/PSP_002387_1985), producto `DTEEC_002387_1985_003798_1985_A01`. Crédito NASA/JPL-Caltech/Universidad de Arizona.
-
-La cuadrícula incluida conserva una muestra por cada 16 filas y columnas del DTM. Tiene 434 × 722 muestras, separadas por 16,15 m según la escala del PDS3. Su extensión rectangular es de aproximadamente 7 × 11,6 km. El visor omite los triángulos que contienen muestras sin datos. Las elevaciones están en metros respecto al datum Marte 2000. El visor proyecta el ortomosaico HiRISE sobre la malla. Consulta [RESOURCES.md](RESOURCES.md) para ver los productos, créditos y pasos de preparación.
-
-Para regenerar el binario, descarga el IMG desde la ficha de HiRISE y ejecuta:
+Use Node.js 24 and npm. The browser needs WebGL 2. The default terrain is bundled, and desktop clients may load a higher-resolution version in the background.
 
 ```sh
-python scripts/build_terrain.py ruta/al/DTEEC_002387_1985_003798_1985_A01.IMG
+npm ci
+npm run dev
 ```
 
-## Datos del clima de SARA (MEDA)
+Open the local URL shown by Vite. Terrain exploration and mission controls are available without voice-service keys. For live voice, set the service variables below in an untracked `.env` file. Grant microphone access when prompted.
 
-SARA cita temperatura, presión, humedad y temperatura del suelo reales, medidas por la estación MEDA del rover Perseverance. **MEDA no tiene un feed en vivo.** Sus datos se publican en el PDS de la NASA por lotes, unas tres veces al año. `src/lib/data/meda-curves.json` guarda curvas diarias reales con un punto cada 10 minutos de hora local: la del último sol publicado, una por cada estación marciana (intervalos de 10° de Ls) y la del sol 313, cuando llegó la tormenta de polvo de enero de 2022. SARA reproduce la curva de la misma estación a la hora del reloj del visor y, en la tormenta, pasa a la curva del sol 313. También calcula el retardo de la señal entre la Tierra y Marte. Los detalles, las fuentes y las comprobaciones están en [`src/lib/data/README.md`](src/lib/data/README.md).
+| Page | What to open |
+| --- | --- |
+| `/` | Explore Jezero and open mission briefings |
+| `/missions/ares01` | Play The Last Sample or review its scripted sequence |
+| `/missions/ares02` | Play Nightfall Protocol or review its scripted sequence |
+| `/vr-test` | Enter VR on a compatible headset |
+| `/spectator` | Join the headset's shared view using a room code |
+| `/operator` | Trigger scripted voice cues during a recording |
 
-**Actualizar tras una nueva entrega del PDS:**
+On desktop, click the scene to capture the mouse, move with **WASD** and use **Esc** to release the mouse. The arrow keys also turn the view. Press **H** to open the scene controls, **F** for the flashlight, and hold **Space** to talk to SARA. On a mission page, press **I** to start the interactive mission, **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.
 
-```sh
-npm run data:meda   # descarga solo lo nuevo (caché en .cache/meda, fuera de git) y reescribe meda-curves.json
-```
+## Meta Quest 2 and spectator view
 
-Revisa el resumen que imprime, ejecuta `npm run build` y haz commit del JSON. El texto del prompt toma el último sol publicado al arrancar, así que hay que reiniciar `npm run dev` o volver a desplegar.
+1. Open `/vr-test` in Quest Browser over HTTPS and select **Enter VR**. Use the left stick to move or drive and the right stick to turn. Hold the **right grip** to talk to SARA and release it to send. Use the triggers to select actions.
+2. Press **A** and choose **Visor settings → Share view → Create code**. Open `/spectator` on a PC using the same deployment and enter the code.
+3. The spectator page renders the headset's first-person view, mission state, HUD, menus and subtitles. It also plays the push-to-talk commands and SARA's replies. Choose **Full screen** or mute the audio from the toolbar. Each room supports one spectator.
 
-**Refresco automático (opcional):**
-- **GitHub Action (plantilla incluida):** copia `scripts/meda-refresh.workflow.yml` a `.github/workflows/meda-refresh.yml` y haz commit (subir ficheros de workflow requiere un token con el permiso `workflow`, por ejemplo `gh auth refresh -s workflow`). Se ejecuta cada lunes (y a mano desde *Actions → Refresh MEDA curves → Run workflow*). Solo usa el `GITHUB_TOKEN` por defecto y abre un PR si hay datos nuevos. Para que pueda crear el PR, activa *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*. La primera ejecución descarga unos 500 MB del PDS y las siguientes usan la caché.
-- **Cloudflare Cron Trigger + KV (no implementado, es un paso futuro):** (1) `npx wrangler kv namespace create MEDA` y añadir el binding `kv_namespaces: [{ "binding": "MEDA", "id": "<id>" }]` a `wrangler.jsonc`. (2) Añadir `"triggers": { "crons": ["0 6 * * *"] }` y un handler `scheduled` en `scripts/cf-postbuild.js` que ejecute la misma reducción que `scripts/build_meda.ts` y escriba el JSON en KV. Los CSV de un sol pesan unos 15 MB, así que conviene limitarse a comprobar si hay un sol nuevo y procesar solo `latest`. (3) Hacer que el cliente lea las curvas de un endpoint `/api/meda` respaldado por KV, con `meda-curves.json` como reserva. Nada de esto se ha creado en la cuenta de Cloudflare.
+For USB development, enable developer mode on the headset, accept the USB debugging prompt, run `adb reverse tcp:5173 tcp:5173` and open `http://localhost:5173/vr-test` on the headset. To exercise the Cloudflare relay locally, use `npm run cf:dev`.
 
-## ARES-01 · The Last Sample
+## Mars data and simulation
 
-Open **ARES-01 · The Last Sample** from the free exploration visor or visit `/missions/ares01`. Press **I** there to start the interactive mission. Use **WASD** to walk or drive and hold the **arrow keys** to look around. Press **E** or **1** for the first action and **2** for the second. **P** pauses or resumes. While paused or after completing the mission, **R** restarts and **Q** exits.
+| Data | How ARES uses it |
+| --- | --- |
+| HiRISE elevation and imagery | The elevation model and orthomosaic cover roughly 7 × 11.6 km of the western delta. The terrain mesh uses 16.15 m sample spacing by default, with an 8.08 m higher-resolution option. |
+| USGS geologic map SIM 3464 | Regional geologic units inform the terrain hazard layer alongside slope, surface roughness and conditions in the scene. |
+| Perseverance MEDA weather | Archived measurements from NASA's Planetary Data System are replayed at the scene's local solar time and season. The dust storm draws on sol 313 observations from January 2022. |
+| NASA 3D Resources | Adapted models include the Space Exploration Vehicle, the Mars 2020 sample tube and parts of the Habitat Demonstration Unit. |
 
-Hold **Space** to speak to SARA and release it to send. **English is the language of the entire app. SARA always speaks and replies in English, including in both missions.** Add `?tts=browser` to the visor URL to use an English browser voice.
+The mission events, suit telemetry, rover power budget, dust progression and SWIR image are simulated. The hazard layer provides an estimate at the scale of the available data. ARES is a hackathon prototype for exploring and rehearsing scenarios. [Data products, asset credits and regeneration steps](RESOURCES.md) · [MEDA processing notes](src/lib/data/README.md)
 
-The interactive mission follows your position and actions over the full route, including the 2.4 km rover drive. Dust advisories trigger 20 and 40 seconds after drilling starts. Dust, slope hazards and suit pressure are simulated. Route coordinates are in `src/lib/missions/ares01/route.ts` and the mission emits `ares01:dialogue` events.
+Run `npm run data:meda` after a new PDS release to regenerate `src/lib/data/meda-curves.json`. The script caches downloads under `.cache/meda`. Review the updated data and restart the dev server or redeploy to load it. An optional GitHub Actions workflow template is in [scripts/meda-refresh.workflow.yml](scripts/meda-refresh.workflow.yml).
 
-## Project layout
+## Voice services and deployment
 
-Inside the rover in either mission, **W/S** drives forward and in reverse and **A/D** steers. The mouse and arrow keys look around the cabin independently. The dashboard shows the map, speed and heading. The headlights follow the rover heading.
+SvelteKit and Svelte 5 provide the UI and API routes. Three.js and WebXR render the same terrain in desktop and headset browsers. Groq Whisper transcribes push-to-talk audio, Claude Haiku 5.5 receives the transcript and scene context, and ElevenLabs provides speech. The `?tts=browser` option uses browser speech synthesis for playback. Cloudflare Durable Objects relay operator cues and spectator state.
 
-### ARES-02 · Nightfall Protocol
+| Variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | SARA's chat and visor commands |
+| `GROQ_API_KEY` | Microphone transcription |
+| `ELEVENLABS_API_KEY` | SARA's generated speech |
+| `ELEVENLABS_VOICE_ID` | ElevenLabs premade voice ID |
+| `ELEVENLABS_MODEL_ID` | Optional model override. Defaults to `eleven_flash_v2_5` |
+| `DEMO_TOKEN` | Protects voice API access and spectator room creation. Set it on public deployments that use paid services and supply `?k=<token>` in the headset or desktop access link. Spectators only need the room code. |
 
-Open `/missions/ares02` and press **I**. Switch on the headlights and follow the curved ground guide with **WASD**. Use **E / 1 / 2** to operate the rover and confirm actions. The playable drive is about 200 m along the detour. The rover is limited to 10 km/h and to 8 km/h in degraded drive. After a successful isolation check, follow SARA in English: secure the rover, check the suit, exit through the airlock, walk to the amber service marker, open the panel, slide the marked battery A module back into its socket, and latch the panel. Walk back to the airlock, reboard, and test the battery A bus before comparing routes. At Bravo, park, retrieve the module and carry it to the entrance on foot. The parked rover uses the same SEV model as ARES-01.
+For local Worker testing, put the variables in an untracked `.dev.vars` file and run `npm run cf:dev`. For deployment, configure secrets in **Workers → Settings → Variables and Secrets** or use `npx wrangler secret put <NAME>`. In Cloudflare's build setup, use the repository root with `npm run build` and deploy with `npx wrangler deploy`. The Worker and static assets build to `.svelte-kit/cloudflare`.
 
-- `src/lib/missions/ares01/` contains the mission timeline, interactive logic, controls, scene and SARA instructions. Its models are in `static/models/missions/ares01/`.
-- `src/lib/missions/vr-rehearsal/` contains the route and telemetry constants for the VR rehearsal.
-- `src/lib/visor/` contains the terrain renderer, visor optics and Mars clock.
-- `src/lib/jarvis/` and `src/lib/server/jarvis/` contain the assistant client and server services.
+## Repository guide
+
+| Path | Contents |
+| --- | --- |
+| `src/lib/visor/` | Terrain rendering, visor optics, WebXR and spectator sharing |
+| `src/lib/missions/` | Mission scenes, routes, controls and timelines |
+| `src/lib/jarvis/` and `src/lib/server/jarvis/` | SARA client, voice services, prompt and flight rules |
+| `src/lib/data/` and `static/terrain/` | Processed weather and terrain assets |
+| `scripts/` | Terrain and MEDA data pipelines, prerecorded voice generation and Cloudflare build support |
+
+Run `npm run check` and `npm run build` before submitting changes. See [TESTING.md](TESTING.md) for desktop and headset test procedures.

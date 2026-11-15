@@ -383,10 +383,10 @@
 
 	function toggleSharing() {
 		if (shareHost) {
-			stopSharing('Transmisión detenida.');
+			stopSharing('Sharing stopped.');
 			return;
 		}
-		shareStatus = 'Generando código…';
+		shareStatus = 'Creating code…';
 		shareHost = createHost((message, code) => {
 			if (code) {
 				shareCode = code;
@@ -398,16 +398,16 @@
 
 	function getVrMenu(): XrMenuPage {
 		const back: XrMenuItem = { id: 'back', label: 'Back', run: () => { vrPage = 'main'; } };
-		const share: XrMenuItem = { id: 'share', label: 'Compartir vista', run: () => { vrPage = 'share'; } };
+		const share: XrMenuItem = { id: 'share', label: 'Share view', run: () => { vrPage = 'share'; } };
 		if (vrPage === 'share') {
 			return {
-				title: shareCode ? `Código · ${displayCode(shareCode)}` : 'Compartir vista',
-				lines: [shareStatus, 'En el PC, abre /spectator en esta misma web.', 'Se comparten los comandos de voz y las respuestas de SARA.'].filter(Boolean),
+				title: shareCode ? `Code · ${displayCode(shareCode)}` : 'Share view',
+				lines: [shareStatus, 'On the PC, open /spectator on this site.', 'Voice commands and SARA’s replies are shared.'].filter(Boolean),
 				items: [
-					{ id: 'toggle-share', label: shareHost ? 'Detener transmisión' : 'Crear código', run: toggleSharing },
-					{ id: 'back', label: 'Volver', run: () => { vrPage = 'settings'; } }
+					{ id: 'toggle-share', label: shareHost ? 'Stop sharing' : 'Create code', run: toggleSharing },
+					{ id: 'back', label: 'Back', run: () => { vrPage = 'settings'; } }
 				],
-				hint: 'Usa el gatillo para seleccionar'
+				hint: 'Press the trigger to select'
 			};
 		}
 		if (briefing && missionScreen) {

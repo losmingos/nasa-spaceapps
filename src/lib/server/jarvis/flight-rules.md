@@ -1,39 +1,36 @@
-# Flight rules de ARES-01 para Sara (resumen de misiones reales)
+# SARA's ARES-01 flight rules
 
 <!--
-Este fichero entra tal cual en el system prompt de Sara, en la sección <flight_rules>.
-Hay tres partes editables:
-  1. Estilo de comunicación, sacado del manual de consola EVA de la NASA (JSC-20597).
-  2. Flight rules de ARES-01: cada una resume una regla o práctica REAL e indica de qué misión viene (Origin).
-  3. Preguntas preparadas: si alguien hace una de estas preguntas (o una parecida), Sara responde en esa
-     línea y cambia las cifras por las de la telemetría.
+The server adds this file to SARA's system prompt inside <flight_rules>.
+This file contains the communication style from the NASA EVA Console Handbook,
+ARES-01 rules adapted from documented practice, and suggested answers. Use live
+telemetry in place of example figures whenever it is available.
 
-Fuentes (investigación del 2026-11-14):
-- NASA, informe de investigación de la EVA 23 (agua en el casco de Luca Parmitano, 2013):
+Sources consulted on 2026-11-14
+- NASA EVA 23 investigation report (water in Luca Parmitano's helmet, 2013)
   https://www.nasa.gov/sites/default/files/files/Suit_Water_Intrusion_Mishap_Investigation_Report.pdf
-- Apollo 17 Final Lunar Surface Procedures Vol. 2 (walkback, reserva de 30 min, replanificación):
+- Apollo 17 Final Lunar Surface Procedures, Vol. 2 (walkback, 30-minute reserve and replanning)
   https://pds-geosciences.wustl.edu/Lunar/urn-nasa-pds-apollodoc/document_a17/mission/a17_final_lunar_surface_procedures_vol2_contingency.pdf
-- Bellcomm TR-69-340-4 (1969), restricción de walkback del rover lunar:
+- Bellcomm TR-69-340-4 (1969), lunar rover walkback constraint
   https://ntrs.nasa.gov/api/citations/19700009560/downloads/19700009560.pdf
-- NASA EVA Console Handbook JSC-20597 (disciplina del canal de voz; reserva de 30 min en la ISS, flight rules A15-157/B15-110):
+- NASA EVA Console Handbook JSC-20597 (voice procedure and station reserve, A15-157/B15-110)
   https://ibiblio.org/apollo/Shuttle/MCC/EVA%20Console%20Handbook%20-%20Standard%20Console%20Procedures.pdf
-- Polvo lunar en Apolo (Stubbs et al. 2005): https://ntrs.nasa.gov/citations/20050176031
-- Incidentes de EVA (terminaciones anticipadas, guantes cortados): https://ntrs.nasa.gov/citations/20210021807
-- Mars Desert Research Station Handbook 2018-19 (estación análoga):
+- Lunar dust during Apollo (Stubbs et al., 2005) https://ntrs.nasa.gov/citations/20050176031
+- EVA incidents, including early end of EVA and damaged gloves https://ntrs.nasa.gov/citations/20210021807
+- Mars Desert Research Station Handbook 2018–19
   https://n.marssociety.org.au/wp-content/uploads/2019/09/MDRS-Handbook-2018-2019.pdf
-- NEEMO, operaciones con retardo de comunicación: https://ntrs.nasa.gov/api/citations/20150019627/downloads/20150019627.pdf
-- NASA, The Fact and Fiction of Martian Dust Storms: https://www.nasa.gov/solar-system/the-fact-and-fiction-of-martian-dust-storms/
-- JPL, Opportunity durante la tormenta de 2018: https://www.jpl.nasa.gov/news/opportunity-hunkers-down-during-dust-storm/
-Investigación completa: real-flight-rules-research.md (está en el scratchpad de la sesión, no en el repo).
+- NEEMO operations under communication delay
+  https://ntrs.nasa.gov/api/citations/20150019627/downloads/20150019627.pdf
+- NASA, The Fact and Fiction of Martian Dust Storms
+  https://www.nasa.gov/solar-system/the-fact-and-fiction-of-martian-dust-storms/
+- JPL, Opportunity during the 2018 dust storm
+  https://www.jpl.nasa.gov/news/opportunity-hunkers-down-during-dust-storm/
 
-Avisos:
-- Las cifras de los trajes reales (30 min de reserva, presiones, CO2) son de Apolo, el Shuttle y la ISS.
-  Aquí se usa la forma de la regla, no esos límites exactos para un traje de Marte.
-- No digáis que son las flight rules oficiales de la NASA para Marte: son reglas de ARES-01 basadas en
-  prácticas reales. Las flight rules de la ISS no son públicas.
-- Escribid las respuestas modelo en inglés y con dos frases como máximo. Usad solo cifras ciertas en la escena.
-- Para que se apliquen los cambios, reinicia `npm run dev`; en Cloudflare, con el siguiente despliegue.
-Los comentarios como este no llegan a Sara.
+These are ARES-01 scenario rules based on practices from Apollo, Shuttle, ISS
+and analogue missions. The source suit figures apply to their original
+missions. Use the scenario's telemetry for numeric limits. Keep model answers
+in English and within two sentences. Restart the dev server or redeploy to
+Cloudflare after edits. The prompt omits this comment.
 -->
 
 ## 1. Communication style (NASA EVA console practice)

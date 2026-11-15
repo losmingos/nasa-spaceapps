@@ -6,7 +6,7 @@ import {
 } from './share-protocol.js';
 
 const endpoint = (code = '') => code ? resolve('/api/vr-share/[code]', { code }) : resolve('/api/vr-share');
-const CONNECTION_LOST = 'Se perdió la conexión. Vuelve a conectar con un código activo.';
+const CONNECTION_LOST = 'Connection lost. Reconnect with an active code.';
 type Update = (message: string, code?: string) => void;
 
 async function request<T>(code = '', data?: object): Promise<T> {
@@ -19,7 +19,7 @@ async function request<T>(code = '', data?: object): Promise<T> {
 		signal: AbortSignal.timeout(8000)
 	});
 	const payload = await response.json().catch(() => ({}));
-	if (response.status === 401) throw new Error('Abre el visor con el enlace de acceso de la demo para crear un código.');
+	if (response.status === 401) throw new Error('Open the visor using the demo access link to create a code.');
 	if (!response.ok) throw new Error(payload.error ?? CONNECTION_LOST);
 	return payload;
 }
@@ -70,7 +70,7 @@ function connect(role: 'host' | 'view', update: Update) {
 			expectData(10_000);
 			ws.onopen = () => {
 				clearTimeout(timer);
-				if (role === 'host') update('Esperando al PC', value.code);
+				if (role === 'host') update('Waiting for the PC', value.code);
 				else expectData();
 			};
 			ws.onmessage = ({ data }) => { if (!ended) receive(data, ws); };
@@ -104,7 +104,7 @@ export function createHost(update: Update) {
 				// The HUD is sampled again on the next XR frame.
 				hud = undefined;
 			}
-			update(ready ? 'Conectando con el PC…' : 'Esperando al PC', room.code);
+			update(ready ? 'Connecting to the PC…' : 'Waiting for the PC', room.code);
 		}),
 		voiceRelay() {
 			const ws = room.socket;
@@ -121,7 +121,7 @@ export function createHost(update: Update) {
 			const next = JSON.stringify(value);
 			if (world === next) return;
 			if (next.length > MAX_SHARE_STATE) {
-				room.fail('El estado de la misión supera el tamaño permitido.');
+				room.fail('The mission state exceeds the size limit.');
 				return;
 			}
 			world = next;
@@ -145,7 +145,7 @@ export function createHost(update: Update) {
 			ws.send(pose);
 			if (!transmitting) {
 				transmitting = true;
-				update('Vista en directo en el PC', room.code);
+				update('Live view on the PC', room.code);
 			}
 		}
 	};
@@ -162,10 +162,10 @@ export function createSpectator(
 	return {
 		close: room.close,
 		start() {
-			update('Conectando con las gafas…', code);
+			update('Connecting to the headset…', code);
 			return room.start(code, (data, ws) => {
 				if (data === 'ready') {
-					update('Esperando la pose de las gafas…', code);
+					update('Waiting for headset tracking…', code);
 					return;
 				}
 				if (data instanceof ArrayBuffer) {

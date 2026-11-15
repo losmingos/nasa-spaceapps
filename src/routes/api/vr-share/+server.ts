@@ -7,7 +7,7 @@ export const prerender = false;
 
 export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 	const ip = request.headers.get('cf-connecting-ip') ?? getClientAddress();
-	if (rateLimit(`vr-create:${ip}`, 12, 60_000)) return jsonError(429, 'Espera un minuto para generar otro código.');
+	if (rateLimit(`vr-create:${ip}`, 12, 60_000)) return jsonError(429, 'Wait one minute before creating another code.');
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const code = newCode();
 		const res = await roomAction(code, { action: 'create' });
@@ -16,5 +16,5 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 		const { key } = await res.json() as { key: string };
 		return Response.json({ code, key }, { status: 201, headers: { 'cache-control': 'no-store' } });
 	}
-	return jsonError(503, 'No se pudo generar el código. Inténtalo de nuevo.');
+	return jsonError(503, 'Could not create a code. Try again.');
 };

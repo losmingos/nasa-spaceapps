@@ -97,7 +97,7 @@
 		terrain.setSpectatorPose(pose);
 		if (!playing) {
 			playing = true;
-			status = 'En directo';
+			status = 'Live';
 		}
 	}
 
@@ -105,7 +105,7 @@
 		try {
 			const [grid, geology] = await Promise.all([
 				fetch(asset('terrain/jezero.bin'), { signal }).then((res) => {
-					if (!res.ok) throw new Error('No se pudo cargar el terreno.');
+					if (!res.ok) throw new Error('Could not load the terrain.');
 					return res.arrayBuffer();
 				}),
 				fetch(asset('terrain/jezero-geology.json'), { signal })
@@ -125,7 +125,7 @@
 		} catch {
 			if (signal.aborted) return;
 			disconnect();
-			status = 'El PC no pudo cargar el terreno 3D. Comprueba que el navegador admita WebGL 2.';
+			status = 'Could not load the 3D terrain. Check that your browser supports WebGL 2.';
 		}
 	}
 
@@ -133,7 +133,7 @@
 		event.preventDefault();
 		const normalized = normalizeCode(code);
 		if (!CODE_PATTERN.test(normalized)) {
-			status = 'Introduce los 8 caracteres que aparecen en las gafas.';
+			status = 'Enter the eight characters shown in the headset.';
 			return;
 		}
 		disconnect();
@@ -169,40 +169,40 @@
 <svelte:window onkeydown={(event) => { if (event.key === 'Escape') expanded = false; }} />
 
 <svelte:head>
-	<title>Vista en directo | ARES</title>
+	<title>Live view | ARES</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
 <main>
 	<header>
 		<a href={resolve('/')}>◉ ARES / VR</a>
-		<h1>Vista en directo</h1>
-		<p>Introduce el código de las gafas para ver su vista en este PC.</p>
+		<h1>Live view</h1>
+		<p>Enter the code from the headset to see its view on this PC.</p>
 	</header>
 
 	<form onsubmit={connect}>
-		<label for="room-code">Código de conexión</label>
+		<label for="room-code">Room code</label>
 		<div class="row">
 			<input id="room-code" bind:value={code} placeholder="XXXX-XXXX" autocomplete="off"
 				autocapitalize="characters" spellcheck={false} maxlength="14" disabled={active} required />
 			{#if active}
-				<button type="button" onclick={() => { disconnect(); status = 'Te has desconectado.'; }}>Desconectar</button>
+				<button type="button" onclick={() => { disconnect(); status = 'You disconnected.'; }}>Disconnect</button>
 			{:else}
-				<button type="submit">Conectar</button>
+				<button type="submit">Connect</button>
 			{/if}
 		</div>
 	</form>
 	<p class="status" role="status">{playing ? '● ' : ''}{status}</p>
 	<div class="screen" bind:this={screen} class:expanded hidden={!active}>
 		<div class="toolbar">
-			<button type="button" onclick={toggleSound}>{sound ? 'Silenciar' : 'Activar sonido'}</button>
-			<button type="button" onclick={toggleFullscreen}>{fullscreen || expanded ? 'Salir de pantalla completa' : 'Pantalla completa'}</button>
+			<button type="button" onclick={toggleSound}>{sound ? 'Mute' : 'Unmute'}</button>
+			<button type="button" onclick={toggleFullscreen}>{fullscreen || expanded ? 'Exit full screen' : 'Full screen'}</button>
 		</div>
 		<div class="view">
-		<canvas class="scene" bind:this={canvas} aria-label="Vista 3D en primera persona de las gafas"></canvas>
+		<canvas class="scene" bind:this={canvas} aria-label="First-person 3D view from the headset"></canvas>
 		<canvas bind:this={map} width="192" height="192" hidden></canvas>
 		{#if hud?.menu}
-			<section class="menu" aria-label="Menú abierto en las gafas">
+			<section class="menu" aria-label="Open headset menu">
 				<h2>{hud.menu.title}</h2>
 				{#each hud.menu.lines ?? [] as line}<p>{line}</p>{/each}
 				<ul>
@@ -218,7 +218,7 @@
 					<span>{action.label}</span>
 				{/each}
 				{#if hud.controls.voice && hud.controls.voice !== 'idle'}
-					<span>SARA · {hud.controls.voice === 'unavailable' ? 'No disponible' : STATUS_LABEL[hud.controls.voice]}</span>
+					<span>SARA · {hud.controls.voice === 'unavailable' ? 'Unavailable' : STATUS_LABEL[hud.controls.voice]}</span>
 				{/if}
 			</div>
 		{/if}

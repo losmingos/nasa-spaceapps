@@ -28,7 +28,7 @@ declare const WebSocketPair: new () => { 0: WebSocket; 1: RoomSocket };
 const reply = (body: object, status = 200) =>
 	Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 const error = (status: number, message: string) => reply({ error: message }, status);
-const expired = () => error(404, 'El código no existe o la transmisión ha terminado.');
+const expired = () => error(404, 'The code does not exist or the session has ended.');
 const secret = () => crypto.randomUUID();
 
 /** One headset and one spectator. Only room credentials and expiration are persisted. */
@@ -66,7 +66,7 @@ export class ShareRoom {
 
 	private closeSockets() {
 		for (const ws of this.state?.getWebSockets() ?? []) {
-			if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'Transmisión terminada');
+			if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'Sharing ended');
 		}
 	}
 
@@ -78,8 +78,8 @@ export class ShareRoom {
 		const viewer = room.viewer;
 		const peer = key === room.key ? 'host' : key === viewer?.key && Date.now() - viewer.seen < PRESENCE ? 'view' : undefined;
 		if (!peer) return expired();
-		if (this.socket(peer)) return error(409, 'Ya hay un dispositivo conectado.');
-		if (!this.state) return error(503, 'Retransmisión no disponible.');
+		if (this.socket(peer)) return error(409, 'A device is already connected.');
+		if (!this.state) return error(503, 'The relay is unavailable.');
 
 		const { 0: client, 1: server } = new WebSocketPair();
 		this.state.acceptWebSocket(server, [peer]);
@@ -150,7 +150,7 @@ export class ShareRoom {
 		const now = Date.now();
 		const room = this.room;
 		if (action === 'create') {
-			if (!this.inactive) return error(409, 'Código en uso.');
+			if (!this.inactive) return error(409, 'Code already in use.');
 			this.closeSockets();
 			const created = { key: secret(), expires: now + ROOM_LIFETIME, seen: now };
 			this.room = created;
@@ -166,7 +166,7 @@ export class ShareRoom {
 		}
 
 		if (action === 'join') {
-			if (room.viewer) return error(409, 'Ya hay un PC conectado a este código.');
+			if (room.viewer) return error(409, 'A PC is already connected with this code.');
 			const slot = { key: secret(), seen: now };
 			room.viewer = slot;
 			await save(this.storage);
@@ -183,10 +183,10 @@ export class ShareRoom {
 		if (!slot || key !== slot.key) return expired();
 		if (action === 'leave') {
 			delete room.viewer;
-			this.socket('view')?.close(1000, 'Espectador desconectado');
+			this.socket('view')?.close(1000, 'Spectator disconnected');
 			await save(this.storage);
 			return reply({});
 		}
-		return error(400, 'Acción inválida.');
+		return error(400, 'Invalid action.');
 	}
 }

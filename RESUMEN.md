@@ -1,82 +1,58 @@
-# ARES · Resumen
+# ARES overview
 
-Visor 3D del delta de Jezero (Marte) con exploración libre, dos misiones interactivas, VR en Meta Quest 2 y un asistente de voz (SARA) que responde sobre telemetría simulada y datos reales de Mars 2020. Proyecto para el **NASA Space Apps Challenge (Madrid 2026)**.
+A 3D explorer of the Jezero delta with free exploration, two interactive missions, Meta Quest 2 support and a voice assistant called SARA. SARA answers questions using simulated telemetry and Mars 2020 measurements. Built for NASA Space Apps Challenge Madrid 2026.
 
-Documentación completa: [`DOCUMENTATION.md`](DOCUMENTATION.md). Créditos de datos: [`RESOURCES.md`](RESOURCES.md). Arranque rápido: [`README.md`](README.md).
+[Quick start](README.md) · [Technical documentation](DOCUMENTATION.md) · [Data and asset credits](RESOURCES.md)
 
-## Qué incluye
+## Features
 
-- **Exploración libre** sobre un DTM HiRISE real: caminar/conducir, minimapa, linterna, reloj marciano, clima MEDA, capas de relieve, peligro e infrarrojo simulado.
-- **ARES-01 · The Last Sample**: perforar, recoger muestras y volver al rover bajo una tormenta de polvo creciente.
-- **ARES-02 · Nightfall Protocol**: travesía nocturna, avería eléctrica, reparación exterior y entrega de un módulo en Bravo con presupuesto de energía.
-- **SARA**: push-to-talk, STT, Claude con herramientas y TTS; acciones sobre mapa, infrarrojo, capa de peligro y linterna; modo guionizado de respaldo.
-- **VR**: WebXR, menús por controladores, HUD estéreo y cabina del rover.
-- **Vista compartida VR → PC**: Render 3D local en el PC con pose y estado por WebSocket (`/spectator`).
-- **Panel de operador** (`/operator`) con canal de cues compartido para dirigir la demo.
+- **Free exploration.** Traverse a HiRISE digital terrain model with a minimap, flashlight, Mars clock, MEDA weather, hazard overlays and simulated infrared.
+- **ARES-01 · The Last Sample.** Drill a core and return to the rover as a dust storm grows.
+- **ARES-02 · Nightfall Protocol.** Drive at night, deal with an electrical fault, service the exterior battery bay and deliver a module to Bravo within the energy budget.
+- **SARA.** Push-to-talk transcription, Claude with tool calls and text-to-speech, with a scripted fallback. Voice commands can operate the map, infrared, hazard layer and flashlight.
+- **VR and spectator view.** WebXR controller menus, a stereo HUD and a rover cabin. A PC renders the spectator scene from headset pose and mission state relayed by WebSocket.
+- **Operator panel.** A shared cue channel for rehearsals and recordings.
 
-## Stack
+## Architecture
 
-| Capa | Tecnología |
-|---|---|
-| Frontend | Svelte 5 (runes) + SvelteKit 3 + Vite 8 + TypeScript 6 estricto |
-| 3D | Three.js 0.187 sobre WebGL 2 |
-| Voz | Groq Whisper `whisper-large-v3-turbo`, Anthropic `claude-haiku-5-5`, ElevenLabs `eleven_flash_v2_5` |
-| Backend | Cloudflare Workers (`adapter-cloudflare`), Durable Objects `CueChannel` y `ShareRoom`, Cache API |
-| Datos | HiRISE DTM + ortofoto, USGS SIM 3464, MEDA |
-| Pruebas | `svelte-check` + build; recorridos manuales |
+The browser handles rendering, mission state and telemetry. Cloudflare Workers serve prerendered pages and run the API routes. Voice credentials remain server-side. The operator cue channel and spectator sessions use the `CueChannel` and `ShareRoom` Durable Objects.
 
-## Arquitectura en cinco ideas
+Svelte 5, SvelteKit, Vite and TypeScript power the UI. Three.js renders the world with WebGL 2. The voice pipeline sends push-to-talk audio to `/api/stt` (Groq Whisper), then sends the transcript and scene context to `/api/chat` (Claude Haiku 5.5). It plays the response from `/api/tts` (ElevenLabs) through Web Audio and supports interruption.
 
-1. El navegador hace el trabajo pesado (render, estado de misión, telemetría); el servidor solo valida y proxya IA, cues y caché.
-2. Todas las páginas se prerenderizan; solo `/api/*` corre en el Worker.
-3. Las claves de IA nunca llegan al cliente.
-4. Los únicos estados compartidos son el canal de cues y las sesiones de la vista compartida, por eso viven en Durable Objects.
-5. La voz es una cadena: PTT → `/api/stt` → `/api/chat` → `/api/tts` → Web Audio con barge-in.
+## Routes and options
 
-## Rutas
+| Route | Purpose |
+| --- | --- |
+| `/` | Free exploration |
+| `/missions/ares01` | ARES-01 |
+| `/missions/ares02` | ARES-02 |
+| `/vr-test` | Quest entry point |
+| `/spectator` | Live spectator view |
+| `/operator` | Client-side operator panel |
+| `/api/stt`, `/api/chat`, `/api/tts` | SARA voice pipeline |
+| `/api/cue` | Operator cues |
+| `/api/vr-share` | Spectator rooms |
 
-| Ruta | Función |
-|---|---|
-| `/` | Exploración libre |
-| `/missions/ares01` | Misión ARES-01 |
-| `/missions/ares02` | Misión ARES-02 |
-| `/vr-test` | Entrada recomendada en Quest |
-| `/spectator` | Vista en directo del visor en el PC |
-| `/operator` | Panel de operador (solo cliente) |
-| `/api/stt`, `/api/chat`, `/api/tts` | Pipeline de SARA |
-| `/api/cue` | Cues del operador |
-| `/api/vr-share` | Salas de vista compartida |
+Useful query parameters include `?tts=browser`, `?mode=scripted`, `?remote=1`, `?test=1` and `?k=<token>`.
 
-Parámetros: `?tts=browser`, `?mode=scripted`, `?remote=1`, `?test=1`, `?k=<token>`.
+## Mission and simulation details
 
-## Misiones
+- **ARES-01.** The rover starts 70 m from the sample site. The detour adds 13 m, the scenario hazard rock has a 6.4 m radius and the base is 2.4 km from the rover.
+- **ARES-02.** The usable battery has 9.5 kWh and the scenario reserve is 9.15 kWh. The direct route preserves the reserve. The exterior service addresses module A and degraded drive is limited to 8 km/h.
+- **Terrain and weather.** The HiRISE grid has 434 × 722 nodes at 16.154 m spacing, or 867 × 1443 nodes at 8.08 m in high resolution. MEDA curves use historical observations in 10-minute bins and blend toward sol 313 during the simulated storm.
+- **Hazard score.** Slope contributes 0.30, soil 0.20, rock 0.15, relief 0.10, temperature 0.15 and visibility 0.10. Warnings start at 20% and 40%. The colour ramp reaches amber at 0.33 and red at 0.575.
+- **SWIR.** The visor simulates a monochrome 1.65 µm image. Energy, oxygen and hazard estimates are also simulated. Moon positions and twilight are approximate.
 
-- **ARES-01**: muestra a 70 m del rover, rodeo de +13 m, roca peligrosa de 6,4 m de radio y base a 2,4 km; acciones contextuales y diagnóstico del traje.
-- **ARES-02**: batería útil de 9,5 kWh con reserva de 9,15 kWh; ruta planificada curva frente a ruta directa (la directa preserva la reserva); reparación exterior del módulo A y conducción degradada a 8 km/h.
-
-## Datos y simulación
-
-- **Terreno**: 434 × 722 nodos a 16,154 m (867 × 1443 a 8,08 m en alta calidad) con ortofoto HiRISE.
-- **Clima**: curvas MEDA reales en bins de 10 min; tormenta mezclada con el sol 313; **no es tiempo real**.
-- **Peligro**: pendiente 0,30 · suelo 0,20 · rocas 0,15 · relieve 0,10 · temperatura 0,15 · visibilidad 0,10. Avisos al **20 %** y **40 %**; rampa verde→ámbar en 0,33 y rojo en 0,575.
-- **SWIR**: simulación monocroma a 1,65 µm, no una imagen espectral medida.
-
-## Ejecutar
+## Development
 
 ```sh
 npm ci
-npm run dev      # desarrollo
-npm run check    # TypeScript + Svelte
-npm run build    # build + prerender + Worker
+npm run dev
+npm run check
+npm run build
 npx wrangler deploy
 ```
 
-Variables opcionales: `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, `DEMO_TOKEN`, `JARVIS_RECORDING`. Sin claves, la app arranca y los endpoints devuelven `503`.
+Missing voice-service credentials produce a 503 from the corresponding endpoint. See the [README](README.md) for environment variables and deployment. The demo supports access by query token, header or HTTP-only cookie. Voice endpoints enforce rate limits and validate inputs.
 
-## Seguridad
-
-Token de demo (`?k=`, cabecera o cookie httpOnly), comparación en tiempo constante, rate limit de 10 peticiones/minuto en STT/chat/TTS y validación estricta de cuerpos y cues. Nada de secretos en el repositorio.
-
-## Límites
-
-SWIR, peligro, energía y oxígeno son simulaciones; MEDA es histórico; las posiciones de las lunas y el crepúsculo son aproximados; no hay suite de tests automatizada. `missions/vr-rehearsal/` es un nombre heredado para constantes compartidas. La vista compartida admite un espectador y se prueba en local con `npm run cf:dev`.
+The `missions/vr-rehearsal/` directory contains shared route constants. Use `npm run cf:dev` for local testing of the single-spectator relay. See [TESTING.md](TESTING.md) for manual mission walkthroughs.
