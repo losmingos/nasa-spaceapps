@@ -37,8 +37,6 @@ interface XrControls {
 	onTalkEnd: () => void;
 	onToggleSwir: () => void;
 	onToggleFlashlight: () => void;
-	visor: HTMLElement;
-	setClockInput: (name: string, value: string) => void;
 	onMenuOpen: () => void;
 	getMenu: () => XrMenuPage;
 	getMissionScreen: () => 'briefing' | 'complete' | undefined;
@@ -1724,22 +1722,17 @@ export function mountTerrain(
 		if (document.pointerLockElement === canvas) document.exitPointerLock();
 		const hudCamera = new PerspectiveCamera();
 		xrOrigin.add(hudCamera);
-		const ui = mountXrControls(controls.visor, controls.setClockInput, controls.onTalkStart, controls.onTalkEnd);
+		const ui = mountXrControls();
 		const controlPlane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial());
 		controlPlane.visible = false;
 		controlPlane.position.z = -1.3;
+		controlPlane.scale.set(1.55, 1.55 * ui.canvas.height / ui.canvas.width, 1);
 		hudCamera.add(controlPlane);
 		const uiTexture = new CanvasTexture(ui.canvas);
 		uiTexture.colorSpace = SRGBColorSpace;
 		uiTexture.minFilter = LinearFilter;
 		uiTexture.generateMipmaps = false;
 		const pointer = createXrPointer(xrOrigin, controlPlane);
-		const alignControls = () => {
-			const aspect = ui.canvas.width / ui.canvas.height;
-			const height = Math.min(1.65, 2.25 / aspect);
-			controlPlane.scale.set(height * aspect, height, 1);
-			controlPlane.updateWorldMatrix(true, false);
-		};
 		const headPosition = new Vector3();
 		const sessionEvents = new AbortController();
 		const eventOptions = { signal: sessionEvents.signal };
@@ -1754,6 +1747,13 @@ export function mountTerrain(
 		let lightPressed = false;
 		let swirPressed = false;
 		let talkPressed = false;
+		let talking = false;
+		const setTalking = (active: boolean) => {
+			if (talking === active) return;
+			talking = active;
+			if (active) controls.onTalkStart();
+			else controls.onTalkEnd();
+		};
 		const runMenuItem = (item: XrMenuPage['items'][number] | undefined) => {
 			if (!item || item.disabled) return;
 			item.run();
@@ -1766,7 +1766,6 @@ export function mountTerrain(
 			displayedMenu = undefined;
 			lastHud = -Infinity;
 			if (show) {
-				ui.end();
 				velocityX = velocityZ = 0;
 				controls.onMenuOpen();
 			}
@@ -1775,30 +1774,17 @@ export function mountTerrain(
 			const space = renderer.xr.getReferenceSpace();
 			if (space && session.visibilityState === 'visible') return pointer(event.frame, event.inputSource, space);
 		};
-		session.addEventListener('selectstart', (event) => {
-			if (!menuOpen) ui.start(eventPoint(event), event.inputSource);
-		}, eventOptions);
-		session.addEventListener('selectend', (event) => ui.end(event.inputSource), eventOptions);
 		session.addEventListener('select', (event) => {
+			if (!menuOpen || !displayedMenu) return;
 			const point = eventPoint(event);
-			if (point) {
-				if (menuOpen) {
-					const item = displayedMenu && xrMenuItemAt(displayedMenu, point);
-					runMenuItem(item);
-				} else {
-					ui.select(point, event.inputSource);
-				}
-				lastHud = -Infinity;
-			}
+			if (point) runMenuItem(xrMenuItemAt(displayedMenu, point));
 		}, eventOptions);
 		session.addEventListener('inputsourceschange', (event) => {
-			for (const source of event.removed) ui.end(source);
-			if (event.removed.some((source) => source.handedness === 'right')) ui.setGripTalking(false);
+			if (event.removed.some((source) => source.handedness === 'right')) setTalking(false);
 		}, eventOptions);
 		session.addEventListener('visibilitychange', () => {
 			if (session.visibilityState !== 'visible') {
-				ui.setGripTalking(false);
-				ui.end();
+				setTalking(false);
 				sprintHeld = false;
 				previous = velocityX = velocityZ = 0;
 				reportExertion('resting');
@@ -1808,8 +1794,7 @@ export function mountTerrain(
 		const restoreDesktop = () => {
 			if (xrSession !== session) return;
 			sessionEvents.abort();
-			ui.setGripTalking(false);
-			ui.end();
+			setTalking(false);
 			uiTexture.dispose();
 			controlPlane.geometry.dispose();
 			controlPlane.material.dispose();
@@ -1850,14 +1835,14 @@ export function mountTerrain(
 				if (nextScreen && nextScreen !== missionScreen) setMenu(true);
 				else if (menuDown && !menuPressed) {
 					if (!nextScreen) setMenu(!menuOpen);
-					else if (nextScreen === 'briefing') runMenuItem(displayedMenu?.items.find(({ id }) => id === 'start'));
+					else if (nextScreen === 'briefing') runMenuItem(controls.getMenu().items.find(({ id }) => id === 'start'));
 				}
 				missionScreen = nextScreen;
 				if (lightDown && !lightPressed) controls.onToggleFlashlight();
 				if (swirDown && !swirPressed) controls.onToggleSwir();
-				if (talkDown && !talkPressed) ui.setGripTalking(true);
+				if (talkDown && !talkPressed) setTalking(true);
 			}
-			if (!active || !talkDown) ui.setGripTalking(false);
+			if (!active || !talkDown) setTalking(false);
 			menuPressed = menuDown;
 			lightPressed = lightDown;
 			swirPressed = swirDown;
@@ -1898,20 +1883,16 @@ export function mountTerrain(
 
 			if (now - lastHud >= 50) {
 				lastHud = now;
-				alignControls();
-				const points: Array<{ x: number; y: number }> = [];
-				for (const source of session.inputSources) {
-					const point = pointer(xrFrame, source, space);
-					if (point) points.push(point);
-				}
 				if (menuOpen) {
+					const points = [];
+					for (const source of session.inputSources) {
+						const point = pointer(xrFrame, source, space);
+						if (point) points.push(point);
+					}
 					displayedMenu = controls.getMenu();
 					ui.drawMenu(displayedMenu, points);
-				} else {
-					ui.draw(points);
+					uiTexture.needsUpdate = true;
 				}
-				alignControls();
-				uiTexture.needsUpdate = true;
 				drawMap(driving ? roverYaw : camera.rotation.y + headYaw);
 				if (!menuOpen) {
 					optics.updateXrHud(

@@ -131,28 +131,28 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			ctx.stroke();
 		};
 
-		panel(90, 398, 258, 242);
+		panel(164, 408, 210, 194);
 		ctx.textAlign = 'left';
 		ctx.textBaseline = 'middle';
 		ctx.font = '600 22px system-ui';
 		ctx.fillStyle = '#c6ffe5';
-		ctx.fillText('MAP', 106, 422);
-		ctx.drawImage(map, 125, 443, 188, 188);
+		ctx.fillText('MAP', 180, 432);
+		ctx.drawImage(map, 195, 448, 148, 148);
 
 		const readouts = message.readouts ?? [
 			{ value: readings.o2Percent.toFixed(1), unit: '% O₂' },
 			{ value: readings.airTempC === null ? '—' : String(Math.round(readings.airTempC)), unit: '°C' }
 		];
 		const statusHeight = 49 + 36 * readouts.length;
-		const statusTop = 640 - statusHeight;
-		panel(676, statusTop, 258, statusHeight);
+		const statusTop = 602 - statusHeight;
+		panel(650, statusTop, 210, statusHeight);
 		ctx.textAlign = 'right';
 		ctx.font = '22px monospace';
 		ctx.fillStyle = '#c6ffe5';
-		ctx.fillText(getClock(), 916, statusTop + 25, 222);
+		ctx.fillText(getClock(), 842, statusTop + 25, 174);
 		ctx.font = '26px monospace';
 		readouts.forEach(({ value, unit }, index) => {
-			ctx.fillText(`${value} ${unit}`, 916, statusTop + 60 + index * 36, 222);
+			ctx.fillText(`${value} ${unit}`, 842, statusTop + 60 + index * 36, 174);
 		});
 
 		const notice = getNotice();
@@ -172,11 +172,11 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 			});
 		}
 		if (showControlsHint) {
-			panel(414, 593, 196, 47);
+			panel(414, 485, 196, 47);
 			ctx.textAlign = 'center';
 			ctx.font = '600 22px system-ui';
 			ctx.fillStyle = '#c6ffe5';
-			ctx.fillText('A · Controls', width / 2, 617);
+			ctx.fillText('A · Controls', width / 2, 509);
 		}
 		drawSwirHud(ctx, width, height, swir, false);
 		helmetTexture.needsUpdate = true;
@@ -548,7 +548,7 @@ export function buildVisorOptics(renderer: WebGLRenderer, map: HTMLCanvasElement
 							transmitted = mix(transmitted, hud.rgb, hud.a);
 						}
 						vec2 uv = hit + 0.5;
-						if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+						if (menuOpen && all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
 							vec4 ui = texture2D(controls, uv);
 							transmitted = mix(transmitted, ui.rgb, ui.a);
 						}

@@ -37,7 +37,7 @@
 	let inVR = $state(false);
 	let aresControls = $state.raw<ReturnType<typeof Ares01>>();
 	let nightfallControls = $state.raw<ReturnType<typeof Ares02>>();
-	let vrPage: 'main' | 'mission' | 'missions' | 'map' | 'scene' | 'sol' | 'time' | 'help' = 'main';
+	let vrPage: 'main' | 'mission' | 'missions' | 'settings' | 'map' | 'scene' | 'sol' | 'time' | 'help' = 'main';
 	let vrDigits = '';
 	let vrError = $state('');
 	let notice = $state<'loading' | 'error' | TerrainNotice>('loading');
@@ -269,8 +269,7 @@
 					...getMissionControls().map((item) => item.id === 'leave' ? { ...item, label: 'Back to briefing' } : item),
 					{ id: 'exit-vr', label: 'Exit VR', run: () => { void toggleVR(); } }
 				],
-				hint: missionComplete ? 'Point and press either trigger to select'
-					: 'Press A to start, or point at Start mission and press either trigger'
+				hint: missionComplete ? 'Trigger: select' : 'A or trigger on Start mission'
 			};
 		}
 		if (vrPage === 'missions') {
@@ -289,6 +288,17 @@
 				{ id: 'zoom-in', label: 'Zoom in', disabled: mapZoom >= MAP_MAX_ZOOM, run: () => changeMapZoom(BUTTON_ZOOM_STEP) },
 				{ id: 'zoom-out', label: 'Zoom out', disabled: mapZoom <= MAP_MIN_ZOOM, run: () => changeMapZoom(-BUTTON_ZOOM_STEP) },
 				back
+			] };
+		}
+		if (vrPage === 'settings') {
+			return { title: 'Visor settings', items: [
+				{ id: 'flashlight', label: 'Flashlight', active: flashlightOn, run: toggleFlashlight },
+				{ id: 'map', label: 'Minimap', run: () => { vrPage = 'map'; } },
+				...(!mission && !nightfall && !ares02
+					? [{ id: 'scene', label: 'Scene controls', run: () => { vrPage = 'scene'; } }]
+					: []),
+				{ id: 'help', label: 'Controller help', run: () => { vrPage = 'help'; } },
+				{ id: 'exit', label: 'Exit VR', run: () => { void toggleVR(); } }, back
 			] };
 		}
 		if (vrPage === 'help') {
@@ -357,13 +367,9 @@
 			ares01 || ares02
 				? { id: 'mission', label: 'Mission controls', run: () => { vrPage = 'mission'; } }
 				: { id: 'missions', label: 'Missions', run: () => { vrPage = 'missions'; } },
-			{ id: 'flashlight', label: 'Flashlight', active: flashlightOn, run: toggleFlashlight },
-			{ id: 'map', label: 'Minimap', run: () => { vrPage = 'map'; } },
-			{ id: 'scene', label: 'Scene controls', disabled: !!mission || !!nightfall || ares02, run: () => { vrPage = 'scene'; } },
-			{ id: 'help', label: 'Touch controls', run: () => { vrPage = 'help'; } },
-			{ id: 'close', label: 'Return to visor', close: true, run: () => {} },
-			{ id: 'exit', label: 'Exit VR', run: () => { void toggleVR(); } }
-		], hint: 'Trigger: select  ·  A: close  ·  Hold right grip: SARA' };
+			{ id: 'settings', label: 'Visor settings', run: () => { vrPage = 'settings'; } },
+			{ id: 'close', label: 'Return to visor', close: true, run: () => {} }
+		] };
 	}
 
 	async function toggleVR() {
@@ -412,11 +418,6 @@
 					onToggleFlashlight: toggleFlashlight,
 					onMenuOpen: () => { vrPage = 'main'; },
 					getMenu: getVrMenu,
-					visor,
-					setClockInput: (name, value) => {
-						if (name === 'sol') setClock(Number(value), clock);
-						else setClock(sol, value);
-					},
 					getMissionScreen: () => missionScreen
 				});
 				inVR = scene.isInVR();
