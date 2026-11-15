@@ -7,6 +7,7 @@
 	import { STATUS_LABEL } from '#lib/jarvis/ui/shared.js';
 	import { mountTerrain, type GeologyData, type TerrainDisplayMode, type TerrainNotice } from '#lib/visor/terrain.js';
 	import { formatMarsTime, jezeroTime } from '#lib/visor/mars-time.js';
+	import { weatherAt } from '#lib/jarvis/weather.js';
 	import '../../routes/visor.css';
 	let { ares01 = false, ares02 = false }: { ares01?: boolean; ares02?: boolean } = $props();
 	import MissionScreen from '#lib/missions/MissionScreen.svelte';
@@ -55,6 +56,9 @@
 	let displayMode = $state<TerrainDisplayMode>('visible');
 	let dangerRisk = $state(0);
 	let dangerMessage = $state<VisorMessage>();
+	let systemAlert = $state<VisorMessage>();
+	let oxygenAlerted = false;
+	let coldAlerted = false;
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
 
 	let mission = $state.raw<Ares01View>();
@@ -90,7 +94,7 @@
 		: '');
 	const voiceLabel = $derived(unlocking ? 'Enabling audio…' : voiceProblem ||
 		(voiceStatus === 'locked' || voiceStatus === 'idle' ? '' : STATUS_LABEL[voiceStatus]));
-	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : dangerMessage ?? {
+	const hudMessage: VisorMessage = $derived(nightfall?.message ?? (mission ? missionMessage(mission) : systemAlert ?? dangerMessage ?? {
 		title: voiceLabel ? `SARA · ${voiceLabel}` : '',
 		kind: voiceProblem && !unlocking ? 'danger' : undefined
 	}));
@@ -118,6 +122,33 @@
 	// MEDA weather replay: same scene clock as the terrain (local sol, mars-time.ts scale).
 	// The live clock ticks every five seconds.
 	$effect(() => assistant?.setSceneClock(sceneSol));
+	$effect(() => {
+		const oxygen = voice?.telemetry.o2_remaining_pct;
+		const currentTemp = voice?.telemetry.air_temp_c;
+		if (typeof oxygen === 'number') {
+			if (oxygen >= 35) {
+				oxygenAlerted = false;
+				if (systemAlert?.title === 'Low oxygen') systemAlert = undefined;
+			}
+			else if (oxygen < 30 && !oxygenAlerted) {
+				oxygenAlerted = true;
+				const text = `Oxygen reserve is below thirty percent. Current reserve: ${Math.round(oxygen)} percent. Return to the rover or habitat now.`;
+				systemAlert = { title: 'Low oxygen', detail: text, kind: 'danger' };
+				assistant?.announce(text);
+			}
+		}
+		const extremeCold = currentTemp !== null && currentTemp !== undefined && currentTemp < -60;
+		if (!extremeCold && currentTemp !== null && currentTemp !== undefined) {
+			coldAlerted = false;
+			if (systemAlert?.title === 'Cold approaching') systemAlert = undefined;
+		}
+		else if (!coldAlerted) {
+			coldAlerted = true;
+			const text = `Cold approaching. Outside air temperature is below minus sixty degrees Celsius. Monitor suit heating and power.`;
+			if (!systemAlert || systemAlert.title !== 'Low oxygen') systemAlert = { title: 'Cold approaching', kind: 'warning' };
+			assistant?.announce(text);
+		}
+	});
 	// Tell Sara when the visor shows a dust storm: Storm mode, or ARES-01 dust (which starts before the
 	// advisory). During ARES-01 the notice is silent because the mission speaks its own lines.
 	let stormNotified = false;
@@ -508,6 +539,16 @@ if (mission || nightfall || ares02) return;
 			if (!ares02) return placesFrom(position, { rover: ROVER, sample: SAMPLE, base: BASE });
 			const parked = nightfall?.terrain.parkedRover;
 			return placesFrom(position, parked ? { bravo, rover: parked } : { bravo });
+		});
+		sara.setHazardsProvider(() => terrain?.getNearbyHazards() ?? null);
+		sara.setTemperatureForecastProvider(() => {
+			const stormSeconds = voice?.telemetry.storm_t_s;
+			const isStormy = voice?.telemetry.phase === 'storm';
+			return Array.from({ length: 24 }, (_, index) => {
+				const hours = (index + 1) * 0.5;
+				const future = weatherAt(sceneSol + hours / 24, isStormy ? (stormSeconds ?? 0) + hours * 3600 : null, Date.now());
+				return { hours_ahead: hours, air_temp_c: future.air_temp_c, lmst: future.lmst };
+			});
 		});
 		// Sara's visor controls by voice. The map shares mapZoom with the Map +/− buttons and keys, but each voice
 		// command zooms ×4 (VOICE_ZOOM_FACTOR) instead of ±0.5. Infrared follows the visor's own rule: free

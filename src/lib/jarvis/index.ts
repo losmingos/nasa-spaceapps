@@ -23,7 +23,8 @@ import type {
 	VisorState,
 	NotifyOptions,
 	ProtocolStepId,
-	Subtitle
+	Subtitle,
+	TemperatureForecastPoint
 } from './types.js';
 
 export type * from './types.js';
@@ -49,6 +50,10 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 export function createAssistant(options: AssistantOptions): Assistant {
 	let missionContext: string | undefined;
 	let placesProvider: (() => Places | null) | null = null;
+	let hazardsProvider: (() => string[] | null) | null = null;
+	let temperatureForecastProvider: (() => TemperatureForecastPoint[] | null) | null = null;
+	const pendingAnnouncements: string[] = [];
+	let announcementBuilding = false;
 	/** Distances measured right now (question time); undefined if the page gave no provider or no position. */
 	function livePlaces(): Places | undefined {
 		try {
@@ -56,6 +61,12 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		} catch {
 			return undefined;
 		}
+	}
+	function liveHazards(): string[] | undefined {
+		try { return hazardsProvider?.() ?? undefined; } catch { return undefined; }
+	}
+	function liveTemperatureForecast() {
+		try { return temperatureForecastProvider?.() ?? undefined; } catch { return undefined; }
 	}
 	const mode = options.mode;
 	const ttsMode = options.tts ?? 'elevenlabs';
@@ -233,7 +244,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 			emitSubtitle({ speaker: 'astronaut', text: question, turnId });
 
 			const res = await api.chat(
-				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext, places: livePlaces(), visor: liveVisorState() },
+				{ history: history.slice(-HISTORY_TURNS), text: question, telemetry: telemetry.get(), missionContext, places: livePlaces(), visor: liveVisorState(), hazards: liveHazards(), temperature_forecast: liveTemperatureForecast() },
 				signal
 			);
 			if (!isCurrent(turnId)) return;
@@ -300,6 +311,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 	/** 500 ms tick: detect protocol step transitions (P5 → L05, P6 → L06) and publish state. */
 	function tick(): void {
 		if (disposed) return;
+		flushAnnouncement();
 		const step = telemetry.get().protocolStep;
 		if (step !== lastStep) {
 			lastStep = step;
@@ -314,6 +326,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 	function reset(): void {
 		if (disposed) return;
 		cancelPending();
+		pendingAnnouncements.length = 0;
 		audio.stopAll();
 		if (recorder.recording) void recorder.stop();
 		ignoringPress = false;
@@ -376,6 +389,33 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		if (disposed) return;
 		telemetry.setExertion(level);
 		emitState();
+	}
+
+	function announce(text: string): void {
+		if (disposed || mode !== 'live' || !text.trim()) return;
+		if (!pendingAnnouncements.includes(text)) pendingAnnouncements.push(text);
+		flushAnnouncement();
+	}
+
+	function flushAnnouncement(): void {
+		if (disposed || mode !== 'live' || !unlocked || audio.busy || recorder.recording || inFlight || announcementBuilding || !pendingAnnouncements.length) return;
+		const text = pendingAnnouncements.shift()!;
+		announcementBuilding = true;
+		const turnId = ++turnCounter;
+		void (async () => {
+			let playable: Playable = speechOrNone(text);
+			if (ttsMode === 'elevenlabs' && audio.unlocked) {
+				try { playable = { type: 'buffer', buffer: await audio.decode(await api.tts(text)) }; }
+				catch { /* Use browser speech when the network TTS is unavailable. */ }
+			}
+			if (disposed) return;
+			if (audio.busy || recorder.recording || inFlight) { pendingAnnouncements.unshift(text); return; }
+			const played = audio.play({ turnId, priority: 'normal', playable,
+				onStart: () => emitSubtitle({ speaker: 'jarvis', text, turnId }) });
+			emitState();
+			await played;
+			emitState();
+		})().finally(() => { announcementBuilding = false; flushAnnouncement(); });
 	}
 
 	function handleCue(id: CueId): void {
@@ -518,6 +558,8 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		reset,
 		setMissionContext: (context) => { missionContext = context; },
 		setPlacesProvider: (provider) => { placesProvider = provider; },
+		setHazardsProvider: (provider) => { hazardsProvider = provider; },
+		setTemperatureForecastProvider: (provider) => { temperatureForecastProvider = provider; },
 		setVisorStateProvider: (provider) => { visorStateProvider = provider; },
 		onAction(cb) {
 			actionListeners.add(cb);
@@ -525,6 +567,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
 		},
 		setSceneClock: (localSol) => telemetry.setSceneClock(localSol ?? null),
 		playLine: (id) => void playLineInternal(id),
+		announce,
 		onSubtitle(cb) {
 			subtitleListeners.add(cb);
 			return () => subtitleListeners.delete(cb);

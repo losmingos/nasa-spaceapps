@@ -61,6 +61,12 @@ export interface ChatTurn {
 	content: string;
 }
 
+export interface TemperatureForecastPoint {
+	hours_ahead: number;
+	air_temp_c: number | null;
+	lmst: string;
+}
+
 // ---- HTTP API -------------------------------------------------------------
 // All /api/* requests from the client send header `x-demo-token` when the page URL has `?k=<token>`
 // (only enforced when DEMO_TOKEN is set on the server, i.e. tunnel mode — D15).
@@ -81,6 +87,10 @@ export interface ChatRequest {
 	places?: Places;
 	/** Current visor state (minimap zoom, infrared), so Sara knows limits and what is already on. */
 	visor?: VisorState;
+	/** Nearby hazards measured from the terrain at the moment the astronaut starts speaking. */
+	hazards?: string[];
+	/** MEDA replay samples ahead of the scene clock, for grounded temperature estimates. */
+	temperature_forecast?: TemperatureForecastPoint[];
 }
 export interface ChatResponse {
 	reply: string;
@@ -164,6 +174,9 @@ export interface Assistant {
 	setMissionContext(context?: string): void;
 	/** Called at question time to get live distances to named places; return null when the position is unknown. */
 	setPlacesProvider(provider: (() => Places | null) | null): void;
+	/** Called at question time to report nearby rocks, steep slopes and mapped loose-sand zones. */
+	setHazardsProvider(provider: (() => string[] | null) | null): void;
+	setTemperatureForecastProvider(provider: (() => TemperatureForecastPoint[] | null) | null): void;
 	/** Called at question time to report the visor state (minimap zoom, infrared) to Sara. */
 	setVisorStateProvider(provider: (() => VisorState | null) | null): void;
 	/** Visor actions Sara requests (zoom the minimap, infrared on/off). Fired when the reply arrives, before speech. */
@@ -188,6 +201,8 @@ export interface Assistant {
 	setSceneClock(localSol?: number | null): void;
 	/** Play a pre-generated line (high priority if it is an event line). */
 	playLine(id: LineId): void;
+	/** Speak a short proactive safety alert without interrupting an existing reply. */
+	announce(text: string): void;
 	onSubtitle(cb: (s: Subtitle) => void): () => void;
 	onState(cb: (s: AssistantState) => void): () => void;
 	getState(): AssistantState;

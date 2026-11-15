@@ -2138,6 +2138,33 @@ export function mountTerrain(
 		setMissionView,
 		getPosition: (): Point => ({ x: camera.position.x, z: camera.position.z }),
 		getHeading: () => compass(missionView?.inCabin ? roverYaw : camera.rotation.y),
+		getNearbyHazards: (): string[] => {
+			const x = camera.position.x, z = camera.position.z;
+			const hazards: Array<{ distance: number; text: string }> = [];
+			for (const rock of rockColliders) {
+				const cx = (rock.bounds.min.x + rock.bounds.max.x) / 2;
+				const cz = (rock.bounds.min.z + rock.bounds.max.z) / 2;
+				const distance = Math.max(0, Math.hypot(cx - x, cz - z) - Math.max(rock.bounds.max.x - rock.bounds.min.x, rock.bounds.max.z - rock.bounds.min.z) / 2);
+				const height = rock.bounds.max.y - surfaceHeight(cx, cz);
+				if (distance <= 12 && height >= 0.65) hazards.push({ distance, text: `Large rock obstacle about ${Math.round(distance)} metres away` });
+			}
+			let steepest = 0;
+			for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+				for (const radius of [3, 6, 9]) {
+					const sx = x + Math.cos(angle) * radius, sz = z + Math.sin(angle) * radius;
+					const dx = (surfaceHeight(sx + 1, sz) - surfaceHeight(sx - 1, sz)) / 2;
+					const dz = (surfaceHeight(sx, sz + 1) - surfaceHeight(sx, sz - 1)) / 2;
+					steepest = Math.max(steepest, Math.atan(Math.hypot(dx, dz)) * 180 / Math.PI);
+				}
+			}
+			if (steepest >= 15) hazards.push({ distance: 3, text: `Steep terrain nearby, slope approximately ${Math.round(steepest)} degrees` });
+			let inSand = eolianContains(x, z, eolianZones);
+			if (!inSand) for (let angle = 0; angle < Math.PI * 2 && !inSand; angle += Math.PI / 4) {
+				inSand = eolianContains(x + Math.cos(angle) * 5, z + Math.sin(angle) * 5, eolianZones);
+			}
+			if (inSand) hazards.push({ distance: 0, text: 'Mapped loose-sand zone underfoot or within about 5 metres; movement is slowed' });
+			return hazards.sort((a, b) => a.distance - b.distance).slice(0, 6).map(({ text }) => text);
+		},
 		getDangerAt: (x: number, z: number): number => {
 			const col = Math.floor((x + width / 2) / spacing);
 			const row = Math.floor((z + length / 2) / spacing);
