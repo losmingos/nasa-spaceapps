@@ -196,12 +196,37 @@ export function createSaltationGrains() {
 	};
 }
 
-function materialMaps(data: GeologyData | undefined, columns: number, rows: number) {
+interface EolianZone {
+	rings: Point[][];
+	minX: number;
+	maxX: number;
+	minZ: number;
+	maxZ: number;
+}
+
+function eolianContains(x: number, z: number, zones: EolianZone[]) {
+	for (const zone of zones) {
+		if (x < zone.minX || x > zone.maxX || z < zone.minZ || z > zone.maxZ) continue;
+		let inside = false;
+		for (const ring of zone.rings) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+			const a = ring[i], b = ring[j];
+			if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+		}
+		if (inside) return true;
+	}
+	return false;
+}
+
+function materialMaps(data: GeologyData | undefined, columns: number, rows: number, width: number, length: number) {
 	const swirCanvas = document.createElement('canvas');
+	const eolianCanvas = document.createElement('canvas');
 	swirCanvas.width = columns;
 	swirCanvas.height = rows;
+	eolianCanvas.width = columns;
+	eolianCanvas.height = rows;
 	const swirContext = swirCanvas.getContext('2d');
-	if (!swirContext) return undefined;
+	const eolianContext = eolianCanvas.getContext('2d');
+	if (!swirContext || !eolianContext) return undefined;
 	swirContext.fillStyle = '#808080';
 	swirContext.fillRect(0, 0, columns, rows);
 	const projectX = (longitude: number) => eqcRadius * Math.cos(eqcLatitude)
@@ -209,6 +234,7 @@ function materialMaps(data: GeologyData | undefined, columns: number, rows: numb
 	const projectY = (latitude: number) => eqcRadius * latitude * eqcRadians;
 	const left = projectX(jezeroBounds.west), right = projectX(jezeroBounds.east);
 	const bottom = projectY(jezeroBounds.south), top = projectY(jezeroBounds.north);
+	const eolianZones: EolianZone[] = [];
 	for (const feature of data?.features ?? []) {
 		const unit = String(feature.attributes.unit ?? '');
 		const rings = feature.geometry?.rings;
@@ -227,8 +253,36 @@ function materialMaps(data: GeologyData | undefined, columns: number, rows: numb
 		const gray = Math.round((swirAlbedo[unit] ?? 0.5) * 255);
 		swirContext.fillStyle = `rgb(${gray} ${gray} ${gray})`;
 		swirContext.fill('evenodd');
+		if (unit === '7') {
+			const worldRings: Point[][] = [];
+			eolianContext.beginPath();
+			for (const ring of rings) {
+				const worldRing: Point[] = [];
+				for (let i = 0; i < ring.length; i++) {
+					const [longitude, latitude] = ring[i];
+					const u = (projectX(longitude) - left) / (right - left);
+					const v = (top - projectY(latitude)) / (top - bottom);
+					const px = u * columns, py = v * rows;
+					if (i === 0) eolianContext.moveTo(px, py);
+					else eolianContext.lineTo(px, py);
+					worldRing.push({ x: u * width - width / 2, z: v * length - length / 2 });
+				}
+				eolianContext.closePath();
+				worldRings.push(worldRing);
+			}
+			const points = worldRings.flat();
+			if (points.length) eolianZones.push({
+				rings: worldRings,
+				minX: Math.min(...points.map(({ x }) => x)), maxX: Math.max(...points.map(({ x }) => x)),
+				minZ: Math.min(...points.map(({ z }) => z)), maxZ: Math.max(...points.map(({ z }) => z))
+			});
+			eolianContext.fillStyle = 'rgba(245, 158, 72, 0.42)';
+			eolianContext.fill('evenodd');
+		}
 	}
-	return { swirCanvas };
+	const eolian = new CanvasTexture(eolianCanvas);
+	eolian.colorSpace = SRGBColorSpace;
+	return { swirCanvas, eolian, eolianZones };
 }
 
 function dangerTexture(risk: Float32Array, columns: number, rows: number) {
@@ -542,7 +596,8 @@ export function mountTerrain(
 	scene.fog = fog;
 	const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
 	const orthoTint = new Color('#bfa38e');
-	const materialLayer = materialMaps(geology, columns, rows);
+	const materialLayer = materialMaps(geology, columns, rows, width, length);
+	const eolianZones = materialLayer?.eolianZones ?? [];
 	let dangerRisk = computeStaticRisk({
 		elevations, columns, rows, spacing, geology: geology?.features,
 		hazard: { x: HAZARD.x, z: HAZARD.z, radius: HAZARD_RADIUS },
@@ -608,6 +663,11 @@ export function mountTerrain(
 				vec3 tint = mix(vec3(1.0), orthoTint, orthoTintMode);
 				float coverage = ortho.a * mix(1.0, 0.72, orthoTintMode);
 				diffuseColor.rgb = mix(diffuseColor.rgb, layerColor * tint, coverage);
+				if (eolianOverlayMode > 0.5) {
+					vec4 eolian = texture2D(eolianOverlay, vMapUv);
+					vec3 eolianColor = mix(eolian.rgb, vec3(0.92, 0.035, 0.025), dangerMode);
+					diffuseColor.rgb = mix(diffuseColor.rgb, eolianColor, min(eolian.a * 1.35, 0.72));
+				}
 			#endif
 			if (dangerMode > 0.5) {
 				float dynamicRisk = clamp(dangerThermal * 0.15 + dangerVisibility * 0.10, 0.0, 1.0);
@@ -647,9 +707,11 @@ export function mountTerrain(
 		shader.uniforms.dangerMode = { value: displayMode === 'danger' ? 1 : 0 };
 		shader.uniforms.dangerThermal = { value: dangerThermal };
 		shader.uniforms.dangerVisibility = { value: dangerVisibility };
+		shader.uniforms.eolianOverlay = { value: materialLayer?.eolian ?? null };
+		shader.uniforms.eolianOverlayMode = { value: displayMode === 'swir' ? 0 : 1 };
 		compiledShader = shader as unknown as typeof compiledShader;
 		shader.fragmentShader = 'uniform vec3 orthoTint;\n' + shader.fragmentShader;
-		shader.fragmentShader = 'uniform float orthoTintMode;\nuniform float swirMode;\nuniform float dangerMode;\nuniform float dangerThermal;\nuniform float dangerVisibility;\n' + shader.fragmentShader;
+		shader.fragmentShader = 'uniform float orthoTintMode;\nuniform float swirMode;\nuniform float dangerMode;\nuniform float dangerThermal;\nuniform float dangerVisibility;\nuniform sampler2D eolianOverlay;\nuniform float eolianOverlayMode;\n' + shader.fragmentShader;
 	};
 	const swirMaterialSetters: Array<(enabled: boolean, time?: number) => void> = [];
 	const mesh = new Mesh(lightTerrain.geometry, terrainMaterial);
@@ -1018,6 +1080,47 @@ export function mountTerrain(
 		mapContext.rotate(yaw);
 		mapContext.translate(-mapSize / 2, -mapSize / 2);
 		mapContext.drawImage(relief, 0, 0);
+		// Eolian Aeb polygons use a magenta hatch, distinct from mission routes and markers.
+		const mapMinX = x - scale * mapSize / 2;
+		const mapMaxX = x + scale * mapSize / 2;
+		const mapMinZ = z - scale * mapSize / 2;
+		const mapMaxZ = z + scale * mapSize / 2;
+		for (const zone of eolianZones) {
+			if (zone.maxX < mapMinX || zone.minX > mapMaxX || zone.maxZ < mapMinZ || zone.minZ > mapMaxZ) continue;
+			const traceZone = () => {
+				mapContext.beginPath();
+				for (const ring of zone.rings) {
+					for (let i = 0; i < ring.length; i++) {
+						const px = mapSize / 2 + (ring[i].x - x) / scale;
+						const py = mapSize / 2 + (ring[i].z - z) / scale;
+						if (i === 0) mapContext.moveTo(px, py);
+						else mapContext.lineTo(px, py);
+					}
+					mapContext.closePath();
+				}
+			};
+			traceZone();
+			mapContext.fillStyle = 'rgba(195, 91, 206, 0.24)';
+			mapContext.fill('evenodd');
+			mapContext.save();
+			traceZone();
+			mapContext.clip('evenodd');
+			mapContext.strokeStyle = 'rgba(255, 190, 255, 0.82)';
+			mapContext.lineWidth = 0.65;
+			for (let start = -mapSize; start < mapSize * 2; start += 5) {
+				mapContext.beginPath();
+				mapContext.moveTo(start, 0);
+				mapContext.lineTo(start + mapSize, mapSize);
+				mapContext.stroke();
+			}
+			mapContext.restore();
+			traceZone();
+			mapContext.setLineDash([1.5, 1.5]);
+			mapContext.strokeStyle = '#ffd0ff';
+			mapContext.lineWidth = 0.7;
+			mapContext.stroke();
+			mapContext.setLineDash([]);
+		}
 		const uprightLabels: Array<{ x: number; y: number; text: string; color: string }> = [];
 		const uprightPoint = (x: number, y: number) => {
 			const dx = x - mapSize / 2;
@@ -1288,6 +1391,7 @@ export function mountTerrain(
 			compiledShader.uniforms.dangerMode.value = mode === 'danger' ? 1 : 0;
 			compiledShader.uniforms.dangerThermal.value = dangerThermal;
 			compiledShader.uniforms.dangerVisibility.value = dangerVisibility;
+			compiledShader.uniforms.eolianOverlayMode.value = mode === 'swir' ? 0 : 1;
 		}
 		dangerRings.setVisible(mode === 'danger');
 		if (mode === 'danger') dangerRings.setRocks(rockColliders, true);
@@ -1514,7 +1618,10 @@ export function mountTerrain(
 		const speedMultiplier = missionView?.player?.speedMultiplier ?? 1;
 		const forwardSpeed = missionView?.player?.forwardSpeed ?? 8;
 		const maxSpeed = driving ? missionView?.player?.maxSpeed ?? Infinity : Infinity;
-		const requestedSpeed = (driving ? (forward < 0 ? Math.min(missionView?.player?.maxSpeed === undefined ? 3 : 1.4, forwardSpeed) : forwardSpeed) : 1.45 * (sprinting ? 1.9 : 1)) * speedMultiplier;
+		const inLooseSand = eolianContains(camera.position.x, camera.position.z, eolianZones);
+		// Aeb is mapped real terrain; the 0.62× mobility penalty is an illustrative simulation.
+		const sandMobility = inLooseSand ? 0.62 : 1;
+		const requestedSpeed = (driving ? (forward < 0 ? Math.min(missionView?.player?.maxSpeed === undefined ? 3 : 1.4, forwardSpeed) : forwardSpeed) : 1.45 * (sprinting ? 1.9 : 1)) * speedMultiplier * sandMobility;
 		const speed = Math.min(maxSpeed, requestedSpeed)
 			/ Math.max(1, Math.hypot(forward, side));
 		velocityX = MathUtils.damp(velocityX, speed * (side * Math.cos(yaw) - forward * Math.sin(yaw)), 10, dt);
@@ -2065,6 +2172,7 @@ export function mountTerrain(
 			routeMaterial.dispose();
 			swirLayer?.dispose();
 			dangerLayer?.dispose();
+			materialLayer?.eolian.dispose();
 			dangerRings.dispose();
 			optics.dispose();
 			renderer.dispose();

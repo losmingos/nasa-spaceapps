@@ -773,6 +773,7 @@ if (mission || nightfall || ares02) return;
 								<span class="danger-readout" aria-live="polite">Current position: {Math.round(dangerRisk * 100)}% · {dangerRisk >= 0.66 ? 'High' : dangerRisk >= 0.33 ? 'Moderate' : 'Low'}</span>
 							{:else if displayMode === 'swir'}SIMULATED · 1.65 µm · dust-transparent
 							{:else}HiRISE orthophoto + relief{/if}
+			{#if displayMode !== 'swir'}<br /><span class="eolian-legend"><i aria-hidden="true"></i>Aeb sand · magenta hatch on map · slow movement</span>{/if}
 						</p>
 					</div>
 			</section>
