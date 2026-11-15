@@ -100,6 +100,12 @@ export interface VisorState {
 	infrared_on: boolean;
 	/** Whether the infrared view can be used right now (the visor allows it only in free exploration). */
 	infrared_available: boolean;
+	/** Terrain danger layer currently on (only one view at a time: relief, danger or infrared). */
+	danger_on: boolean;
+	/** Whether the danger layer can be used right now (same rule as its buttons in the visor). */
+	danger_available: boolean;
+	/** Danger score at the astronaut's position, 0 (low) to 1 (high); null when the layer is off. */
+	danger_risk: number | null;
 }
 
 export type MapZoomAction = 'in' | 'out' | 'reset' | 'set';
@@ -107,7 +113,8 @@ export type MapZoomAction = 'in' | 'out' | 'reset' | 'set';
 /** An action Sara requests from the visor (via Claude tool use). The page decides how to apply it. */
 export type AssistantAction =
 	| { type: 'map_zoom'; action: MapZoomAction; /** Target zoom level, only for action 'set'. */ level?: number }
-	| { type: 'infrared'; on: boolean };
+	| { type: 'infrared'; on: boolean }
+	| { type: 'danger_layer'; on: boolean };
 
 /** POST /api/tts — JSON { text } → audio/mpeg bytes (cached server-side by sha1(text)). */
 export interface TtsRequest {

@@ -181,7 +181,21 @@ const INFRARED_TOOL: Anthropic.Tool = {
 	strict: true
 };
 
-const TOOLS: Anthropic.Tool[] = [MAP_TOOL, INFRARED_TOOL];
+const DANGER_TOOL: Anthropic.Tool = {
+	name: 'set_danger_layer',
+	description:
+		'Turn the terrain danger layer on or off. It colours the ground by risk (soil consistency from the USGS geologic map and HiRISE texture, slope, relief, ground temperature and dust). ' +
+		'Use it only when the astronaut asks for the danger, hazard or risk layer or map, or to switch it off, and only if visor.danger_available is true.',
+	input_schema: {
+		type: 'object',
+		properties: { on: { type: 'boolean', description: 'true to turn the danger layer on, false to turn it off.' } },
+		required: ['on'],
+		additionalProperties: false
+	},
+	strict: true
+};
+
+const TOOLS: Anthropic.Tool[] = [MAP_TOOL, INFRARED_TOOL, DANGER_TOOL];
 
 const MAP_CONFIRMATION: Record<MapZoomAction, string> = {
 	in: 'Copy, zooming the map in.',
@@ -190,8 +204,16 @@ const MAP_CONFIRMATION: Record<MapZoomAction, string> = {
 	set: 'Copy, map zoom set.'
 };
 
-function confirmation(action: AssistantAction): string {
-	if (action.type === 'infrared') return action.on ? 'Copy, infrared on.' : 'Copy, infrared off.';
+function confirmation(action: AssistantAction, visor?: VisorState): string {
+	// The visor shows one view at a time, so say when a view replaces the other.
+	if (action.type === 'infrared') {
+		if (!action.on) return 'Copy, infrared off.';
+		return visor?.danger_on ? 'Copy, infrared on; the danger layer is off.' : 'Copy, infrared on.';
+	}
+	if (action.type === 'danger_layer') {
+		if (!action.on) return 'Copy, danger layer off.';
+		return visor?.infrared_on ? 'Copy, danger layer on; infrared is off.' : 'Copy, danger layer on.';
+	}
 	return MAP_CONFIRMATION[action.action];
 }
 
@@ -199,6 +221,7 @@ function confirmation(action: AssistantAction): string {
 function actionsFrom(content: Anthropic.ContentBlock[]): AssistantAction[] {
 	let map: AssistantAction | undefined;
 	let infrared: AssistantAction | undefined;
+	let danger: AssistantAction | undefined;
 	for (const block of content) {
 		if (block.type !== 'tool_use' || !isRecord(block.input)) continue;
 		if (block.name === MAP_TOOL.name && !map) {
@@ -212,9 +235,18 @@ function actionsFrom(content: Anthropic.ContentBlock[]): AssistantAction[] {
 			}
 		} else if (block.name === INFRARED_TOOL.name && !infrared && typeof block.input.on === 'boolean') {
 			infrared = { type: 'infrared', on: block.input.on };
+		} else if (block.name === DANGER_TOOL.name && !danger && typeof block.input.on === 'boolean') {
+			danger = { type: 'danger_layer', on: block.input.on };
 		}
 	}
-	return [map, infrared].filter((a): a is AssistantAction => !!a);
+	// The visor shows one view at a time: if both views were switched on, keep the last one requested.
+	if (infrared?.type === 'infrared' && infrared.on && danger?.type === 'danger_layer' && danger.on) {
+		const lastInfrared = content.findLastIndex((b) => b.type === 'tool_use' && b.name === INFRARED_TOOL.name);
+		const lastDanger = content.findLastIndex((b) => b.type === 'tool_use' && b.name === DANGER_TOOL.name);
+		if (lastDanger > lastInfrared) infrared = undefined;
+		else danger = undefined;
+	}
+	return [map, infrared, danger].filter((a): a is AssistantAction => !!a);
 }
 
 function cleanVisor(raw: unknown): VisorState | undefined {
@@ -224,7 +256,12 @@ function cleanVisor(raw: unknown): VisorState | undefined {
 		map_min_zoom: MAP_MIN_ZOOM,
 		map_max_zoom: MAP_MAX_ZOOM,
 		infrared_on: raw.infrared_on === true,
-		infrared_available: raw.infrared_available === true
+		infrared_available: raw.infrared_available === true,
+		danger_on: raw.danger_on === true,
+		danger_available: raw.danger_available === true,
+		danger_risk: typeof raw.danger_risk === 'number' && Number.isFinite(raw.danger_risk)
+			? Math.round(Math.min(1, Math.max(0, raw.danger_risk)) * 100) / 100
+			: null
 	};
 }
 
@@ -263,7 +300,7 @@ export async function runChat(apiKey: string, req: ChatRequest): Promise<ChatRes
 		// The tool call is executed by the visor; we don't send a tool_result back (one round trip keeps latency
 		// low), so a reply with only a tool call gets a fixed spoken confirmation.
 		const actions = actionsFrom(res.content);
-		if (actions.length) return { reply: reply || actions.map(confirmation).join(" "), actions };
+		if (actions.length) return { reply: reply || actions.map((a) => confirmation(a, req.visor)).join(' '), actions };
 		if (!reply) return { reply: '', fallback: 'E02' };
 		return { reply };
 	} catch (err) {
