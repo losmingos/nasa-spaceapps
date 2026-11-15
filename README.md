@@ -14,11 +14,15 @@ Abre la portada en el navegador de las Quest por HTTPS y pulsa **Enter VR**. Mir
 
 Para probar desde el PC por USB, activa el modo desarrollador en el visor y acepta la depuración USB. Con Vite en el puerto 5173, ejecuta `adb reverse tcp:5173 tcp:5173` y abre `http://localhost:5173/` en el navegador de las Quest.
 
+Para compartir la vista, abre el menú con **A** y entra en **Visor settings → Compartir vista → Crear código**. En el PC, abre `/spectator` en el mismo servidor e introduce el código. Si las gafas usan `adb reverse` en el puerto 5173, la página en el PC es `http://localhost:5173/spectator`. Se transmite la vista de un ojo con los efectos del visor y el HUD, sin audio. Puedes detenerla desde el mismo menú o salir de VR.
+
+Se admite un espectador por código. Para redes que impiden la conexión directa, configura `VR_SHARE_ICE_SERVERS` con un array JSON de entradas ICE que incluya tu servidor TURN. Con `DEMO_TOKEN` configurado, el visor necesita el enlace de acceso habitual y al PC le basta con el código de sala.
+
 ## Despliegue en Cloudflare Workers
 
 En **Settings → Build**, usa la raíz del repositorio, `npm run build` como comando de compilación y `npx wrangler deploy` como comando de despliegue (no cambian).
 
-La compilación usa `@sveltejs/adapter-cloudflare`. Las páginas siguen pre-generadas como recursos estáticos y las rutas `/api/*` del asistente SARA se ejecutan en el Worker. La salida va a `.svelte-kit/cloudflare`, donde `wrangler.jsonc` apunta el worker y los recursos. `scripts/cf-postbuild.js` añade al worker el Durable Object `CueChannel`, que es el canal de cues del operador.
+La compilación usa `@sveltejs/adapter-cloudflare`. Las páginas siguen pre-generadas como recursos estáticos y las rutas `/api/*` se ejecutan en el Worker. La salida va a `.svelte-kit/cloudflare`, donde `wrangler.jsonc` apunta el worker y los recursos. `scripts/cf-postbuild.js` exporta los Durable Objects `CueChannel` para el operador y `ShareRoom` para conectar el visor con el PC.
 
 **Secretos del Worker:** se configuran en el panel de Workers (Settings → Variables and Secrets) o con `npx wrangler secret put <NOMBRE>`:
 

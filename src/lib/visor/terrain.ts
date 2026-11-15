@@ -11,6 +11,7 @@ import {
 } from './optics.js';
 import { buildRoverCabin } from './rover-cabin.js';
 import { createXrPointer, mountXrControls, xrMenuItemAt, xrStick, type XrMenuPage } from './xr-controls.js';
+import type { ShareMirror } from './share-mirror.js';
 import type { Exertion } from '../jarvis/types.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
@@ -39,6 +40,7 @@ interface XrControls {
 	onToggleFlashlight: () => void;
 	onMenuOpen: () => void;
 	getMenu: () => XrMenuPage;
+	getShareMirror: () => ShareMirror | undefined;
 	getMissionScreen: () => 'briefing' | 'complete' | undefined;
 }
 
@@ -1915,7 +1917,7 @@ export function mountTerrain(
 			const swir = displayMode === 'swir';
 			optics.renderXr(scene, xrCamera, controlPlane, uiTexture, menuOpen, sunDirectionWorld,
 				phobosWorld, moonPositions.phobos.angularRadius, deimosWorld, moonPositions.deimos.angularRadius,
-				twilight, daylight, swir ? 0 : dust, gustTime, swir, windSpeed, driving);
+				twilight, daylight, swir ? 0 : dust, gustTime, swir, windSpeed, driving, controls.getShareMirror());
 		});
 		const starting = renderer.xr.setSession(session);
 		// Three.js restores the desktop framebuffer before resizing the canvas.

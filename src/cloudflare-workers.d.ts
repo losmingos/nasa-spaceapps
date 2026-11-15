@@ -10,6 +10,7 @@ declare module 'cloudflare:workers' {
 	}
 	export const env: {
 		JARVIS_CUE?: DurableObjectNamespaceLike;
+		VR_SHARE?: DurableObjectNamespaceLike;
 		[key: string]: unknown;
 	};
 }
