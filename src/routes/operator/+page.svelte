@@ -449,7 +449,7 @@
 					{#each SCRIPTED_LINES as line (line.id)}
 						<li>
 							<span class="question">«{scriptedQuestion(line)}»</span>
-							<span class="answer">→ pulsa <strong>{line.id}</strong></span>
+							<span class="answer">→ press <strong>{line.id}</strong></span>
 						</li>
 					{/each}
 				</ol>

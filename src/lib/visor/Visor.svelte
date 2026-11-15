@@ -65,6 +65,11 @@
 	let coldAlerted = false;
 	let coldAlertTimer: ReturnType<typeof setTimeout> | undefined;
 	let previousDisplayMode: TerrainDisplayMode = 'visible';
+	// Terrain risk thresholds (dangerScore × 100). ON entries set the warning, OFF entries clear it (hysteresis).
+	const CAUTION_ON = 0.20;
+	const CAUTION_OFF = 0.17;
+	const DANGER_ON = 0.40;
+	const DANGER_OFF = 0.34;
 
 	let mission = $state.raw<Ares01View>();
 	let nightfall = $state.raw<NightfallView>();
@@ -197,12 +202,14 @@
 	$effect(() => terrain?.setDisplayMode(displayMode));
 	$effect(() => terrain?.setMissionView(nightfall?.terrain ?? (mission && missionTerrainView(mission))));
 	$effect(() => {
-		if (displayMode !== 'danger' || !terrain) {
+		if (!terrain) {
 			dangerRisk = 0;
 			dangerMessage = undefined;
 			return;
 		}
 		const scene = terrain;
+		// Risk warnings are for free exploration; mission HUDs speak for themselves.
+		const freeExploration = !ares01 && !ares02;
 		let level: 'warning' | 'danger' | undefined;
 		let lastTitle = '';
 		let lastDetail = '';
@@ -210,8 +217,12 @@
 			const position = scene.getPosition();
 			const score = scene.getDangerAt(position.x, position.z);
 			dangerRisk = score;
-			if (score >= (level === 'danger' ? 0.60 : 0.66)) level = 'danger';
-			else if (score >= (level === 'warning' ? 0.30 : 0.33)) level = 'warning';
+			if (!freeExploration) {
+				dangerMessage = undefined;
+				return;
+			}
+			if (score >= (level === 'danger' ? DANGER_OFF : DANGER_ON)) level = 'danger';
+			else if (score >= (level === 'warning' ? CAUTION_OFF : CAUTION_ON)) level = 'warning';
 			else level = undefined;
 			const next: VisorMessage | undefined = level === 'danger'
 				? { title: 'Terrain danger', detail: `High risk ${Math.round(score * 100)}% — reroute or proceed with extreme caution.`, kind: 'danger' }
@@ -394,8 +405,8 @@
 			};
 		}
 		if (vrPage === 'mission') {
-			if (ares02) return { title: 'ARES-02 · Nightfall Protocol', items: [...getMissionControls(), back] };
-			return { title: 'ARES-01 · The Last Sample', items: [...getMissionControls(), back] };
+			if (ares02) return { title: 'ARES-02', items: [...getMissionControls(), back] };
+			return { title: 'ARES-01', items: [...getMissionControls(), back] };
 		}
 
 		if (!mission && !nightfall && !ares02 && (vrPage === 'sol' || vrPage === 'time')) {
@@ -682,7 +693,6 @@
 					// Terrain and DTM-derived slope remain available without the geology data.
 				}
 				if (request.signal.aborted) return;
-				if (request.signal.aborted) return;
 				terrain = mountTerrain(canvas, map, data, asset('terrain/jezero-ortho.webp'), geology, showNotice,
 					() => current.text,
 					() => nightfall ? `ARES-02 · ${missionClock} · ${nightfall.localTime}${nightfall.paused ? " · PAUSED" : ""}` : mission ? `ARES-01 · ${missionClock}${mission.paused ? ' · PAUSED' : ''}` : `SOL ${sol} · ${clock} LMST`,
@@ -856,9 +866,9 @@
 			<div id="mission-menu" class="mission-options mission-menu" data-open={missionsOpen}
 				inert={!missionsOpen} aria-hidden={!missionsOpen}>
 				<a class="hud-action" href={resolve('/missions/ares01') + sceneQuery}
-					onclick={() => { missionsOpen = false; }}>ARES-01 · The Last Sample</a>
+					onclick={() => { missionsOpen = false; }}>ARES-01</a>
 				<a class="hud-action" href={resolve('/missions/ares02') + sceneQuery}
-					onclick={() => { missionsOpen = false; }}>ARES-02 · Nightfall Protocol</a>
+					onclick={() => { missionsOpen = false; }}>ARES-02</a>
 			</div>
 		</div>
 	{/if}
@@ -892,9 +902,9 @@
 					<div class="control-section">
 						<h2>Map</h2>
 						<div class="layer-buttons" role="group" aria-label="Minimap zoom">
-							<button type="button" aria-keyshortcuts="Plus" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
+							<button type="button" aria-keyshortcuts="+" disabled={!terrain || mapZoom >= MAP_MAX_ZOOM}
 							onclick={() => changeMapZoom(BUTTON_ZOOM_STEP)}>Map +</button>
-							<button type="button" aria-keyshortcuts="Minus" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
+							<button type="button" aria-keyshortcuts="-" disabled={!terrain || mapZoom <= MAP_MIN_ZOOM}
 							onclick={() => changeMapZoom(-BUTTON_ZOOM_STEP)}>Map −</button>
 						</div>
 					</div>
@@ -909,7 +919,7 @@
 						</div>
 						<p class="layer-caption">
 							{#if displayMode === 'danger'}Risk: soil consistency (SIM 3464 × HiRISE) · slope · relief · ground temp · dust
-								<span class="danger-readout" aria-live="polite">Current position: {Math.round(dangerRisk * 100)}% · {dangerRisk >= 0.66 ? 'High' : dangerRisk >= 0.33 ? 'Moderate' : 'Low'}</span>
+								<span class="danger-readout" aria-live="polite">Current position: {Math.round(dangerRisk * 100)}% · {dangerRisk >= DANGER_ON ? 'High' : dangerRisk >= CAUTION_ON ? 'Moderate' : 'Low'}</span>
 							{:else if displayMode === 'swir'}SIMULATED · 1.65 µm · dust-transparent
 							{:else}HiRISE orthophoto + relief{/if}
 			{#if displayMode !== 'swir'}<br /><span class="eolian-legend"><i aria-hidden="true"></i>Aeb sand · magenta hatch on map · slow movement</span>{/if}

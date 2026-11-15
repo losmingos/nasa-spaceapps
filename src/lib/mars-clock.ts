@@ -37,9 +37,6 @@ export function unixMsAtLocalSol(localSol: number): number {
 	return (dtJ2000 - TT_UTC_S / 86400 + 2451545 - 2440587.5) * MS_PER_DAY;
 }
 
-export const missionSolFromLocalSol = (localSol: number) => localSol - MISSION_SOL_OFFSET;
-export const localSolFromMissionSol = (missionSol: number) => missionSol + MISSION_SOL_OFFSET;
-
 const PERTURBATIONS = [
 	[0.0071, 2.2353, 49.409], [0.0057, 2.7543, 168.173], [0.0039, 1.1177, 191.837],
 	[0.0037, 15.7866, 21.736], [0.0021, 2.1354, 15.704], [0.002, 2.4694, 95.528],

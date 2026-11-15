@@ -371,31 +371,23 @@ export function dangerScore(staticScore: number, rockRisk: number, tempRisk: num
 	);
 }
 
+/** Risk where the terrain ramp turns amber, and where it saturates to red (static grid tops out near 0.60). */
+const RAMP_CAUTION = 0.33;
+const RAMP_DANGER = 0.575;
+
 export function dangerColor(score: number): [number, number, number] {
 	const green = [46, 150, 101];
 	const amber = [222, 163, 62];
 	const red = [207, 77, 67];
-	let t: number;
-	let a: number[];
-	let b: number[];
-	if (score <= 0.5) {
-		t = score / 0.5;
-		a = green;
-		b = amber;
-	} else {
-		t = (score - 0.5) / 0.5;
-		a = amber;
-		b = red;
-	}
+	const upper = score > RAMP_CAUTION;
+	const t = upper
+		? Math.min(1, (score - RAMP_CAUTION) / (RAMP_DANGER - RAMP_CAUTION))
+		: score / RAMP_CAUTION;
+	const a = upper ? amber : green;
+	const b = upper ? red : amber;
 	return [
 		a[0] + (b[0] - a[0]) * t,
 		a[1] + (b[1] - a[1]) * t,
 		a[2] + (b[2] - a[2]) * t
 	];
 }
-
-export const DANGER_LEGEND = [
-	{ max: 0.33, color: '#2e9665', label: 'Low' },
-	{ max: 0.66, color: '#dea33e', label: 'Moderate' },
-	{ max: 1, color: '#cf4d43', label: 'High' }
-];

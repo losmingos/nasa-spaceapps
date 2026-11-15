@@ -28,8 +28,6 @@ interface Curve {
 const curves = data.curves as unknown as { latest: Curve; storm: Curve; season: Curve[] };
 const STEP_MIN = data.step_min;
 
-/** Latest MEDA sol published in the PDS when meda-curves.json was built. */
-export const MEDA_LATEST_SOL: number = curves.latest.sol;
 /** Dust optical depth before the storm (sol 311) and at its peak (Lemmon et al. 2022). */
 export const DUST_PRE_STORM = data.dust_opacity.pre_storm_sol_311;
 export const DUST_STORM_PEAK = data.dust_opacity.storm_peak_approx;
