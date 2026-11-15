@@ -1,7 +1,7 @@
 import {
 	BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight, DoubleSide, FogExp2, HemisphereLight, LinearFilter, MathUtils,
 	IcosahedronGeometry, InstancedMesh, LineSegments, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial, NormalBlending, Object3D, PCFShadowMap, RGBAFormat, ShaderMaterial, SpotLight,
-	PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, Scene, SRGBColorSpace, UnsignedByteType,
+	PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, Scene, SRGBColorSpace, UnsignedByteType, type Intersection,
 	Texture, TextureLoader, Vector3, WebGLRenderer
 } from 'three';
 import {
@@ -15,6 +15,7 @@ import type { Exertion } from '../jarvis/types.js';
 import { solarPosition } from './mars-time.js';
 import { martianMoons } from './mars-moons.js';
 import { createRockContact, footingOnRocks, type RockContact } from './rock-contact.js';
+import { createTerrainRaycast } from './terrain-raycast.js';
 import { HAZARD, HAZARD_RADIUS } from '../missions/ares01/route.js';
 import { MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '../jarvis/visor-control.js';
 import { weatherAt } from '../jarvis/weather.js';
@@ -26,6 +27,7 @@ import { createDangerRings } from './danger-visuals.js';
 
 const elevationColors = ['#92563a', '#b47a54', '#c29169'];
 const clearDustDensity = 0.00048;
+const SWIR_IDLE_FRAME_MS = 1000 / 12;
 
 export type TerrainDisplayMode = 'visible' | 'danger' | 'swir';
 
@@ -390,7 +392,9 @@ function buildTerrain(data: ArrayBuffer) {
 		return elevations[i + columns + 1] * (u + v - 1) + east * (1 - v) + south * (1 - u) - low;
 	}
 
-	return { geometry, width, length, spacing, columns, rows, elevations, surfaceHeight };
+	const trace = createTerrainRaycast(geometry.getAttribute('position') as BufferAttribute, elevations,
+		columns, rows, spacing, Math.fround(high - low));
+	return { geometry, width, length, spacing, columns, rows, elevations, surfaceHeight, trace };
 }
 
 export type TerrainNotice = 'ready' | 'edge';
@@ -490,7 +494,7 @@ export function mountTerrain(
 	const lightTerrain = buildTerrain(data);
 	const { width, length } = lightTerrain;
 	let { spacing, columns, rows, elevations } = lightTerrain;
-	let { surfaceHeight } = lightTerrain;
+	let { surfaceHeight, trace: traceTerrain } = lightTerrain;
 	let highTerrain: ReturnType<typeof buildTerrain> | undefined;
 	let explored = false;
 	let renderer: WebGLRenderer;
@@ -506,24 +510,35 @@ export function mountTerrain(
 
 	const swirRaycaster = new Raycaster();
 	const swirDirection = new Vector3();
+	const swirTargets: Object3D[] = [];
+	const swirHits: Intersection[] = [];
+	const swirMissionTargets = new Set<Object3D>();
+
 	function readSwir(origin: Vector3, direction: Vector3): SwirHudData {
 		const data = getSwir();
 		if (displayMode !== 'swir') return { ...data, active: false };
 		swirRaycaster.set(origin, direction);
-		const target = swirRaycaster.intersectObjects(scene.children, true)
-			.find(({ object }) => {
-				if (typeof object.userData.swirAlbedo !== 'number') return false;
-				for (let ancestor: Object3D | null = object; ancestor; ancestor = ancestor.parent) {
-					if (!ancestor.visible) return false;
-				}
-				return true;
-			});
-		return target ? {
+		const terrainDistance = traceTerrain(swirRaycaster.ray);
+		swirRaycaster.far = terrainDistance ?? Infinity;
+		swirTargets.length = 0;
+		swirHits.length = 0;
+		for (const tile of rockTiles.values()) {
+			for (const rocks of tile.meshes) swirTargets.push(rocks);
+		}
+		for (const object of swirMissionTargets) {
+			let ancestor: Object3D | null = object;
+			while (ancestor?.visible) ancestor = ancestor.parent;
+			if (!ancestor) swirTargets.push(object);
+		}
+		const [target] = swirRaycaster.intersectObjects(swirTargets, false, swirHits);
+		const hit = terrainDistance !== undefined && (!target || terrainDistance <= target.distance)
+			? { object: mesh, distance: terrainDistance } : target;
+		return {
 			...data,
-			distanceM: target.distance,
-			albedo: target.object.userData.swirAlbedo as number,
-			surface: String(target.object.userData.swirSurface ?? 'SURFACE')
-		} : { ...data, distanceM: null, albedo: null, surface: undefined };
+			distanceM: hit?.distance ?? null,
+			albedo: hit?.object.userData.swirAlbedo ?? null,
+			surface: hit?.object.userData.swirSurface
+		};
 	}
 	const optics = buildVisorOptics(renderer, map, getNotice, getClock, getMessage,
 		() => readSwir(camera.position, camera.getWorldDirection(swirDirection)), getReadings);
@@ -608,18 +623,27 @@ export function mountTerrain(
 				diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.81, 0.30, 0.26), dynamicRisk);
 			}
 			float footprint = max(length(dFdx(p)), length(dFdy(p)));
-			float gravelBed = smoothstep(0.29, 0.72, dustNoise(p * 0.38) * 0.68 + dustNoise(p * 1.4) * 0.32);
-			vec2 scattered = p + 0.7 * vec2(dustNoise(p * 0.8), dustNoise(p * 0.8 + vec2(29.7, 12.8)));
-			float coarse = gravelHeight(scattered, 2.6, mix(0.10, 0.78, gravelBed))
-				* (1.0 - smoothstep(0.025, 0.15, footprint));
-			float fine = gravelHeight(vec2(scattered.x + scattered.y, scattered.y - scattered.x) * 0.7071,
-				11.0, mix(0.03, 0.85, gravelBed))
-				* (1.0 - smoothstep(0.006, 0.04, footprint));
 			float closeDetail = 1.0 - smoothstep(12.0, 55.0, length(vViewPosition));
-			float gravel = (coarse * mix(0.45, 1.0, gravelBed) + fine * 0.42) * closeDetail;
 			float windDust = dustNoise(p * vec2(0.18, 0.72)) - 0.5;
-			float grain = (dustNoise(p * 21.0) - 0.5) * mix(0.15, 1.0, gravelBed)
-				* (1.0 - smoothstep(0.009, 0.045, footprint));
+			float grain = 0.0;
+			float gravel = 0.0;
+			// Skip procedural detail outside the existing distance and pixel-size falloffs.
+			if (closeDetail > 0.0 && footprint < 0.15) {
+				float gravelBed = smoothstep(0.29, 0.72, dustNoise(p * 0.38) * 0.68 + dustNoise(p * 1.4) * 0.32);
+				vec2 scattered = p + 0.7 * vec2(dustNoise(p * 0.8), dustNoise(p * 0.8 + vec2(29.7, 12.8)));
+				float coarse = gravelHeight(scattered, 2.6, mix(0.10, 0.78, gravelBed))
+					* (1.0 - smoothstep(0.025, 0.15, footprint));
+				float fine = 0.0;
+				if (footprint < 0.04) {
+					fine = gravelHeight(vec2(scattered.x + scattered.y, scattered.y - scattered.x) * 0.7071,
+						11.0, mix(0.03, 0.85, gravelBed)) * (1.0 - smoothstep(0.006, 0.04, footprint));
+				}
+				if (footprint < 0.045) {
+					grain = (dustNoise(p * 21.0) - 0.5) * mix(0.15, 1.0, gravelBed)
+						* (1.0 - smoothstep(0.009, 0.045, footprint));
+				}
+				gravel = (coarse * mix(0.45, 1.0, gravelBed) + fine * 0.42) * closeDetail;
+			}
 			diffuseColor.rgb *= 1.0 + windDust * 0.16 + grain * 0.13 * closeDetail - gravel * 0.26;
 			float microHeight = gravel * 0.018 + grain * 0.0015 * closeDetail;`
 		).replace(
@@ -942,6 +966,7 @@ export function mountTerrain(
 	const missionScene = createMissionScene?.((x, z) => surfaceHeight(x, z), () => draw(), (root, albedo, surface) => {
 		root.traverse((object) => {
 			if (!(object instanceof Mesh)) return;
+			swirMissionTargets.add(object);
 			object.userData.swirAlbedo = albedo;
 			object.userData.swirSurface = surface;
 			for (const material of [object.material].flat()) {
@@ -1169,6 +1194,8 @@ export function mountTerrain(
 	let moonPositions = martianMoons(sceneSol);
 	let stormFrame = 0;
 	let swirFrame = 0;
+	let lastSwirDrawAt = -Infinity;
+	let lookFrame = 0;
 	let lastMapAt = 0;
 	let lastShadowAt = 0;
 	let stormStarted = 0;
@@ -1208,8 +1235,12 @@ export function mountTerrain(
 	}
 	const draw = () => {
 		if (xrSession) return;
+		cancelAnimationFrame(lookFrame);
+		lookFrame = 0;
 		const swir = displayMode === 'swir';
-		updateWorld(performance.now() / 1000);
+		const now = performance.now();
+		if (swir) lastSwirDrawAt = now;
+		updateWorld(now / 1000);
 		worldToEye.copy(camera.quaternion).invert();
 		lightInView.copy(sunDirectionWorld).applyQuaternion(worldToEye);
 		phobosWorld.set(moonPositions.phobos.east, moonPositions.phobos.up, -moonPositions.phobos.north);
@@ -1278,11 +1309,13 @@ export function mountTerrain(
 		cancelAnimationFrame(swirFrame);
 		swirFrame = 0;
 		if (mode === 'swir' && !reducedMotion.matches) {
-			const animateSwir = () => {
+			const animateSwir = (now: number) => {
 				if (displayMode !== 'swir') { swirFrame = 0; return; }
 				swirFrame = requestAnimationFrame(animateSwir);
-				if (document.hidden) return;
-				if (!frame && !stormFrame) draw();
+				// The grain can tick more slowly while still. Movement and aiming
+				// continue to draw on the next display frame.
+				if (!xrSession && !document.hidden && !reducedMotion.matches && !frame && !lookFrame
+					&& now - lastSwirDrawAt >= SWIR_IDLE_FRAME_MS) draw();
 			};
 			swirFrame = requestAnimationFrame(animateSwir);
 		}
@@ -1800,7 +1833,12 @@ export function mountTerrain(
 	function look(dx: number, dy: number) {
 		camera.rotation.y -= dx * 0.0024;
 		camera.rotation.x = MathUtils.clamp(camera.rotation.x - dy * 0.0024, -1.48, 1.48);
-		if (!frame) draw();
+		if (!frame && !lookFrame) {
+			lookFrame = requestAnimationFrame(() => {
+				lookFrame = 0;
+				if (!frame) draw();
+			});
+		}
 	}
 
 	async function captureLook() {
@@ -1935,6 +1973,7 @@ export function mountTerrain(
 		rows = active.rows;
 		elevations = active.elevations;
 		surfaceHeight = active.surfaceHeight;
+		traceTerrain = active.trace;
 		mesh.geometry = active.geometry;
 		swirLayer?.dispose();
 		swirLayer = materialLayer && buildSwirTexture(image.image as CanvasImageSource, materialLayer.swirCanvas, columns, rows, elevations, spacing);
@@ -2006,6 +2045,7 @@ export function mountTerrain(
 			void xrSession?.end().catch(() => {});
 			cancelAnimationFrame(stormFrame);
 			cancelAnimationFrame(swirFrame);
+			cancelAnimationFrame(lookFrame);
 			if (document.pointerLockElement === canvas) document.exitPointerLock();
 			cancelAnimationFrame(frame);
 			observer.disconnect();
