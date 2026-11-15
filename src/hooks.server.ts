@@ -34,6 +34,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	if (!url.pathname.startsWith('/api/')) return resolve(event);
+	// The room code and participant keys authorize spectators. Creating a room still requires the demo token.
+	if (/^\/api\/vr-share\/[2-9A-HJ-NP-Z]{8}$/.test(url.pathname)) return resolve(event);
 
 	const authorized =
 		tokenMatches(event.request.headers.get('x-demo-token'), token) ||

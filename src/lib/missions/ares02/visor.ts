@@ -1,22 +1,22 @@
 import { distanceBetween } from '../ares01/route.js';
 import type { MissionView } from '../../visor/terrain.js';
 import type { VisorMessage } from '../../visor/optics.js';
-import { phases, reserve, roverSpeedLimitKmh, routes, routeForecast, type Phase } from './ares02.js';
+import { directRouteBudget, phases, plannedRouteBudget, reserve, roverSpeedLimitKmh, routeForecast, type Phase } from './ares02.js';
 import { actions, driveBudget, goal, moving, onServiceEva, servicePoints, type Action, type Run, type Stage } from './interactive.js';
-import { alternative, approach, bravo, direct, handoff, startPoint } from './route.js';
+import { bravo, handoff, plannedRoute, startPoint } from './route.js';
 
 export const labels: Record<Action, string> = {
 	lights: 'Switch on headlights', depart: 'Start driving', assess: 'Check battery endurance',
 	diagnose: 'Verify isolation', 'suit-check': 'Check suit and secure rover', 'service-exit': 'Cycle airlock and exit',
 	'open-panel': 'Open service panel', 'reseat-link': 'Reseat battery A module', 'close-panel': 'Latch service panel',
 	reboard: 'Board and repressurize', 'test-bus': 'Test battery A bus', compare: 'Compare routes',
-	configure: 'Authorize degraded drive', drive: 'Load route and drive',
+	configure: 'Authorize degraded drive', drive: 'Load direct route and drive',
 	park: 'Park at Bravo',
 	collect: 'Retrieve the module', exit: 'Exit through the airlock', deliver: 'Deliver the module'
 };
 
-const outboundRoute = [...approach, { x: 801, z: -3508 }];
 const deliveryRoute = [bravo, handoff];
+const driveMap = { center: { x: 791, z: -3456 }, scale: 1.65, objective: bravo };
 
 const phasesByStage: Record<Stage, Phase['id']> = {
 	preflight: 'NIGHT_TRANSIT', outbound: 'NIGHT_TRANSIT', fault: 'POWER_FAULT', assessment: 'ENERGY_ASSESSMENT',
@@ -29,11 +29,12 @@ const phasesByStage: Record<Stage, Phase['id']> = {
 	delivered: 'MISSION_CLOSED'
 };
 
-const [directBudget, detourBudget] = routes.map(routeForecast);
+const plannedBudget = routeForecast(plannedRouteBudget);
+const directBudget = routeForecast(directRouteBudget);
 
 const instructions: Partial<Record<Stage, [string, string]>> = {
-	preflight: ['Prepare the rover', 'The module is aboard. Switch on the headlights to begin the authorized night traverse.'],
-	outbound: ['Drive to Bravo', 'Follow the marked route to Bravo. All systems are nominal.'],
+	preflight: ['Prepare the rover', 'The planned route to Bravo follows the curve on your map. The module is aboard. Switch on the headlights to begin.'],
+	outbound: ['Drive to Bravo', 'Follow the planned curve to Bravo. All systems are nominal.'],
 	fault: ['Battery B fault · drive disabled', 'Converter B failed and was isolated automatically. Life support is operational. Check battery A endurance.'],
 	assessment: ['Normal endurance · 6 h 20 min', 'Waiting until morning at normal load would require 13.38 kilowatt-hours. Shelter mode reduces power draw. Verify battery isolation before the exterior repair.'],
 	'eva-prep': ['Exterior service required', 'Battery B is isolated. The diagnostic found a battery A module loose in its service tray. Check your suit and secure the rover before exiting.'],
@@ -46,9 +47,9 @@ const instructions: Partial<Record<Stage, [string, string]>> = {
 	airlock: ['Airlock reached', 'Board and confirm cabin pressure before testing the battery bus.'],
 	'bus-check': ['Cabin pressurized · bus test pending', 'Run the battery A bus test from the console. Battery B remains isolated.'],
 	'bus-verified': ['Battery A bus verified', 'Battery A passed the bus test. Compare routes before authorizing degraded drive.'],
-	options: [`Direct ${Math.round(routes[0].km * 1000)} m · detour ${Math.round(routes[1].km * 1000)} m`, `The direct route would leave ${decimal(directBudget.arrival)} kilowatt-hours, below the ${decimal(reserve)} kilowatt-hour emergency reserve. The detour leaves ${decimal(detourBudget.arrival)}. You can authorize degraded drive.`],
-	configured: ['Degraded drive authorized', 'Battery B remains isolated. Load the detour and start driving when ready.'],
-	drive: ['Follow the lower-energy route', 'Drive power is limited to battery A. Follow the waypoints and watch the reserve.'],
+	options: ['Reroute recommended · direct to Bravo', `The planned curve would leave ${decimal(plannedBudget.arrival)} kilowatt-hours, below the ${decimal(reserve)} kilowatt-hour emergency reserve. Take the direct route instead. It leaves ${decimal(directBudget.arrival)} kilowatt-hours.`],
+	configured: ['Degraded drive authorized', 'Battery B remains isolated. Load the direct route and start driving when ready.'],
+	drive: ['Direct route loaded', 'Drive straight to Bravo on battery A and watch the projected reserve.'],
 	park: ['Bravo unloading area', 'You have reached the parking area. Secure the rover.'],
 	cargo: ['Spare module aboard', 'Retrieve the module from the cargo compartment.'],
 	egress: ['Module secured · airlock ready', 'Exit through the airlock and carry the module to the station entrance.'],
@@ -72,18 +73,18 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 	const target = goal(run);
 	const metres = run && target ? Math.round(distanceBetween(run.position, target)) : undefined;
 	const bearing = run && target ? (Math.round(Math.atan2(target.x - run.position.x, run.position.z - target.z) * 180 / Math.PI) + 360) % 360 : undefined;
-	const destination = run.stage === 'service-walk' ? 'Service panel' : run.stage === 'return-airlock' ? 'Airlock' : run?.stage === 'walk' ? 'Bravo entrance' : departure ? 'Route' : ['Detour', 'Bravo'][run?.leg ?? 0];
+	const destination = run.stage === 'service-walk' ? 'Service panel' : run.stage === 'return-airlock' ? 'Airlock' : run.stage === 'walk' ? 'Bravo entrance' : 'Bravo';
 	const arrows = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
 	const turn = bearing === undefined ? 0 : (bearing - heading + 360) % 360;
 	const arrow = arrows[Math.round(turn / 45) % 8];
 	const course = `Heading ${Math.round(heading) % 360}° → ${bearing}°`;
 	const nav = run.stage === 'outbound' ? `${arrow} Follow the curve · ${course}`
 		: target && metres !== undefined ? `${arrow} ${destination} · ${metres} m · ${course}` : undefined;
-	const localTime = run?.stage === 'drive' && run.leg > 0 ? 'En route' : script.time;
+	const localTime = script.time;
 	const message: VisorMessage = {
 		title,
 		detail: nav ?? (run?.stage === 'assessment' ? 'Shelter ≈ 8.0 kWh until 06:00'
-			: run?.stage === 'options' ? `Direct ${decimal(directBudget.total)} kWh · detour ${decimal(detourBudget.total)} kWh · reserve ${decimal(reserve)} kWh`
+			: run?.stage === 'options' ? `Planned curve ${decimal(plannedBudget.total)} kWh · direct ${decimal(directBudget.total)} kWh · reserve ${decimal(reserve)} kWh`
 			: script.id === 'MISSION_CLOSED' ? 'Delivery confirmed · B remains isolated' : undefined),
 		kind: script.id === 'POWER_FAULT' ? 'danger' : undefined,
 		readouts: [
@@ -92,11 +93,11 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 		]
 	};
 	const terrain: MissionView = {
-		point: startPoint, ahead: approach[1],
+		point: startPoint, ahead: plannedRoute[1],
 		mapObjectiveLabel: service ? 'PANEL' : 'BRAVO',
 		baseRoute: false, showPosition: true, tilt: 0,
 		samplesCollected: false, drilling: false, drillPaused: false,
-		groundRoute: run.stage === 'outbound' ? outboundRoute : run.stage === 'drive' ? alternative : undefined,
+		groundRoute: run.stage === 'outbound' ? plannedRoute : run.stage === 'drive' ? run.directRoute : undefined,
 		parkedRover: servicing || (onFoot ? run.parkedAt : undefined),
 		roverService: service ? {
 			open: run.stage === 'panel-open' || run.stage === 'link-seated',
@@ -107,12 +108,10 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 		cabinTransition: service && run.stage === 'service-walk' ? service.airlock : run.stage === 'bus-check' ? run.serviceStop : undefined,
 		headlamps: run.lights && !onFoot ? (faulted && !moving(run) ? 0.62 : 1) : 0,
 		inCabin: !onFoot,
-		route: service ? [service.airlock, service.panel] : onFoot ? deliveryRoute : comparing ? alternative : departure ? outboundRoute : direct,
-		secondaryRoute: comparing && !onFoot ? direct : undefined,
+		route: service ? [service.airlock, service.panel] : onFoot ? deliveryRoute : run.degraded && run.directRoute ? run.directRoute : plannedRoute,
 		map: service && servicing ? { center: servicing, scale: 0.18, objective: service.panel, vehicle: servicing }
 			: onFoot ? { center: bravo, scale: 1.6, objective: handoff, vehicle: bravo }
-			: departure ? { center: { x: 774, z: -3483 }, scale: 0.8, objective: bravo, vehicle: run.position }
-			: { center: { x: 780, z: -3446 }, scale: 1.4, objective: bravo, vehicle: run.position },
+			: { ...driveMap, vehicle: run.position },
 		player: {
 			run: runId, enabled: moving(run) && !paused, driving: !onFoot, target: departure ? undefined : target,
 			forwardSpeed: (departure ? roverSpeedLimitKmh : 8) / 3.6,
@@ -122,7 +121,7 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 	};
 	return {
 		time: run.seconds, localTime, paused, message, terrain, title, text,
-		key: `${run.stage}:${run.lights}:${run.leg}`,
+		key: `${run.stage}:${run.lights}`,
 		speaker: 'jarvis' as const,
 		state: script.id,
 		context: JSON.stringify({
@@ -130,7 +129,8 @@ export function nightfallView(run: Run, paused: boolean, runId = 0, fast = false
 			actions: run && actions(run).map(action => labels[action]), batteryBIsolated: faulted,
 			batteryA_kWh: faulted ? budget.available : null, minimumReserve_kWh: reserve,
 			predictedArrival_kWh: comparing ? budget.arrival : null,
-			routes: comparing ? routes.map(route => ({ ...route, ...routeForecast(route) })) : undefined,
+			activeRoute: run.degraded ? directRouteBudget.name : plannedRouteBudget.name,
+			routes: comparing ? [{ ...plannedRouteBudget, ...plannedBudget }, { ...directRouteBudget, ...directBudget }] : undefined,
 			waypoint: target && !departure ? { name: destination, distanceMetres: metres, bearingDegrees: bearing } : null,
 			cargoSecured: run?.cargoSecured
 		})
